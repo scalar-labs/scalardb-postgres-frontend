@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+
+# IDEs and editors
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+
+# Benchmark runs: keep the summaries, not the raw pgbench logs
+bench/results/**
+!bench/results/**/
+!bench/results/**/*.md
+!bench/results/**/*.tsv
+!bench/results/**/*.txt

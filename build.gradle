@@ -1,0 +1,123 @@
+plugins {
+    id 'java'
+    id 'com.diffplug.spotless' version '6.13.0'
+    id 'net.ltgt.errorprone' version '4.4.0'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'com.github.spotbugs' version '5.2.5'
+}
+
+group = 'com.scalar-labs'
+version = project.findProperty('projectVersion') ?: '4.0.0-SNAPSHOT'
+
+base {
+    archivesName = "scalardb-postgres-frontend"
+}
+
+// Java 17, ScalarDB Cluster's baseline; JSQLParser 5 needs Java 11 or newer
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+ext {
+    // ScalarDB core: a snapshot is not published, so install it into the local Maven repository
+    // first, from a scalardb checkout: ./gradlew :core:publishToMavenLocal
+    scalarDbVersion = project.findProperty('scalarDbVersion') ?: '4.0.0-SNAPSHOT'
+    jsqlparserVersion = '5.4'
+    jacksonVersion = '2.22.3'
+    slf4jVersion = '1.7.36'
+    postgresqlDriverVersion = '42.7.13'
+    junitVersion = '5.14.4'
+    assertjVersion = '3.27.7'
+    mockitoVersion = '4.11.0'
+    spotbugsVersion = '4.8.6'
+    errorproneVersion = '2.10.0'
+    errorproneJavacVersion = '9+181-r4173-1'
+    googleJavaFormatVersion = '1.17.0'
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+configurations.all {
+    resolutionStrategy {
+        // the same pin as ScalarDB's build
+        force "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    }
+}
+
+dependencies {
+    implementation "com.scalar-labs:scalardb:${scalarDbVersion}"
+    implementation "com.github.jsqlparser:jsqlparser:${jsqlparserVersion}"
+    // json and jsonb values in memory (core already brings it, so the fat jar does not grow)
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+    runtimeOnly "org.slf4j:slf4j-simple:${slf4jVersion}"
+    // the PostgreSQL JDBC driver is used as a client in the wire-protocol tests
+    testImplementation "org.postgresql:postgresql:${postgresqlDriverVersion}"
+    testImplementation platform("org.junit:junit-bom:${junitVersion}")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation "org.assertj:assertj-core:${assertjVersion}"
+    testImplementation "org.mockito:mockito-core:${mockitoVersion}"
+    testImplementation "org.mockito:mockito-inline:${mockitoVersion}"
+
+    // for SpotBugs
+    compileOnly "com.github.spotbugs:spotbugs-annotations:${spotbugsVersion}"
+    testCompileOnly "com.github.spotbugs:spotbugs-annotations:${spotbugsVersion}"
+
+    // for Error Prone
+    errorprone "com.google.errorprone:error_prone_core:${errorproneVersion}"
+    errorproneJavac "com.google.errorprone:javac:${errorproneJavacVersion}"
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging.showStandardStreams = true
+}
+
+javadoc {
+    title = "ScalarDB PostgreSQL Frontend"
+}
+
+// Build a fat jar that runs the wire-protocol server
+shadowJar {
+    archiveClassifier.set("")
+    manifest {
+        attributes 'Main-Class': 'com.scalar.db.frontend.postgres.PostgresServer'
+    }
+    mergeServiceFiles()
+    zip64 = true
+}
+
+spotless {
+    java {
+        target 'src/*/java/**/*.java'
+        importOrder()
+        removeUnusedImports()
+        // Spotless v6 doesn't have forbidWildcardImports (added in v8). As a workaround, use custom step
+        // with the regex from: https://github.com/diffplug/spotless/blob/67f7df71cb29833c2f94789dc31e9ecff18a71c5/lib/src/main/java/com/diffplug/spotless/java/ForbidWildcardImportsStep.java#L31
+        custom 'forbidWildcardImports', { source ->
+            if (source =~ /(?m)^import\s+(?:static\s+)?[^;\n]*\*;\R?/) {
+                throw new AssertionError('Wildcard imports are not allowed')
+            }
+            source
+        }
+        googleJavaFormat(googleJavaFormatVersion)
+    }
+}
+
+spotbugsMain.reports {
+    html.enabled = true
+}
+spotbugsMain.excludeFilter = file("${project.rootDir}/gradle/spotbugs-exclude.xml")
+
+spotbugsTest.reports {
+    html.enabled = true
+}
+spotbugsTest.excludeFilter = file("${project.rootDir}/gradle/spotbugs-exclude.xml")
