@@ -12,7 +12,7 @@ The question is how it should be deployed in a real system. Two shapes were on t
 
 ### What the frontend needs from ScalarDB
 
-Only the public API. The imports under `src/main/java` are `DistributedTransactionManager` (`begin`, `beginReadOnly`, one-shot CRUD, `getScanner`), `DistributedTransactionAdmin` (table metadata for planning and for the `pg_catalog` emulation, DDL), `TransactionFactory`, and the `api`, `io`, and `exception` types. Nothing from Consensus Commit internals or from a storage adapter.
+Only the public API. The imports under `engine/src/main/java` are `DistributedTransactionManager` (`begin`, `beginReadOnly`, one-shot CRUD, `getScanner`), `DistributedTransactionAdmin` (table metadata for planning and for the `pg_catalog` emulation, DDL), `TransactionFactory`, and the `api`, `io`, and `exception` types. Nothing from Consensus Commit internals or from a storage adapter.
 
 ### What the cluster already provides
 

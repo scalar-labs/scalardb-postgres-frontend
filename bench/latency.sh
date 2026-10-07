@@ -6,7 +6,7 @@ S=${SCRATCH:?set SCRATCH to a directory holding pgbench/data, pgbench/data.sql a
 # Needs Java 17 (JAVA_HOME, or java on PATH) and the PostgreSQL tools (pg_ctl, pgbench) on PATH
 export PATH=${JAVA_HOME:+$JAVA_HOME/bin:}$PATH
 HERE=$(cd "$(dirname "$0")" && pwd)
-JAR=$(ls "$HERE"/../build/libs/scalardb-postgres-frontend-*.jar | head -1)
+JAR=$(ls "$HERE"/../server/build/libs/scalardb-postgres-frontend-*.jar | head -1)
 cd "$HERE"
 pg_ctl -D $S/pgbench/data -o "-p 15434 -c listen_addresses=127.0.0.1" -l $S/pgbench/pg.log start >/dev/null 2>&1
 (java DelayProxy.java 15437 127.0.0.1 15434 $D >| $S/pgbench/proxy-pg.log 2>&1 &)

@@ -7,7 +7,6 @@ import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
 import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
-import com.scalar.db.service.TransactionFactory;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -30,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -63,33 +63,26 @@ public class PostgresServer implements AutoCloseable {
   /** Session defaults every connection starts with, such as the transaction isolation level. */
   final Map<String, String> defaults = new HashMap<>();
 
-  /** Longest metadata cache expiry worth waiting out after DDL, see {@link #main}. */
+  /** Longest metadata cache expiry worth waiting out after DDL, see {@link #configure}. */
   static final long MAX_SETTLE_SECS = 5;
 
-  /** Milliseconds a session waits after DDL on an existing table, see {@link #main}. */
+  /** Milliseconds a session waits after DDL on an existing table, see {@link #configure}. */
   long ddlSettleMillis;
 
-  /** Usage: {@code PostgresServer <scalardb.properties> [port]}; the port defaults to 5432. */
-  public static void main(String[] args) throws Exception {
-    if (args.length < 1) {
-      System.err.println("Usage: PostgresServer <scalardb.properties> [port]");
-      System.exit(1);
-    }
-    java.util.Properties properties = new java.util.Properties();
-    try (java.io.FileInputStream in = new java.io.FileInputStream(args[0])) {
-      properties.load(in);
-    }
-    // The engine caches table metadata (60 s by default) and its admin does not refresh the cache,
-    // so DDL on an existing table would not be seen for that long: keep the window short and have
-    // sessions wait it out after such DDL (QueryProcessor.setDdlSettleMillis)
-    properties.putIfAbsent(DatabaseConfig.METADATA_CACHE_EXPIRATION_TIME_SECS, "1");
+  /**
+   * Applies the settings that depend on the ScalarDB configuration the manager was created from:
+   * how long a session waits after DDL on an existing table, so that the engine's table metadata
+   * cache has expired, and the isolation level {@code SHOW transaction_isolation} reports. Call it
+   * before {@link #start} or {@link #serve}.
+   *
+   * @param properties the ScalarDB properties of the transaction manager
+   */
+  public void configure(Properties properties) {
+    // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
+    // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
-    TransactionFactory factory = TransactionFactory.create(properties);
-    int port = args.length > 1 ? Integer.parseInt(args[1]) : 5432;
-    PostgresServer server =
-        new PostgresServer(factory.getTransactionManager(), factory.getTransactionAdmin(), port);
     if (cacheSecs >= 0 && cacheSecs <= MAX_SETTLE_SECS) {
-      server.ddlSettleMillis = cacheSecs * 1000 + 50;
+      ddlSettleMillis = cacheSecs * 1000 + 50;
     } else {
       logger.warn(
           "Table metadata is cached for {} s: DDL on an existing table takes effect for the engine"
@@ -98,11 +91,9 @@ public class PostgresServer implements AutoCloseable {
     }
     // SHOW TRANSACTION ISOLATION LEVEL: Consensus Commit's SNAPSHOT reads like REPEATABLE READ
     String isolation = properties.getProperty("scalar.db.consensus_commit.isolation_level", "");
-    server.defaults.put(
+    defaults.put(
         "transaction_isolation",
         isolation.equalsIgnoreCase("SERIALIZABLE") ? "serializable" : "repeatable read");
-    logger.info("Listening on port {}", server.getPort());
-    server.acceptLoop();
   }
 
   public int getPort() {
@@ -111,7 +102,7 @@ public class PostgresServer implements AutoCloseable {
 
   /** Accepts connections on a daemon thread. */
   public void start() {
-    Thread thread = new Thread(this::acceptLoop, "postgres-frontend-acceptor");
+    Thread thread = new Thread(this::serve, "postgres-frontend-acceptor");
     thread.setDaemon(true);
     thread.start();
   }
@@ -121,7 +112,8 @@ public class PostgresServer implements AutoCloseable {
     serverSocket.close();
   }
 
-  private void acceptLoop() {
+  /** Accepts connections on the calling thread until {@link #close} is called. */
+  public void serve() {
     while (!serverSocket.isClosed()) {
       try {
         Socket socket = serverSocket.accept();

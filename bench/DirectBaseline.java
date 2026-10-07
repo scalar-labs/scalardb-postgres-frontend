@@ -12,7 +12,7 @@ import java.util.Random;
  * The third configuration: the same reads as point_get and range_scan issued through the ScalarDB
  * Java API directly, without SQL, to measure what the frontend adds on top of ScalarDB itself.
  *
- * <pre>java -cp ../build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java PROPERTIES get|scan [threads] [seconds] [ncust]</pre>
+ * <pre>java -cp ../server/build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java PROPERTIES get|scan [threads] [seconds] [ncust]</pre>
  */
 public class DirectBaseline {
   public static void main(String[] args) throws Exception {

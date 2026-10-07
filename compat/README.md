@@ -6,7 +6,7 @@ membership, update, delete, and a transaction. Every step prints `ok` or `FAIL` 
 run doubles as a gap list. First run on 2026-10-04.
 
 ```sh
-java -jar ../build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15444 &   # Java 17
+java -jar ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15444 &   # Java 17
 psql -h localhost -p 15444 -U postgres -d orm -c "CREATE SCHEMA IF NOT EXISTS orm"
 
 # Python: psycopg 3 + SQLAlchemy 2

@@ -9,7 +9,7 @@ T=${T:-4}
 # Needs Java 17 (JAVA_HOME, or java on PATH) and the PostgreSQL tools (pg_ctl, pgbench) on PATH
 export PATH=${JAVA_HOME:+$JAVA_HOME/bin:}$PATH
 HERE=$(cd "$(dirname "$0")" && pwd)
-JAR=$(ls "$HERE"/../build/libs/scalardb-postgres-frontend-*.jar | head -1)
+JAR=$(ls "$HERE"/../server/build/libs/scalardb-postgres-frontend-*.jar | head -1)
 cd "$HERE"
 pg_isready -q -h 127.0.0.1 -p 15434 || pg_ctl -D $S/pgbench/data -o "-p 15434 -c listen_addresses=127.0.0.1" -l $S/pgbench/pg.log start >/dev/null 2>&1
 for i in $(seq 30); do pg_isready -q -h 127.0.0.1 -p 15434 && break; sleep 1; done

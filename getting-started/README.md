@@ -37,7 +37,7 @@ this repository:
 ./gradlew shadowJar
 ```
 
-This creates `build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar`, a self-contained jar.
+This creates `server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar`, a self-contained jar.
 
 ## 2. Configure
 
@@ -64,7 +64,7 @@ From this directory (`getting-started`), give it the properties file and the
 port to listen on:
 
 ```sh
-java -jar ../build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
+java -jar ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
 ```
 
 It logs `Listening on port 15432` when it is ready. Leave it running in its own terminal.

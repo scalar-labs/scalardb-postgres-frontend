@@ -22,7 +22,7 @@ which is not published, so install it into your local Maven repository first:
 
 # in this repository
 ./gradlew shadowJar
-java -jar build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
+java -jar server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
 ```
 
 `scalardb.properties` is an ordinary ScalarDB configuration. The database name a client connects
@@ -33,7 +33,9 @@ whole setup with sample data, psql and JDBC.
 
 | Path | What |
 |---|---|
-| `src/` | the frontend and its unit tests |
+| `engine/` | the frontend as a library: the PostgreSQL wire protocol, the SQL parser and planner, and the in-memory operators, with the unit tests. A ScalarDB Cluster node can embed it. |
+| `server/` | the standalone server: `main` and the fat jar |
+| `build-logic/`, `gradle/libs.versions.toml` | shared Gradle conventions and the dependency versions |
 | [`getting-started/`](getting-started/README.md) | setup guide, sample schema and data, and a tour of what the frontend does |
 | [`difftest/`](difftest/README.md) | differential tests against native PostgreSQL, and a concurrency test |
 | [`bench/`](bench/README.md) | benchmarks against native PostgreSQL, including BenchBase TPC-C |

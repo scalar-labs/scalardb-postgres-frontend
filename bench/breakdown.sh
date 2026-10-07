@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 props=$1; pg=$2; fe=$3; postmaster=$4; frontend=$5; shift 5
 threads=${*:-"1 4"}
-jar=$(ls ../build/libs/scalardb-postgres-frontend-*.jar | head -1)
+jar=$(ls ../server/build/libs/scalardb-postgres-frontend-*.jar | head -1)
 seconds=${SECONDS_PER_RUN:-5}   # timed seconds per run; WARMUP (default 10) is untimed
 printf 'op\tlayer\tthreads\tops\ttps\tp50_ms\tp95_ms\tp99_ms\tclient_cpu_us\tpg_cpu_us\tfrontend_cpu_us\n'
 for op in get put insert; do

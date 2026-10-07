@@ -34,7 +34,7 @@ python3 gen_data.py --customers 20000 --items 10000 --orders 10 --out data.sql
 psql -d bench -f data.sql
 
 cp scalardb.properties.example scalardb.properties   # edit contact_points/user/password
-java -jar ../build/libs/scalardb-postgres-frontend-*.jar scalardb.properties 15432 &
+java -jar ../server/build/libs/scalardb-postgres-frontend-*.jar scalardb.properties 15432 &
 psql -h localhost -p 15432 -d bench -f schema/scalardb.sql
 psql -h localhost -p 15432 -d bench -f data.sql       # a few minutes: every batch is a transaction
 ```
@@ -66,8 +66,8 @@ to three times and counted in the `retried` column.
 The third configuration, for attributing the gap on reads, needs no server:
 
 ```sh
-java -cp ../build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java scalardb.properties get 4 5 20000
-java -cp ../build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java scalardb.properties scan 4 5 20000
+java -cp ../server/build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java scalardb.properties get 4 5 20000
+java -cp ../server/build/libs/scalardb-postgres-frontend-*.jar DirectBaseline.java scalardb.properties scan 4 5 20000
 ```
 
 To break a point operation down by layer (PostgreSQL over JDBC, ScalarDB storage Get/Put, ScalarDB
