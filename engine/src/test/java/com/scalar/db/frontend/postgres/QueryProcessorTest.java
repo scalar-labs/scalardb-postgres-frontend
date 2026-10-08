@@ -2,6 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -20,6 +21,7 @@ import com.scalar.db.common.ResultImpl;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.Key;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -150,6 +152,23 @@ public class QueryProcessorTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("max_rows_per_write");
     verify(transaction).rollback();
+  }
+
+  @Test
+  public void execute_SessionStatementPaddedWithWhitespace_ShouldNotBacktrack() {
+    // SET, SHOW, RESET and SAVEPOINT are matched by patterns that used to backtrack cubically
+    String pad = " ".repeat(20_000) + "x";
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(5),
+        () -> {
+          processor.execute("SET application_name = 'a'" + pad);
+          assertThatThrownBy(() -> processor.execute("SHOW no_such_setting" + pad))
+              .isInstanceOf(IllegalArgumentException.class);
+          processor.execute("RESET application_name" + pad);
+          processor.execute("BEGIN");
+          processor.execute("SAVEPOINT s" + pad);
+          processor.execute("ROLLBACK");
+        });
   }
 
   @Test

@@ -12,10 +12,12 @@
     </Or>
   </Match>
 
-  <!-- FindSecBugs' ReDoS heuristic does not model possessive quantifiers. These static patterns
-       (interval and number parsing, CREATE/DROP COORDINATOR TABLES) use them so that client SQL
-       cannot make them backtrack; a new pattern in a static initializer of these classes is
-       still checked by hand in review. -->
+  <!-- FindSecBugs' ReDoS heuristic flags these static patterns, which do not backtrack on client
+       input: interval and number parsing use possessive quantifiers, which the heuristic does not
+       model, and the statement patterns in QueryParser match trimmed text (see
+       QueryParser.trimStatement), so nothing ambiguous follows their last group. The padded-input
+       tests in QueryParserTest and QueryProcessorTest time them. A new pattern in a static
+       initializer of these classes is still checked by hand in review. -->
   <Match>
     <Bug pattern="REDOS"/>
     <Or>

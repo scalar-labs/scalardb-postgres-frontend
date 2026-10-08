@@ -2,6 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -35,6 +36,7 @@ import com.scalar.db.io.DoubleColumn;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.Key;
 import com.scalar.db.io.TextColumn;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -542,6 +544,35 @@ public class QueryParserTest {
 
     assertThat(plan.execute(transaction))
         .containsExactly(map("x", 1L, "l", null), map("x", 2L, "l", null));
+  }
+
+  @Test
+  public void trimStatement_ShouldDropSurroundingWhitespaceAndOneFinalSemicolon() {
+    assertThat(QueryParser.trimStatement("  SET x = 'a;b' ;  ")).isEqualTo("SET x = 'a;b'");
+    assertThat(QueryParser.trimStatement("\tSHOW x\n")).isEqualTo("SHOW x");
+    assertThat(QueryParser.trimStatement("SELECT 1;;")).isEqualTo("SELECT 1;");
+    assertThat(QueryParser.trimStatement(" ; ")).isEmpty();
+  }
+
+  @Test
+  public void parse_StatementPaddedWithWhitespace_ShouldNotBacktrack() {
+    // a few thousand spaces before a final character used to take minutes in the statement
+    // patterns; 20,000 would take hours
+    String pad = " ".repeat(20_000) + "x";
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(5),
+        () -> {
+          for (String sql :
+              new String[] {
+                "EXPLAIN SELECT 1", "CREATE SCHEMA s", "CREATE COORDINATOR TABLES", "VACUUM"
+              }) {
+            try {
+              parser.parse(sql + pad);
+            } catch (RuntimeException e) {
+              // invalid SQL is fine; only the time matters
+            }
+          }
+        });
   }
 
   @Test

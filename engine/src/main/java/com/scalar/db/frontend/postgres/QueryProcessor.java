@@ -61,7 +61,7 @@ public class QueryProcessor {
       new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
   private static final java.util.regex.Pattern SAVEPOINT_NAME =
       java.util.regex.Pattern.compile(
-          "(?is)^\\s*(?:SAVEPOINT|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?\\s*;?\\s*$");
+          "(?is)(?:SAVEPOINT|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");
   // Session settings: what SET stored, over the server's defaults; SHOW reads them
   private final Map<String, String> settings = new LinkedHashMap<>();
   private final Map<String, String> defaults = new LinkedHashMap<>();
@@ -105,11 +105,11 @@ public class QueryProcessor {
 
   private static final java.util.regex.Pattern SET_VALUE =
       java.util.regex.Pattern.compile(
-          "(?is)^\\s*SET\\s+(?:SESSION\\s+|LOCAL\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+?)|TIME\\s+ZONE\\s+(.+?))\\s*;?\\s*$");
+          "(?is)SET\\s+(?:SESSION\\s+|LOCAL\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+)|TIME\\s+ZONE\\s+(.+))");
   private static final java.util.regex.Pattern RESET_NAME =
-      java.util.regex.Pattern.compile("(?is)^\\s*RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)\\s*;?\\s*$");
+      java.util.regex.Pattern.compile("(?is)RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)");
   private static final java.util.regex.Pattern SHOW_NAME =
-      java.util.regex.Pattern.compile("(?is)^\\s*SHOW\\s+(.+?)\\s*;?\\s*$");
+      java.util.regex.Pattern.compile("(?is)SHOW\\s+(.+)");
 
   /** The stored key of a setting named as in SHOW, matched without regard to case; null if none. */
   @Nullable private String settingKey(String name) {
@@ -134,7 +134,7 @@ public class QueryProcessor {
 
   /** Records SET and RESET in the session settings. */
   private void setting(String sql) {
-    java.util.regex.Matcher set = SET_VALUE.matcher(sql);
+    java.util.regex.Matcher set = SET_VALUE.matcher(QueryParser.trimStatement(sql));
     if (set.matches()) {
       String name = set.group(1) != null ? set.group(1) : "TimeZone"; // SET TIME ZONE 'x'
       String value = (set.group(1) != null ? set.group(2) : set.group(3)).trim();
@@ -155,7 +155,7 @@ public class QueryProcessor {
       settings.put(key == null ? name : key, value);
       return;
     }
-    java.util.regex.Matcher reset = RESET_NAME.matcher(sql);
+    java.util.regex.Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
     if (reset.matches()) {
       if (reset.group(1).equalsIgnoreCase("ALL")) {
         settings.clear();
@@ -178,7 +178,7 @@ public class QueryProcessor {
 
   /** SHOW name, or SHOW ALL, as a constant result. */
   private QueryParser.Plan show(String sql) {
-    java.util.regex.Matcher m = SHOW_NAME.matcher(sql);
+    java.util.regex.Matcher m = SHOW_NAME.matcher(QueryParser.trimStatement(sql));
     if (!m.matches()) {
       throw new IllegalArgumentException("Invalid SQL: " + sql);
     }
@@ -370,7 +370,7 @@ public class QueryProcessor {
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "ROLLBACK":
       case "ABORT":
-        if (SAVEPOINT_NAME.matcher(sql).matches()
+        if (SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql)).matches()
             && sql.toUpperCase(Locale.ROOT).contains(" TO ")) {
           // ROLLBACK TO SAVEPOINT: fine while the savepoint saw only reads, which also clears an
           // error since the failed statement wrote nothing
@@ -392,7 +392,7 @@ public class QueryProcessor {
         if (transaction == null) {
           throw new IllegalStateException("SAVEPOINT can only be used in transaction blocks");
         }
-        java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(sql);
+        java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
         savepoints.push(sp.matches() ? sp.group(1) : "");
         writesSinceSavepoint = 0;
         lastCommandTag = "SAVEPOINT";

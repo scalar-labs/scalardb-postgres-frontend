@@ -2052,7 +2052,9 @@ public class QueryParser {
   static String normalize(String sql) {
     return escapeStringQuotes(
         sql.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
-            .replaceAll("(?i)\\s+COLLATE\\s+[\\w.\"]+", "")
+            // anchored on the keyword: a leading \\s+ would rescan a long run of whitespace
+            // from every position in it
+            .replaceAll("(?i)(?<=\\s)COLLATE\\s+[\\w.\"]+", "")
             // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
             .replaceAll(
                 "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
@@ -2129,8 +2131,7 @@ public class QueryParser {
   }
 
   private static final Pattern CREATE_SCHEMA =
-      Pattern.compile(
-          "(?is)^\\s*CREATE\\s+SCHEMA\\s+(IF\\s+NOT\\s+EXISTS\\s+)?\"?(\\w+)\"?\\s*;?\\s*$");
+      Pattern.compile("(?is)CREATE\\s+SCHEMA\\s+(IF\\s+NOT\\s+EXISTS\\s+)?\"?(\\w+)\"?");
 
   private static net.sf.jsqlparser.parser.CCJSqlParser parser(String sql) {
     // the PostgreSQL dialect preset adds dollar-quoted strings ($$...$$, $tag$...$tag$)
@@ -2149,22 +2150,49 @@ public class QueryParser {
   }
 
   private static final Pattern EXPLAIN =
-      Pattern.compile(
-          "(?is)^\\s*EXPLAIN\\s+((?:ANALYZE|\\(\\s*ANALYZE\\s*\\))\\s+)?(.+?)\\s*;?\\s*$");
-  private static final Pattern VACUUM = Pattern.compile("(?is)^\\s*VACUUM\\b.*$");
+      Pattern.compile("(?is)EXPLAIN\\s+((?:ANALYZE|\\(\\s*ANALYZE\\s*\\))\\s+)?(.+)");
+  private static final Pattern VACUUM = Pattern.compile("(?is)VACUUM\\b.*");
   private static final Pattern COORDINATOR_TABLES =
-      Pattern.compile(
-          "(?is)^\\s*+(CREATE|DROP)\\s++COORDINATOR\\s++TABLES(\\s++IF\\s++(NOT\\s++)?EXISTS)?\\s*+;?\\s*+$");
+      Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
+
+  /**
+   * The statement without surrounding whitespace and one final {@code ;}, which is what the
+   * statement patterns match. Matching that tail inside a pattern instead ({@code \s*;?\s*$} after
+   * a lazy group) backtracks cubically on a long run of whitespace, so a short statement padded
+   * with a few thousand spaces could take minutes. Whitespace is what {@code \s} matches.
+   */
+  static String trimStatement(String sql) {
+    int end = sql.length();
+    while (end > 0 && isSpace(sql.charAt(end - 1))) {
+      end--;
+    }
+    if (end > 0 && sql.charAt(end - 1) == ';') {
+      end--;
+      while (end > 0 && isSpace(sql.charAt(end - 1))) {
+        end--;
+      }
+    }
+    int start = 0;
+    while (start < end && isSpace(sql.charAt(start))) {
+      start++;
+    }
+    return sql.substring(start, end);
+  }
+
+  private static boolean isSpace(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
+  }
 
   private Plan plan(String sql) throws ExecutionException {
-    // Statements JSQLParser does not accept
-    Matcher schema = CREATE_SCHEMA.matcher(sql);
+    // Statements JSQLParser does not accept, matched on the trimmed text (see trimStatement)
+    String trimmed = trimStatement(sql);
+    Matcher schema = CREATE_SCHEMA.matcher(trimmed);
     if (schema.matches()) {
       boolean ifNotExists = schema.group(1) != null;
       String name = namespace(schema.group(2));
       return Plan.ddl(() -> admin.createNamespace(name, ifNotExists), "CREATE SCHEMA");
     }
-    Matcher explain = EXPLAIN.matcher(sql);
+    Matcher explain = EXPLAIN.matcher(trimmed);
     if (explain.matches()) {
       Plan inner = plan(explain.group(2));
       if (inner.ddl != null) {
@@ -2179,10 +2207,10 @@ public class QueryParser {
       }
       return Plan.constant(Collections.singletonList("QUERY PLAN"), rows, "EXPLAIN");
     }
-    if (VACUUM.matcher(sql).matches()) {
+    if (VACUUM.matcher(trimmed).matches()) {
       return Plan.ddl(() -> {}, "VACUUM"); // nothing to vacuum; tools run it after bulk loads
     }
-    Matcher coordinator = COORDINATOR_TABLES.matcher(sql);
+    Matcher coordinator = COORDINATOR_TABLES.matcher(trimmed);
     if (coordinator.matches()) {
       boolean create = coordinator.group(1).equalsIgnoreCase("CREATE");
       return Plan.ddl(
