@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -234,7 +235,8 @@ public class QueryParserTest {
         .thenReturn(java.util.Optional.of(row(1, 1, "a", 1.5, true)))
         .thenReturn(java.util.Optional.empty());
     doReturn(scanner).when(transaction).getScanner(any());
-    QueryParser.Plan plan = parser.parse("SELECT active, nosuchfn(name) FROM t GROUP BY active");
+    QueryParser.Plan plan =
+        parser.parse("SELECT active, nosuchfn(max(name)) FROM t GROUP BY active");
 
     assertThatThrownBy(() -> plan.execute(transaction))
         .hasMessageContaining("Unsupported function");
@@ -1396,6 +1398,242 @@ public class QueryParserTest {
                         + " jsonb_array_elements_text(t.j::jsonb) AS e(v) ORDER BY t.id, e.v")
                 .execute(transaction))
         .containsExactly(map("id", 1L, "v", "a"), map("id", 1L, "v", "b"));
+  }
+
+  @Test
+  public void parse_InvalidGrouping_ShouldFailLikePostgres() throws Exception {
+    assertThatThrownBy(() -> parser.parse("SELECT id, name FROM t GROUP BY id"))
+        .hasMessageContaining("must appear in the GROUP BY clause");
+    assertThatThrownBy(() -> parser.parse("SELECT count(*), name FROM t"))
+        .hasMessageContaining("must appear in the GROUP BY clause");
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t WHERE max(price) > 1"))
+        .hasMessageContaining("not allowed in WHERE");
+    assertThatThrownBy(() -> parser.parse("SELECT max(count(*)) FROM t GROUP BY id"))
+        .hasMessageContaining("cannot be nested");
+    // the whole primary key grouped lets the other columns through (functional dependency), and
+    // grouped expressions may be reused as a whole
+    assertThat(parser.parse("SELECT id, seq, name, price * 2 FROM t GROUP BY id, seq").getWrite())
+        .isNull();
+    assertThat(parser.parse("SELECT price * 2, count(*) FROM t GROUP BY price * 2").getWrite())
+        .isNull();
+    assertThat(parser.parse("SELECT id, count(*) OVER () FROM t GROUP BY id").getWrite()).isNull();
+  }
+
+  @Test
+  public void parse_DecimalLiteralAgainstIntegerColumn_ShouldCompareInMemory() throws Exception {
+    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 1, "b", 2.5, false)));
+    QueryParser.Plan plan = parser.parse("SELECT id FROM t WHERE id > 1.5 AND id < 2.5");
+    assertThat(parser.explain(plan).get(0)).doesNotContain("partitionKey");
+    assertThat(plan.execute(transaction)).containsExactly(map("id", 2));
+    // text that is not a number still fails as PostgreSQL does
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t WHERE id = 'abc'").execute(transaction))
+        .hasMessageContaining("invalid input syntax for type integer");
+  }
+
+  @Test
+  public void parse_IdentifiersAndDdlChecks_ShouldFollowPostgres() throws Exception {
+    assertThat(QueryParser.unquote("\"we\"\"ird\"")).isEqualTo("we\"ird");
+    assertThat(QueryParser.quoteIfNeeded("T92 Mixed")).isEqualTo("\"T92 Mixed\"");
+    assertThat(QueryParser.quoteIfNeeded("plain_1")).isEqualTo("plain_1");
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE d (id INT, v INT, v TEXT, PRIMARY KEY (id))"))
+        .hasMessageContaining("specified more than once");
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE d (id INT, \"a\" INT, \"A\" INT, PRIMARY KEY (id))"))
+        .hasMessageContaining("differing only in case");
+    assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE id = 1 AND seq = 1"))
+        .hasMessageContaining("primary key column");
+    assertThat(parser.parse("SELECT USER AS u").execute(transaction))
+        .containsExactly(map("u", "scalardb"));
+    // DEFAULT in VALUES is the (non-existent) column default, so NULL
+    assertThat(
+            parser
+                .parse("INSERT INTO t VALUES (1, 2, DEFAULT, 1.0, true)")
+                .getOperations()
+                .get(0)
+                .toString())
+        .contains("name, value=null");
+  }
+
+  @Test
+  public void parse_CreateTableWithConstraintsAndModifiers_ShouldNoticeWhatIsNotEnforced()
+      throws Exception {
+    QueryParser.Plan plan =
+        parser.parse(
+            "CREATE TABLE n (id INT NOT NULL, v INT NOT NULL CHECK (v > 0), u INT UNIQUE,"
+                + " d INT DEFAULT 7, c CHAR(5), m NUMERIC(10,2), s SMALLINT, f FLOAT(10),"
+                + " PRIMARY KEY (id), UNIQUE (v, u))");
+    assertThat(plan.notices)
+        .anyMatch(n -> n.startsWith("NOT NULL on column \"v\""))
+        .noneMatch(n -> n.startsWith("NOT NULL on column \"id\""))
+        .anyMatch(n -> n.startsWith("CHECK on column \"v\""))
+        .anyMatch(n -> n.startsWith("UNIQUE on column \"u\""))
+        .anyMatch(n -> n.startsWith("DEFAULT on column \"d\""))
+        .anyMatch(n -> n.startsWith("CHAR on column \"c\""))
+        .anyMatch(n -> n.startsWith("NUMERIC on column \"m\""))
+        .anyMatch(n -> n.startsWith("SMALLINT on column \"s\""))
+        .anyMatch(n -> n.contains("UNIQUE (v, u)"));
+    assertThat(plan.notices).hasSize(8);
+    plan.getDdl().run();
+    org.mockito.ArgumentCaptor<TableMetadata> metadata =
+        org.mockito.ArgumentCaptor.forClass(TableMetadata.class);
+    verify(admin).createTable(eq(NS), eq("n"), metadata.capture(), eq(false));
+    assertThat(metadata.getValue().getColumnDataType("f")).isEqualTo(DataType.FLOAT);
+    assertThat(parser.parse("CREATE TABLE p (id INT, PRIMARY KEY (id))").notices).isEmpty();
+  }
+
+  @Test
+  public void execute_UncorrelatedSubquery_ShouldRunOnce() throws Exception {
+    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 2, "b", 2.5, false)));
+    String once =
+        String.join(
+            "\n",
+            parser
+                .parse("EXPLAIN ANALYZE SELECT id FROM t WHERE price IN (SELECT price FROM t)")
+                .execute(transaction)
+                .stream()
+                .map(r -> String.valueOf(r.get("QUERY PLAN")))
+                .collect(java.util.stream.Collectors.toList()));
+    assertThat(once).contains("Subquery").doesNotContain("loops="); // evaluated once: no loops
+    String perRow =
+        String.join(
+            "\n",
+            parser
+                .parse(
+                    "EXPLAIN ANALYZE SELECT id FROM t WHERE price IN"
+                        + " (SELECT t2.price FROM t t2 WHERE t2.id = t.id)")
+                .execute(transaction)
+                .stream()
+                .map(r -> String.valueOf(r.get("QUERY PLAN")))
+                .collect(java.util.stream.Collectors.toList()));
+    assertThat(perRow).contains("loops=2");
+  }
+
+  @Test
+  public void parse_SetOperationTypes_ShouldMatchOrFail() throws Exception {
+    assertThat(parser.parse("SELECT '7' UNION SELECT 7").execute(transaction))
+        .containsExactly(map("?column?", 7));
+    assertThat(parser.parse("SELECT 7 UNION SELECT '7'").outputOids()).containsExactly(23);
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t UNION SELECT name FROM t"))
+        .hasMessageContaining("UNION types integer and text cannot be matched");
+    assertThatThrownBy(() -> parser.parse("SELECT 1 UNION SELECT 'a'").execute(transaction))
+        .hasMessageContaining("Cannot cast 'a' to integer");
+  }
+
+  @Test
+  public void execute_PrecisionCasts_ShouldRoundLikePostgres() throws Exception {
+    assertThat(
+            parser
+                .parse(
+                    "SELECT '2024-01-01 12:34:56.789+00'::timestamptz(0)::text AS a,"
+                        + " '2024-01-01 12:34:56.75'::timestamp(1)::text AS b,"
+                        + " '12:34:56.789'::time(0)::text AS c,"
+                        + " '2024-01-01 23:59:59.9'::timestamp(0)::text AS d")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a",
+                "2024-01-01 12:34:57+00",
+                "b",
+                "2024-01-01 12:34:56.8",
+                "c",
+                "12:34:57",
+                "d",
+                "2024-01-02 00:00:00"));
+  }
+
+  @Test
+  public void parse_TextColumnComparedWithNumber_ShouldFailLikePostgres() throws Exception {
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t WHERE name = 1"))
+        .hasMessage("operator does not exist: text = integer");
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t WHERE 2.5 < name"))
+        .hasMessage("operator does not exist: text < numeric");
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t WHERE name IN (1, 2)"))
+        .hasMessage("operator does not exist: text IN integer");
+    assertThatThrownBy(
+            () -> parser.parse("SELECT x.name FROM (SELECT name FROM t) x WHERE x.name = -1"))
+        .hasMessage("operator does not exist: text = integer");
+    // an untyped literal and an integer column are fine, as in PostgreSQL
+    assertThat(parser.parse("SELECT id FROM t WHERE id = '1' AND name = '1'")).isNotNull();
+  }
+
+  @Test
+  public void parse_SilentlyDifferentClauses_ShouldFailOrWarn() throws Exception {
+    assertThatThrownBy(() -> parser.parse("SELECT count(*) FROM t TABLESAMPLE SYSTEM (10)"))
+        .hasMessageContaining("TABLESAMPLE");
+    assertThatThrownBy(() -> parser.parse("SELECT 'b' COLLATE \"en_US\" AS c").execute(transaction))
+        .hasMessageContaining("collation");
+    assertThat(parser.parse("SELECT 'b' COLLATE \"C\" AS c").execute(transaction))
+        .containsExactly(map("c", "b"));
+    assertThatThrownBy(() -> parser.parse("SELECT DISTINCT name FROM t ORDER BY price"))
+        .hasMessageContaining("for SELECT DISTINCT");
+    assertThat(parser.parse("SELECT DISTINCT name FROM t ORDER BY name").getWrite()).isNull();
+    assertThatThrownBy(() -> parser.parse("CREATE TEMP TABLE x (id INT PRIMARY KEY)"))
+        .hasMessageContaining("Temporary tables");
+    assertThatThrownBy(() -> parser.parse("SELECT id INTO copy FROM t"))
+        .hasMessageContaining("SELECT INTO");
+    assertThatThrownBy(
+            () ->
+                parser.parse("WITH d AS (DELETE FROM t WHERE id = 1 RETURNING id) SELECT * FROM d"))
+        .hasMessageContaining("Data-modifying");
+    assertThatThrownBy(() -> parser.parse("CREATE INDEX i ON t (lower(name))"))
+        .hasMessageContaining("Expression indexes");
+    assertThat(parser.parse("CREATE UNIQUE INDEX u ON t (name) WHERE price > 0").notices)
+        .anyMatch(n -> n.startsWith("UNIQUE on index u"))
+        .anyMatch(n -> n.contains("WHERE of index u"));
+    assertThat(parser.parse("SELECT 1 AS a LIMIT ALL").execute(transaction))
+        .containsExactly(map("a", 1L));
+    assertThat(parser.parse("UPDATE t SET name = DEFAULT WHERE id = 1 AND seq = 1").getOperations())
+        .hasSize(1);
+  }
+
+  @Test
+  public void execute_SessionTimeZone_ShouldShapeTimestamptz() throws Exception {
+    Evaluator.setZone(java.time.ZoneId.of("Asia/Tokyo"));
+    try {
+      assertThat(
+              parser
+                  .parse(
+                      "SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t,"
+                          + " '2024-01-01 09:00:00'::timestamptz = '2024-01-01 00:00:00+00'::timestamptz AS same,"
+                          + " '2024-01-01'::timestamptz::date AS d, 'abcdef'::varchar(3) AS v,"
+                          + " extract(hour from '2024-01-01 00:00:00+00'::timestamptz) AS h")
+                  .execute(transaction))
+          .containsExactly(
+              map(
+                  "t",
+                  "2024-01-01 09:00:00+09",
+                  "same",
+                  true,
+                  "d",
+                  java.time.LocalDate.of(2024, 1, 1),
+                  "v",
+                  "abc",
+                  "h",
+                  9L));
+      assertThat(
+              parser
+                  .parse("SELECT current_timestamp(0) = date_trunc('second', now()) AS whole")
+                  .execute(transaction))
+          .containsExactly(map("whole", true));
+    } finally {
+      Evaluator.setZone(java.time.ZoneOffset.UTC);
+    }
+  }
+
+  @Test
+  public void parse_SearchPath_ShouldResolveUnqualifiedTables() throws Exception {
+    when(admin.getTableMetadata("other", "t")).thenReturn(null);
+    when(admin.getTableMetadata("other", "o")).thenReturn(METADATA);
+    parser.setSearchPath("other, public");
+    assertThat(parser.parse("SELECT id FROM t").getOperations().get(0).forNamespace())
+        .contains(NS); // not in other, found in public (= the connected namespace)
+    assertThat(parser.parse("SELECT id FROM o").getOperations().get(0).forNamespace())
+        .contains("other");
+    parser.setSearchPath("nosuch");
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t"))
+        .hasMessageContaining("Table not found");
+    parser.setSearchPath("\"$user\", public");
   }
 
   @Test

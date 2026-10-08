@@ -1,0 +1,14 @@
+types_all OK
+types_time_cmp OK
+types_time_order OK
+types_time_funcs OK
+types_tz_cmp OK
+types_tz_order OK
+types_tz_text OK
+types_bytea OK
+types_bytea_cmp OK
+types_real OK
+types_real_cmp OK
+types_insert OK
+types_update OK
+types_bind OK

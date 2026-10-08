@@ -1,0 +1,36 @@
+{'FE_ERR': 5, 'OK': 1}
+=== FE_ERR s11_13_1_declare_fetch_close
+BEGIN; DECLARE c1 CURSOR FOR SELECT empnum, empname FROM t92_staff ORDER BY empnum; FETCH NEXT FROM c1; FETCH NEXT FROM c1; CLOSE c1; COMMIT;
+  pg: 
+  fe: ERROR:  Invalid SQL: DECLARE c1 CURSOR FOR SELECT empnum, empname FROM t92_staff ORDER BY empnum
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR s11_13_3_fetch_count
+BEGIN; DECLARE c1 CURSOR FOR SELECT empnum FROM t92_staff ORDER BY empnum; FETCH 3 FROM c1; FETCH ALL FROM c1; CLOSE c1; COMMIT;
+  pg: 
+  fe: ERROR:  Invalid SQL: DECLARE c1 CURSOR FOR SELECT empnum FROM t92_staff ORDER BY empnum
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR s11_13_3_fetch_past_end
+BEGIN; DECLARE c1 CURSOR FOR SELECT empnum FROM t92_staff WHERE empnum = 'E1'; FETCH NEXT FROM c1; FETCH NEXT FROM c1; CLOSE c1; COMMIT;
+  pg: 
+  fe: ERROR:  Invalid SQL: DECLARE c1 CURSOR FOR SELECT empnum FROM t92_staff WHERE empnum = 'E1'
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR s11_13_9_update_where_current_of
+DROP TABLE IF EXISTS t92_w11_c04; CREATE TABLE t92_w11_c04 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w11_c04 VALUES (1, 1); INSERT INTO t92_w11_c04 VALUES (2, 2); BEGIN; DECLARE c1 CURSOR FOR SELECT id, a FROM t92_w11_c04 WHERE id = 1 FOR UPDATE; FETCH NEXT FROM c1; UPDATE t92_w11_c04 SET a = 100 WHERE CURRENT OF c1; CLOSE c1; COMMIT; SELECT * FROM t92_w11_c04; DROP TABLE t92_w11_c04;
+  pg: 
+  fe: ERROR:  Invalid SQL: DECLARE c1 CURSOR FOR SELECT id, a FROM t92_w11_c04 WHERE id = 1 FOR UPDATE
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR s11_13_6_delete_where_current_of
+DROP TABLE IF EXISTS t92_w11_c05; CREATE TABLE t92_w11_c05 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w11_c05 VALUES (1, 1); INSERT INTO t92_w11_c05 VALUES (2, 2); BEGIN; DECLARE c1 CURSOR FOR SELECT id, a FROM t92_w11_c05 WHERE id = 2 FOR UPDATE; FETCH NEXT FROM c1; DELETE FROM t92_w11_c05 WHERE CURRENT OF c1; CLOSE c1; COMMIT; SELECT * FROM t92_w11_c05; DROP TABLE t92_w11_c05;
+  pg: 
+  fe: ERROR:  Invalid SQL: DECLARE c1 CURSOR FOR SELECT id, a FROM t92_w11_c05 WHERE id = 2 FOR UPDATE
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block

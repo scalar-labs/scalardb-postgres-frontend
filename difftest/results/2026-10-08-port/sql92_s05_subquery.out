@@ -1,0 +1,11 @@
+{'OK': 16, 'BOTH_ERR': 2}
+=== BOTH_ERR s05_7_11_scalar_more_than_one_row
+SELECT empname FROM t92_staff WHERE grade = (SELECT grade FROM t92_staff WHERE city = 'Deale');
+  pg: ERROR:  more than one row returned by a subquery used as an expression
+  fe: ERROR:  Subquery must return one row and one column: (SELECT t92_staff.grade FROM t92_staff WHERE t92_staff.city = 'Deale')
+=== BOTH_ERR s05_7_11_scalar_more_than_one_column
+SELECT empname FROM t92_staff WHERE grade = (SELECT grade, empnum FROM t92_staff WHERE empnum = 'E1');
+  pg: ERROR:  subquery must return only one column
+LINE 1: SELECT empname FROM t92_staff WHERE grade = (SELECT grade, e...
+                                                    ^
+  fe: ERROR:  Subquery must return one row and one column: (SELECT t92_staff.grade, t92_staff.empnum FROM t92_staff WHERE t92_staff.empnum = 'E1')

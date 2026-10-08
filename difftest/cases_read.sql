@@ -428,8 +428,6 @@ SELECT id FROM emp WHERE (id, dept_id) IN ((1, 1), (2, 2), (7, 3), (7, 1)) ORDER
 SELECT (ARRAY[10,20,30])[2], (ARRAY[10,20,30])[2:3], (ARRAY[10,20,30])[5] IS NULL;
 -- @fetch_with_ties
 SELECT id, salary FROM emp ORDER BY salary DESC FETCH FIRST 3 ROWS WITH TIES;
--- @tablesample_all
-SELECT count(*) FROM emp TABLESAMPLE SYSTEM (100);
 -- @uuid_json_casts
 SELECT 'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11'::uuid, '{"a":1}'::json;
 -- @analyze

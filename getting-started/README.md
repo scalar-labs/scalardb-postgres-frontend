@@ -83,7 +83,7 @@ psql -h localhost -p 15432 -d demo -f schema.sql -f data.sql
 
 The database name in the connection (`demo`) is the ScalarDB namespace. `schema.sql` creates
 ScalarDB's coordinator tables and the namespace if needed, and it drops and recreates the three
-tables, so running this step again starts over. Loading takes 5 to 10 seconds.
+tables, so running this step again starts over. Loading takes 5 to 10 seconds on a local database, longer against a container or a remote one.
 
 The frontend does not authenticate yet: any user name works, and no password is asked for.
 
@@ -162,6 +162,9 @@ COMMIT;   -- fails: the row changed under A
 
 ## Limitations to know
 
+The rule the frontend follows: what it cannot do raises an error, and what it accepts but cannot fully
+honor is announced with a `NOTICE`. It does not silently return a different result from PostgreSQL.
+
 - **No authentication or TLS yet.** `current_user` returns a fixed name, not the user you
   connected as.
 - **`COPY` is not supported;** load data with INSERTs.
@@ -174,4 +177,39 @@ COMMIT;   -- fails: the row changed under A
   very large table without a key holds all its rows in the frontend.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**
   (`DB-CORE-10106`). This is a ScalarDB limitation; reads by primary key work.
-- **`SAVEPOINT` is not supported.**
+- **DDL inside a transaction takes effect at once** and is not undone by `ROLLBACK`.
+- **`SAVEPOINT` is accepted, but `ROLLBACK TO SAVEPOINT` works only while nothing was written
+  since the savepoint.** After a write it fails, and that error aborts the whole transaction, so
+  the writes before the savepoint are lost too when the transaction ends.
+- **Constraints other than the primary key are not enforced.** `NOT NULL` on non-key columns,
+  `UNIQUE`, `CHECK`, `REFERENCES` and `DEFAULT` are accepted by `CREATE TABLE` with a `NOTICE`
+  (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
+  omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
+- **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
+  `'ab   '` differ; `VARCHAR(n)` lengths are not enforced; `NUMERIC(p,s)` and `DECIMAL` are stored
+  as `double precision`, so money arithmetic is approximate; `SMALLINT` is an `integer` without a
+  range check. Each is reported with a `NOTICE` at `CREATE TABLE`.
+- **Isolation levels.** ScalarDB's `SNAPSHOT` reads each record's committed version without a
+  snapshot across records, which `SHOW transaction_isolation` reports as `read committed`;
+  `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
+  stronger level than the engine runs at (`BEGIN ISOLATION LEVEL SERIALIZABLE`,
+  `SET TRANSACTION ...`) is refused with `0A000` rather than ignored.
+- **TEXT comparison follows the backing database's collation.** On MySQL (default
+  `utf8mb4_0900_ai_ci`) and on PostgreSQL databases created with a locale other than `C`, keys and
+  predicates compare case- and accent-insensitively, so `UPDATE ... WHERE k = 'A'` can change the
+  row `'a'`. Create the backing database with a binary collation (`C` locale, `utf8mb4_bin`) until
+  ScalarDB's collation support lands.
+- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY`, views and `GRANT` are not
+  supported** and fail with a clear error.
+- **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` other than `"C"`/`POSIX`,
+  `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
+  data-modifying statement inside `WITH`, an expression index (`CREATE INDEX ... ON t (lower(name))`),
+  and a comparison of a text column with a number (`name = 1`), which PostgreSQL rejects too.
+  `CREATE UNIQUE INDEX` and a partial index (`... WHERE ...`) are created as plain indexes with a
+  `NOTICE`: uniqueness is not enforced and the `WHERE` is not kept.
+- **Session settings.** `SET TIME ZONE` shapes how `timestamptz` values are read and printed, as in
+  PostgreSQL; `search_path` decides where an unqualified table name is looked up; `SET LOCAL`
+  reverts at the end of the transaction and only warns outside one. `statement_timeout` and
+  `lock_timeout` are accepted but not enforced.
+- **`SELECT ... FOR UPDATE` / `FOR SHARE` take no lock.** ScalarDB is optimistic: the statement
+  is accepted, and a concurrent writer is found out at commit time (`40001`), not blocked.

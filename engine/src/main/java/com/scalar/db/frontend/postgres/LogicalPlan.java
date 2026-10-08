@@ -116,6 +116,7 @@ final class LogicalPlan {
   List<OrderByElement> orderBy = Collections.emptyList();
   int limit = -1; // negative for none
   boolean withTies; // FETCH FIRST n ROWS WITH TIES: rows tying with the n-th under ORDER BY too
+  boolean correlated; // reads columns of an enclosing query: evaluated per outer row
   int offset;
   final Map<Select, QueryParser.Plan> subplans = new HashMap<>();
 

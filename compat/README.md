@@ -45,6 +45,12 @@ passed. And a failed statement inside a transaction left the ORM's ROLLBACK repo
 transaction" instead of the real error; COMMIT and ROLLBACK outside a transaction are now no-ops, as
 in PostgreSQL, and statement failures are logged at INFO.
 
+Sequelize opens every connection with `SET TIME ZONE INTERVAL '+00:00' HOUR TO MINUTE`, and its
+pool retries a connection whose setup statement fails, without end: when the frontend started to
+validate time zone names (2026-10-08) that spelling had to be accepted along with the numeric
+(`SET TIME ZONE 9`) and POSIX (`'+05:30'`, west-positive) ones PostgreSQL takes, or the Node run
+never finished.
+
 A catalog query the engine cannot plan is answered with no rows but with its output columns
 described, as PostgreSQL would answer an empty result; before, the missing RowDescription made
 psycopg report no result at all (SQLAlchemy's ResourceClosedError). A Java Error inside a statement

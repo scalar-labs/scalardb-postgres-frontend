@@ -1,0 +1,43 @@
+{'OK': 38, 'BOTH_ERR': 7}
+=== BOTH_ERR s03_7_9_ungrouped_column_error
+SELECT city, empname FROM t92_staff GROUP BY city;
+  pg: ERROR:  column "t92_staff.empname" must appear in the GROUP BY clause or be used in an aggregate function
+LINE 1: SELECT city, empname FROM t92_staff GROUP BY city;
+                     ^
+  fe: ERROR:  column "t92_staff.empname" must appear in the GROUP BY clause or be used in an aggregate function
+=== BOTH_ERR s03_7_10_union_column_count_mismatch
+SELECT empnum FROM t92_staff UNION SELECT pnum, budget FROM t92_proj;
+  pg: ERROR:  each UNION query must have the same number of columns
+LINE 1: SELECT empnum FROM t92_staff UNION SELECT pnum, budget FROM ...
+                                                  ^
+  fe: ERROR:  Each query of a set operation must have the same number of columns: SELECT t92_staff.empnum FROM t92_staff UNION SELECT t92_proj.pnum, t92_proj.budget FROM t92_proj
+=== BOTH_ERR s03_7_10_union_type_mismatch
+SELECT empnum FROM t92_staff UNION SELECT budget FROM t92_proj;
+  pg: ERROR:  UNION types character varying and integer cannot be matched
+LINE 1: SELECT empnum FROM t92_staff UNION SELECT budget FROM t92_pr...
+                                                  ^
+  fe: ERROR:  UNION types text and integer cannot be matched
+=== BOTH_ERR s03_13_1_order_by_position_out_of_range
+SELECT empname FROM t92_staff ORDER BY 3;
+  pg: ERROR:  ORDER BY position 3 is not in select list
+LINE 1: SELECT empname FROM t92_staff ORDER BY 3;
+                                               ^
+  fe: ERROR:  ORDER BY position out of range: 3
+=== BOTH_ERR s03_7_9_unknown_column_error
+SELECT nosuch FROM t92_staff;
+  pg: ERROR:  column "nosuch" does not exist
+LINE 1: SELECT nosuch FROM t92_staff;
+               ^
+  fe: ERROR:  Unknown column: nosuch
+=== BOTH_ERR s03_7_4_unknown_table_error
+SELECT * FROM t92_nosuch;
+  pg: ERROR:  relation "t92_nosuch" does not exist
+LINE 1: SELECT * FROM t92_nosuch;
+                      ^
+  fe: ERROR:  Table not found: sdb.t92_nosuch
+=== BOTH_ERR s03_7_4_ambiguous_column_error
+SELECT empnum FROM t92_staff, t92_works;
+  pg: ERROR:  column reference "empnum" is ambiguous
+LINE 1: SELECT empnum FROM t92_staff, t92_works;
+               ^
+  fe: ERROR:  Ambiguous column: empnum

@@ -215,7 +215,10 @@ final class Catalog {
             "is_nullable",
             "udt_name",
             "character_maximum_length",
-            "column_default"));
+            "column_default",
+            "numeric_precision",
+            "numeric_scale",
+            "datetime_precision"));
     type(16, "bool", "boolean");
     type(17, "bytea", "bytea");
     type(20, "int8", "bigint");
@@ -357,6 +360,7 @@ final class Catalog {
 
   private final DistributedTransactionAdmin admin;
   final String database;
+  String user = OWNER; // the connecting user, for current_user
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
@@ -640,6 +644,9 @@ final class Catalog {
               typeName(typeOid(type)),
               key ? "NO" : "YES",
               INTERNAL_TYPE_NAMES.get(typeOid(type)),
+              null,
+              null,
+              null,
               null,
               null);
         }

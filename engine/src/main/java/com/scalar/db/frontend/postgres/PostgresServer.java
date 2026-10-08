@@ -96,9 +96,9 @@ public class PostgresServer implements AutoCloseable {
     }
     // SHOW TRANSACTION ISOLATION LEVEL: Consensus Commit's SNAPSHOT reads like REPEATABLE READ
     String isolation = properties.getProperty("scalar.db.consensus_commit.isolation_level", "");
-    defaults.put(
-        "transaction_isolation",
-        isolation.equalsIgnoreCase("SERIALIZABLE") ? "serializable" : "repeatable read");
+    String level = isolation.equalsIgnoreCase("SERIALIZABLE") ? "serializable" : "read committed";
+    defaults.put("transaction_isolation", level);
+    defaults.put("default_transaction_isolation", level);
   }
 
   public int getPort() {
@@ -223,11 +223,21 @@ public class PostgresServer implements AutoCloseable {
                 .i32(KEYS.nextInt())); // a cancel request must not be guessable
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
         processor.setDdlSettleMillis(ddlSettleMillis);
+        if (!user.isEmpty()) {
+          processor.setUser(user);
+        }
         for (Map.Entry<String, String> e : defaults.entrySet()) {
           processor.setDefault(e.getKey(), e.getValue());
         }
         for (Map.Entry<String, String> e : params.entrySet()) {
-          if (!e.getKey().equals("user") && !e.getKey().equals("database")) {
+          if (e.getKey().equals("options")) {
+            // PGOPTIONS='-c client_min_messages=warning': settings given at connection time
+            java.util.regex.Matcher option =
+                java.util.regex.Pattern.compile("-c\\s*([\\w.]+)=(\\S+)").matcher(e.getValue());
+            while (option.find()) {
+              processor.setDefault(option.group(1), option.group(2));
+            }
+          } else if (!e.getKey().equals("user") && !e.getKey().equals("database")) {
             processor.setDefault(e.getKey(), e.getValue()); // application_name, DateStyle, ...
           }
         }
@@ -334,7 +344,9 @@ public class PostgresServer implements AutoCloseable {
         boolean describe,
         short[] formats)
         throws Exception {
+      List<String> notices;
       try (QueryProcessor.Rows rows = processor.open(sql, parameters)) {
+        notices = rows.notices();
         Map<String, DataType> columns = rows.columns();
         if (!columns.isEmpty() || rows.returnsRows()) {
           // The first row is fetched before the RowDescription so computed columns get a type
@@ -373,6 +385,34 @@ public class PostgresServer implements AutoCloseable {
             rows.next();
           }
         }
+      }
+      // client_min_messages above NOTICE (warning, error, ...) suppresses them, as in PostgreSQL
+      String minimum = processor.currentSetting("client_min_messages").toLowerCase(Locale.ROOT);
+      boolean noticesWanted =
+          minimum.isEmpty()
+              || java.util.Arrays.asList(
+                      "debug5", "debug4", "debug3", "debug2", "debug1", "log", "notice", "info")
+                  .contains(minimum);
+      for (String notice : notices) {
+        boolean warning = notice.startsWith(QueryProcessor.WARNING);
+        if (warning
+            ? java.util.Arrays.asList("error", "fatal", "panic").contains(minimum)
+            : !noticesWanted) {
+          continue;
+        }
+        String severity = warning ? "WARNING" : "NOTICE";
+        send(
+            'N',
+            new Msg()
+                .i8('S')
+                .str(severity)
+                .i8('V')
+                .str(severity)
+                .i8('C')
+                .str("01000") // warning
+                .i8('M')
+                .str(warning ? notice.substring(QueryProcessor.WARNING.length()) : notice)
+                .i8(0));
       }
       send('C', new Msg().str(processor.lastCommandTag()));
     }
@@ -519,6 +559,15 @@ public class PostgresServer implements AutoCloseable {
       if (e instanceof Error) {
         return "XX000"; // internal_error
       }
+      if (m.contains("DB-CORE-10026")) {
+        return "22025"; // invalid_escape_sequence
+      }
+      if (m.contains("DB-CORE-10211")) {
+        return "25006"; // read_only_sql_transaction
+      }
+      if (m.contains("DB-CORE-10020") || m.contains("DB-CORE-10017")) {
+        return "22023"; // invalid_parameter_value: a key or value ScalarDB does not accept
+      }
       if (e instanceof QueryParser.UniqueViolationException) {
         return "23505"; // unique_violation
       }
@@ -539,6 +588,24 @@ public class PostgresServer implements AutoCloseable {
       }
       if (e instanceof NumberFormatException || m.startsWith("Cannot cast")) {
         return "22P02"; // invalid_text_representation
+      }
+      if (m.startsWith("isolation level ")
+          || m.startsWith("TABLESAMPLE")
+          || m.startsWith("SELECT INTO")
+          || m.startsWith("Temporary tables")
+          || m.startsWith("Data-modifying")
+          || m.startsWith("Expression indexes")
+          || m.startsWith("collation ")) {
+        return "0A000"; // feature_not_supported
+      }
+      if (m.startsWith("for SELECT DISTINCT")) {
+        return "42P10"; // invalid_column_reference
+      }
+      if (m.startsWith("invalid value for parameter")) {
+        return "22023"; // invalid_parameter_value
+      }
+      if (m.startsWith("SET TRANSACTION must be called before any query")) {
+        return "25001"; // active_sql_transaction
       }
       if (e instanceof IllegalStateException) {
         return "25000"; // invalid_transaction_state
@@ -579,6 +646,9 @@ public class PostgresServer implements AutoCloseable {
       }
       if (m.startsWith("Table not found")) {
         return "42P01"; // undefined_table
+      }
+      if (m.startsWith("operator does not exist")) {
+        return "42883"; // undefined_function
       }
       if (m.startsWith("Unsupported") || m.contains("are not supported")) {
         return "0A000"; // feature_not_supported

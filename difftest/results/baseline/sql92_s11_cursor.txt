@@ -1,0 +1,6 @@
+s11_13_1_declare_fetch_close FE_ERR
+s11_13_3_fetch_count FE_ERR
+s11_13_3_fetch_past_end FE_ERR
+s11_13_9_update_where_current_of FE_ERR
+s11_13_6_delete_where_current_of FE_ERR
+s11_select_for_update OK

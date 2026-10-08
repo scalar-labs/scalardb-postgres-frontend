@@ -1,0 +1,33 @@
+{'OK': 30, 'FE_ERR': 1, 'BOTH_ERR': 6}
+=== FE_ERR s06_6_12_unary_minus
+SELECT -grade, - -grade, -(grade - 20) FROM t92_staff WHERE empnum = 'E1';
+  pg: 
+  fe: ERROR:  Invalid SQL: SELECT -grade, - -grade, -(grade - 20) FROM t92_staff WHERE empnum = 'E1'
+=== BOTH_ERR s06_6_12_div_by_zero
+SELECT grade / 0 FROM t92_staff WHERE empnum = 'E1';
+  pg: ERROR:  division by zero
+  fe: ERROR:  division by zero
+=== BOTH_ERR s06_6_12_div_by_zero_column
+SELECT a / b FROM t92_nulls;
+  pg: ERROR:  division by zero
+  fe: ERROR:  division by zero
+=== BOTH_ERR s06_6_12_int_overflow
+SELECT 2147483647 + 1 FROM t92_staff WHERE empnum = 'E1';
+  pg: ERROR:  integer out of range
+  fe: ERROR:  integer out of range
+=== BOTH_ERR s06_6_12_int_column_overflow
+SELECT budget * 100000 FROM t92_proj WHERE pnum = 'P6';
+  pg: ERROR:  integer out of range
+  fe: ERROR:  integer out of range
+=== BOTH_ERR s06_6_5_aggregate_in_where_error
+SELECT empnum FROM t92_staff WHERE MAX(grade) > 10;
+  pg: ERROR:  aggregate functions are not allowed in WHERE
+LINE 1: SELECT empnum FROM t92_staff WHERE MAX(grade) > 10;
+                                           ^
+  fe: ERROR:  aggregate functions are not allowed in WHERE
+=== BOTH_ERR s06_6_5_nested_aggregate_error
+SELECT MAX(COUNT(*)) FROM t92_works GROUP BY pnum;
+  pg: ERROR:  aggregate function calls cannot be nested
+LINE 1: SELECT MAX(COUNT(*)) FROM t92_works GROUP BY pnum;
+                   ^
+  fe: ERROR:  aggregate function calls cannot be nested

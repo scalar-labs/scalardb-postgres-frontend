@@ -1,0 +1,19 @@
+ok   version {"version":"PostgreSQL 16.0 (ScalarDB frontend)"}
+ok   create {"command":"CREATE","rowCount":null,"oid":null,"rows":[],"fields":[],"_types":{"_types":{"arrayParser":{},"builtins":{"BOOL":16,"BYTEA":17,"CHAR":18,"INT8":20,"INT2":21,"INT4":23,"REGPROC":24,"TEXT":2
+ok   insert 1
+ok   insert2 1
+ok   any array param [{"id":1,"name":"a","qty":10,"created":"2024-01-01T00:00:00.000Z"},{"id":2,"name":"b","qty":20,"created":"2024-06-01T12:30:00.000Z"}]
+ok   tx [{"qty":11}]
+ok   named prepared "ok"
+ok   returning [{"id":3,"name":"c"}]
+ok   seq authenticate 
+ok   seq sync force 
+ok   seq bulkCreate 2
+ok   seq findAll in [{"id":1,"name":"x","price":1.5,"active":true},{"id":2,"name":"y","price":2.5,"active":false}]
+ok   seq update [1]
+ok   seq findOne {"id":1,"name":"x","price":3.5,"active":true}
+ok   seq destroy 1
+FAIL seq transaction DB-CORE-10106: Scanning data already-written or already-deleted by the same transaction is not allowed. Record: Key{namespace=orm, table=widgets, partitionKey=Key{IntColumn{name=id, value=3, hasNullVa
+ok   seq describeTable {"id":{"type":"INTEGER","allowNull":false,"defaultValue":null,"comment":null,"special":[],"primaryKey":true},"name":{"type":"TEXT","allowNull":true,"defaultValue":null,"comment":null,"special":[],"pri
+ok   seq showIndex ["widgets_pkey"]
+ok   seq showAllTables ["go_items","node_items","py_items","py_widgets","widgets"]

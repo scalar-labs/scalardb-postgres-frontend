@@ -1,0 +1,63 @@
+{'OK': 8, 'FE_ERR': 7, 'BOTH_ERR': 5, 'DIFF': 1}
+=== FE_ERR s09_read_own_insert_by_scan
+DROP TABLE IF EXISTS t92_w9_c06; CREATE TABLE t92_w9_c06 (id INTEGER, a INTEGER, PRIMARY KEY (id)); BEGIN; INSERT INTO t92_w9_c06 VALUES (1, 1); SELECT * FROM t92_w9_c06; COMMIT; DROP TABLE t92_w9_c06;
+  pg: 
+  fe: ERROR:  DB-CORE-10106: Scanning data already-written or already-deleted by the same transaction is not allowed. Record: Key{namespace=sdb, table=t92_w9_c06, partitionKey=Key{IntColumn{name=id, value=1, hasNullValue=false}}, clusteringKey=Optional.empty}
+=== FE_ERR s09_read_own_update_by_scan
+DROP TABLE IF EXISTS t92_w9_c07; CREATE TABLE t92_w9_c07 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w9_c07 VALUES (1, 1); BEGIN; UPDATE t92_w9_c07 SET a = 5 WHERE id = 1; SELECT COUNT(*) FROM t92_w9_c07 WHERE a = 5; COMMIT; DROP TABLE t92_w9_c07;
+  pg: 
+  fe: ERROR:  DB-CORE-10106: Scanning data already-written or already-deleted by the same transaction is not allowed. Record: Key{namespace=sdb, table=t92_w9_c07, partitionKey=Key{IntColumn{name=id, value=1, hasNullValue=false}}, clusteringKey=Optional.empty}
+=== FE_ERR s09_two_scan_updates_same_tx
+DROP TABLE IF EXISTS t92_w9_c08; CREATE TABLE t92_w9_c08 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w9_c08 VALUES (1, 1); INSERT INTO t92_w9_c08 VALUES (2, 2); BEGIN; UPDATE t92_w9_c08 SET a = a + 1; UPDATE t92_w9_c08 SET a = a * 10; COMMIT; SELECT * FROM t92_w9_c08; DROP TABLE t92_w9_c08;
+  pg: 
+  fe: ERROR:  DB-CORE-10106: Scanning data already-written or already-deleted by the same transaction is not allowed. Record: Key{namespace=sdb, table=t92_w9_c08, partitionKey=Key{IntColumn{name=id, value=1, hasNullValue=false}}, clusteringKey=Optional.empty}
+=== FE_ERR s09_insert_then_scan_delete_same_tx
+DROP TABLE IF EXISTS t92_w9_c09; CREATE TABLE t92_w9_c09 (id INTEGER, a INTEGER, PRIMARY KEY (id)); BEGIN; INSERT INTO t92_w9_c09 VALUES (1, 1); DELETE FROM t92_w9_c09 WHERE a = 1; COMMIT; SELECT COUNT(*) FROM t92_w9_c09; DROP TABLE t92_w9_c09;
+  pg: 
+  fe: ERROR:  DB-CORE-10106: Scanning data already-written or already-deleted by the same transaction is not allowed. Record: Key{namespace=sdb, table=t92_w9_c09, partitionKey=Key{IntColumn{name=id, value=1, hasNullValue=false}}, clusteringKey=Optional.empty}
+=== BOTH_ERR s09_error_aborts_tx
+DROP TABLE IF EXISTS t92_w9_c10; CREATE TABLE t92_w9_c10 (id INTEGER, a INTEGER, PRIMARY KEY (id)); BEGIN; INSERT INTO t92_w9_c10 VALUES (1, 1); INSERT INTO t92_w9_c10 VALUES (1, 2); INSERT INTO t92_w9_c10 VALUES (2, 2); COMMIT; SELECT * FROM t92_w9_c10; DROP TABLE t92_w9_c10;
+  pg: ERROR:  duplicate key value violates unique constraint "t92_w9_c10_pkey"
+DETAIL:  Key (id)=(1) already exists.
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+  fe: ERROR:  duplicate key value violates unique constraint "t92_w9_c10_pkey"
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== BOTH_ERR s09_error_then_commit_reports_rollback
+DROP TABLE IF EXISTS t92_w9_c11; CREATE TABLE t92_w9_c11 (id INTEGER, a INTEGER, PRIMARY KEY (id)); BEGIN; INSERT INTO t92_w9_c11 VALUES (1, 1); SELECT 1 / 0; COMMIT; SELECT COUNT(*) FROM t92_w9_c11; DROP TABLE t92_w9_c11;
+  pg: ERROR:  division by zero
+  fe: ERROR:  division by zero
+=== BOTH_ERR s09_autocommit_statement_atomic
+DROP TABLE IF EXISTS t92_w9_c12; CREATE TABLE t92_w9_c12 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w9_c12 VALUES (1, 1); INSERT INTO t92_w9_c12 VALUES (2, 1); INSERT INTO t92_w9_c12 VALUES (1, 9), (3, 9); SELECT * FROM t92_w9_c12; DROP TABLE t92_w9_c12;
+  pg: ERROR:  duplicate key value violates unique constraint "t92_w9_c12_pkey"
+DETAIL:  Key (id)=(1) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "t92_w9_c12_pkey"
+=== FE_ERR s09_savepoint_rollback_to_after_write
+DROP TABLE IF EXISTS t92_w9_c13; CREATE TABLE t92_w9_c13 (id INTEGER, a INTEGER, PRIMARY KEY (id)); BEGIN; INSERT INTO t92_w9_c13 VALUES (1, 1); SAVEPOINT s1; INSERT INTO t92_w9_c13 VALUES (2, 2); ROLLBACK TO SAVEPOINT s1; COMMIT; SELECT * FROM t92_w9_c13; DROP TABLE t92_w9_c13;
+  pg: 
+  fe: ERROR:  Cannot roll back to a savepoint after writes: ScalarDB has no partial rollback
+=== DIFF s09_ddl_in_tx_rollback
+DROP TABLE IF EXISTS t92_w9_c15; BEGIN; CREATE TABLE t92_w9_c15 (id INTEGER, PRIMARY KEY (id)); ROLLBACK; SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 't92_w9_c15'; DROP TABLE IF EXISTS t92_w9_c15;
+--- pg
++++ fe
+@@ -5,3 +5,3 @@
+ count
+-0
++1
+ (1 row)
+=== FE_ERR s09_set_transaction_isolation_serializable
+BEGIN; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE; SHOW transaction_isolation; COMMIT;
+  pg: 
+  fe: ERROR:  isolation level serializable is not available: this ScalarDB runs at read committed (scalar.db.consensus_commit.isolation_level=SERIALIZABLE gives serializable)
+ERROR:  Current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR s09_begin_isolation_serializable
+BEGIN ISOLATION LEVEL SERIALIZABLE; SHOW transaction_isolation; COMMIT;
+  pg: 
+  fe: ERROR:  isolation level serializable is not available: this ScalarDB runs at read committed (scalar.db.consensus_commit.isolation_level=SERIALIZABLE gives serializable)
+=== BOTH_ERR s09_set_transaction_read_only_write
+DROP TABLE IF EXISTS t92_w9_c19; CREATE TABLE t92_w9_c19 (id INTEGER, PRIMARY KEY (id)); BEGIN; SET TRANSACTION READ ONLY; INSERT INTO t92_w9_c19 VALUES (1); COMMIT; SELECT COUNT(*) FROM t92_w9_c19; DROP TABLE t92_w9_c19;
+  pg: ERROR:  cannot execute INSERT in a read-only transaction
+  fe: ERROR:  DB-CORE-10211: Mutations are not allowed in read-only transactions. Transaction ID: 6173ce9d-47d3-4bd2-92a6-7947b8ae5a25
+=== BOTH_ERR s09_begin_read_only_write
+DROP TABLE IF EXISTS t92_w9_c20; CREATE TABLE t92_w9_c20 (id INTEGER, PRIMARY KEY (id)); BEGIN READ ONLY; INSERT INTO t92_w9_c20 VALUES (1); COMMIT; SELECT COUNT(*) FROM t92_w9_c20; DROP TABLE t92_w9_c20;
+  pg: ERROR:  cannot execute INSERT in a read-only transaction
+  fe: ERROR:  DB-CORE-10211: Mutations are not allowed in read-only transactions. Transaction ID: 69ef97d3-260c-4372-818d-6b1a36562dd2

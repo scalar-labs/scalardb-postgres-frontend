@@ -1,5 +1,7 @@
 """Runs each case in cases*.sql on native PG and the frontend via psql and diffs the outputs.
-Case header: `-- @name [ordered]`. Rows inside each result are sorted unless `ordered`."""
+Case header: `-- @name [ordered]`. Rows inside each result are sorted unless `ordered`.
+EXPECT=<file> compares every case's status with the baseline file (`name status` per line) and
+exits 1 on a change; WRITE_EXPECT=<file> records the statuses of this run as the baseline."""
 import os, re, subprocess, sys
 FOOT = re.compile(r'^\((\d+) rows?\)$')
 def run(port, db, sql):
@@ -29,6 +31,7 @@ for f in sys.argv[1:]:
         head, _, body = chunk.partition('\n')
         cases.append((head.split()[0], 'ordered' in head.split()[1:], body.strip()))
 stats = {}
+statuses = {}
 for name, ordered, sql in cases:
     if os.environ.get('SNAP'):
         sql = sql + '\n' + ''.join(f'SELECT * FROM {t};\n' for t in ('emp', 'dept', 'proj', 'assign', 'types'))
@@ -44,6 +47,7 @@ for name, ordered, sql in cases:
         for port, db in (('15440', os.environ.get('NATIVE', 'native_c')), (os.environ.get('FEPORT', '15441'), 'sdb')):
             subprocess.run(['psql', '-X', '-q', '-h', 'localhost', '-U', 'postgres', '-p', port, '-d', db, '-f', 'trunc.sql', '-f', 'data.sql'], check=True, capture_output=True)
     stats[st] = stats.get(st, 0) + 1
+    statuses[name] = st
     if st != 'OK':
         print(f'=== {st} {name}\n{sql}')
         if st == 'NAMES': print('  pg:', no.splitlines()[0], '\n  fe:', fo.splitlines()[0]); continue
@@ -53,3 +57,16 @@ for name, ordered, sql in cases:
             a = [l for b in norm(no, ordered, False) for l in b]; b2 = [l for b in norm(fo, ordered, False) for l in b]
             print('\n'.join(list(difflib.unified_diff(a, b2, 'pg', 'fe', lineterm='', n=1))[:40]))
 print(stats, file=sys.stderr)
+if os.environ.get('WRITE_EXPECT'):
+    with open(os.environ['WRITE_EXPECT'], 'w') as out:
+        out.write(''.join(f'{n} {st}\n' for n, st in statuses.items()))
+if os.environ.get('EXPECT'):
+    expected = dict(l.split() for l in open(os.environ['EXPECT']) if l.strip())
+    changed = [(n, expected.get(n), st) for n, st in statuses.items() if expected.get(n) != st]
+    for n, was, now in changed:
+        print(f'CHANGED {n}: expected {was}, got {now}', file=sys.stderr)
+    missing = [n for n in expected if n not in statuses]
+    if missing:
+        print(f'MISSING cases: {missing}', file=sys.stderr)
+    if changed or missing:
+        sys.exit(1)

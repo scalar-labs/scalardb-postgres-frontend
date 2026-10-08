@@ -20,8 +20,24 @@ python3 leak.py cases_read.sql                        # reports cases that leave
 
 `FEPORT` overrides the frontend port (default 15441) for `run.py` and `leak.py`.
 
+`cases_session.sql` covers session semantics (`SET TIME ZONE`, `search_path`, `SET LOCAL`) and the
+statements the frontend refuses on purpose; its `refuse_*` cases are expected `FE_ERR`.
+
+`results/baseline/*.txt` record the expected status of every case (`name status` per line).
+`EXPECT=results/baseline/read.txt python3 run.py cases_read.sql` exits 1 and prints `CHANGED` for any
+case whose status moved, so a run is a pass/fail test and not only a report; `WRITE_EXPECT=<file>`
+records the statuses of a run as the new baseline once a change is understood. The expected
+non-OK statuses are explained in `results/<date>/summary.txt` of the run that set the baseline.
+
+`sql92-entry/` holds a 317-case SQL-92 Entry conformance suite contributed by the 2026-10-07 verification
+(see its README); it runs through the same `run.py`.
+
 The cluster must be UTF-8 with a C locale and a UTC time zone, or `string_funcs` (an `e` with an
 accent) and the `types` snapshots (`timestamptz` output) differ for reasons unrelated to the frontend.
+The **backing** database of the frontend needs the C locale as well: on a default `en_US` database
+`text_cmp_case` (`WHERE name < 'a'`) returns no rows, because the range condition is pushed down to
+the database and evaluated under its collation. `leak.py` checks the backing cluster; set
+`BACKEND_PORT` when it is not the one on 15440.
 Run the sets one at a time, and reload both sides (`trunc.sql` then `data.sql`) before a read run that
 follows the write sets: the write and bind sets leave the two sides slightly different.
 

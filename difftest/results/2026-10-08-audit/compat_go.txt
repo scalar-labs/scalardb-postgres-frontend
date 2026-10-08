@@ -1,0 +1,9 @@
+ok   version PostgreSQL 16.0 (ScalarDB frontend)
+ok   create <nil>
+ok   insert binary params <nil>
+ok   any int4 array [1:a:10:1.5:2024-01-01T00:00:00Z:true 2:b:20:2.5:2024-06-01T12:30:00Z:false]
+ok   any text array [1]
+ok   tx <nil>
+ok   batch pipeline a 20
+ok   count + numeric 2 15.5000000000000000
+ok   delete 1

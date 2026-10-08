@@ -1,7 +1,7 @@
 import re, subprocess, sys, os
 env = dict(os.environ, LANG='C', LC_ALL='C')
 def idle():
-    return subprocess.run(['psql','-X','-Atq','-h','localhost','-U','postgres','-p','15440','-d','sdb','-c',
+    return subprocess.run(['psql','-X','-Atq','-h','localhost','-U','postgres','-p',os.environ.get('BACKEND_PORT', '15440'),'-d','sdb','-c',
         "select count(*) from pg_stat_activity where datname='sdb' and state like 'idle in%'"], capture_output=True, text=True).stdout.strip()
 base = idle()
 for chunk in re.split(r'^-- @', open(sys.argv[1]).read(), flags=re.M)[1:]:

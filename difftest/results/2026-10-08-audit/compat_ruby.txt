@@ -1,0 +1,11 @@
+ok   connect [{"?column?"=>1}]
+ok   create_table ["go_items", "node_items", "py_items", "py_widgets", "widgets"]
+ok   create 2
+ok   where in [[1, "a", true], [2, "b", false]]
+ok   find/update 9.5
+ok   transaction 2
+ok   destroy 2
+ok   columns [["id", :integer], ["name", :text], ["price", :float], ["qty", :integer], ["active", :boolean], ["created_at", :datetime]]
+ok   indexes []
+ok   primary key "id"
+ok   schema dump bits [true, true]

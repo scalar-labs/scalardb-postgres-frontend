@@ -1,0 +1,36 @@
+Audit of 2026-10-08: does the frontend process what it supports correctly and refuse the rest?
+Frontend jar built 13:27 (122 unit tests), backing PostgreSQL 18 with the C locale on 15440, frontend on 15444.
+
+Difftest sets (status counts; the baseline files in results/baseline/ hold the per-case statuses)
+  read      OK 225  NUM_FMT 1  BOTH_ERR 3  DIFF 1  PG_ERR 1   (231 cases; tablesample_all moved to cases_session as refuse_tablesample)
+  types     OK 14
+  write     OK 16   FE_ERR 11  BOTH_ERR 7                     (the FE_ERRs are scan-after-write inside BEGIN, DB-CORE-10106)
+  write_ac  OK 49   FE_ERR 1   BOTH_ERR 3                     (ac_update_pk_column: a key column cannot be updated)
+  bind      OK 16   BOTH_ERR 2 FE_ERR 1                       (bind_date_ts: timestamp bound through psql \bind)
+  session   OK 13   BOTH_ERR 7 FE_ERR 8                       (new set; every FE_ERR is a refuse_* case)
+  Every set re-run with EXPECT=<baseline> passes (exit 0, no CHANGED line).
+
+Expected non-OK cases in the read set, unchanged since 2026-10-07:
+  avg_double (NUM_FMT: no NUMERIC type), int_mult_overflow and division_by_zero (BOTH_ERR, same error),
+  string_funcs (upper of an accented letter under PostgreSQL's C ctype), abs_round (PG_ERR: round(double, n)
+  exists here), scalar_subquery_multi_row_err (BOTH_ERR).
+
+SQL-92 Entry suite (317 cases): identical to the 2026-10-08 feedback run, 223 OK, 0 silent acceptances
+  (per-set counts in sql92-entry/README.md).
+
+Driver scenarios: psycopg/SQLAlchemy 13 ok (2 known: reflection of columns, create_all+insert = DB-CORE-10106);
+  node-postgres/Sequelize 18 ok (1 known: the transaction step, DB-CORE-10106); pgx 9 ok; pg/ActiveRecord 11 ok.
+
+What this audit changed (all verified above):
+  Refused now (were silently different): TABLESAMPLE; COLLATE other than "C"/POSIX (a pre-parse regex had been
+  stripping every COLLATE, so JSQLParser never saw it); CREATE TEMP TABLE; SELECT INTO; data-modifying WITH;
+  expression indexes; SELECT DISTINCT with ORDER BY outside the list; text column compared with a number
+  (operator does not exist: text = integer, 42883; before, `name = 1` matched nothing).
+  Honored now: SET TIME ZONE in every PostgreSQL spelling (name, INTERVAL '+09:00' HOUR TO MINUTE as Sequelize
+  sends, hours, POSIX '+05:30' west-positive) for timestamptz input and output; search_path; SET LOCAL reverting
+  at transaction end and warning outside one (WARNING severity, also for SET TRANSACTION outside a block);
+  LIMIT ALL; UPDATE SET DEFAULT; CURRENT_TIMESTAMP(n); char(n)/varchar(n) casts truncating; timestamp(p)/time(p)
+  casts rounding half up like PostgreSQL (were ignored).
+  Announced with a NOTICE: CREATE UNIQUE INDEX (not unique) and partial indexes (WHERE dropped).
+  Found by the compat run, not the difftest: rejecting Sequelize's SET TIME ZONE INTERVAL form made its pool
+  retry the connection without end.

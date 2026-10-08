@@ -1,0 +1,12 @@
+{'OK': 54, 'BOTH_ERR': 2}
+=== BOTH_ERR s04_8_5_like_bad_escape
+SELECT empname FROM t92_staff WHERE empname LIKE 'A%' ESCAPE 'xx';
+  pg: ERROR:  invalid escape string
+HINT:  Escape string must be empty or one character.
+  fe: ERROR:  DB-CORE-10026: An escape character must be a string of a single character or an empty string
+=== BOTH_ERR s04_8_2_cmp_type_error
+SELECT empnum FROM t92_staff WHERE grade = 'abc';
+  pg: ERROR:  invalid input syntax for type integer: "abc"
+LINE 1: SELECT empnum FROM t92_staff WHERE grade = 'abc';
+                                                   ^
+  fe: ERROR:  invalid input syntax for type integer: "abc"

@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 /**
@@ -30,6 +31,11 @@ public class QueryProcessor {
   private final DistributedTransactionManager manager;
   private final QueryParser parser;
   @Nullable private DistributedTransaction transaction;
+  // BEGIN was seen but no statement ran yet: the ScalarDB transaction starts with the first
+  // statement, so SET TRANSACTION READ ONLY / ISOLATION LEVEL can still shape it, as in PostgreSQL
+  private boolean pending;
+  private boolean pendingReadOnly;
+  private boolean transactionIsolationSet; // SHOW transaction_isolation reverts when it ends
   private boolean aborted; // a statement failed inside the transaction: only ROLLBACK/COMMIT now
   private String lastCommandTag = "";
   private long ddlSettleMillis;
@@ -68,6 +74,16 @@ public class QueryProcessor {
 
   private static final java.util.regex.Pattern READ_ONLY =
       java.util.regex.Pattern.compile("(?i)\\bREAD\\s+ONLY\\b");
+  private static final java.util.regex.Pattern READ_WRITE =
+      java.util.regex.Pattern.compile("(?i)\\bREAD\\s+WRITE\\b");
+  private static final java.util.regex.Pattern ISOLATION =
+      java.util.regex.Pattern.compile(
+          "(?i)\\bISOLATION\\s+LEVEL\\s+(READ\\s+UNCOMMITTED|READ\\s+COMMITTED|REPEATABLE\\s+READ|SERIALIZABLE)\\b");
+  private static final java.util.regex.Pattern SET_TRANSACTION =
+      java.util.regex.Pattern.compile(
+          "(?is)^\\s*SET\\s+(SESSION\\s+CHARACTERISTICS\\s+AS\\s+)?TRANSACTION\\s+(.+?)\\s*;?\\s*$");
+  private static final java.util.regex.Pattern BEGIN_WORD =
+      java.util.regex.Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
   // The most rows a read-then-write statement may write; 0 means no limit
   private static final String MAX_ROWS_PER_WRITE = "scalardb.max_rows_per_write";
 
@@ -91,21 +107,41 @@ public class QueryProcessor {
     defaults.put(MAX_ROWS_PER_WRITE, String.valueOf(QueryParser.DEFAULT_MAX_ROWS_PER_WRITE));
     defaults.put("is_superuser", "off");
     defaults.put("search_path", "\"$user\", public");
-    defaults.put("transaction_isolation", "repeatable read");
+    // ScalarDB's SNAPSHOT reads each record's committed version with no snapshot across records,
+    // which is what PostgreSQL calls READ COMMITTED; the server raises this for SERIALIZABLE
+    defaults.put("transaction_isolation", "read committed");
+    defaults.put("default_transaction_isolation", "read committed");
+    defaults.put("default_transaction_read_only", "off");
     defaults.put("application_name", "");
     defaults.put("max_identifier_length", "63");
     defaults.put("client_min_messages", "notice");
+  }
+
+  /** The user the client connected as, for {@code current_user}. */
+  public void setUser(String user) {
+    parser.setUser(user);
+  }
+
+  /** The session's current value of a setting, from SET or the defaults. */
+  public String currentSetting(String name) {
+    String key = settingKey(name);
+    return current(key == null ? name : key);
   }
 
   /** Sets a session default, as the server does from its properties and the startup message. */
   public void setDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, value);
+    searchPathChanged(key);
   }
 
   private static final java.util.regex.Pattern SET_VALUE =
       java.util.regex.Pattern.compile(
-          "(?is)SET\\s+(?:SESSION\\s+|LOCAL\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+)|TIME\\s+ZONE\\s+(.+))");
+          "(?is)SET\\s+(?:(SESSION|LOCAL)\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+)|TIME\\s+ZONE\\s+(.+))");
+  // SET LOCAL: the values to restore when the transaction ends (null: the setting was absent)
+  private final Map<String, String> localSaved = new LinkedHashMap<>();
+  private String zoneName = "";
+  private java.time.ZoneId zone = java.time.ZoneOffset.UTC;
   private static final java.util.regex.Pattern RESET_NAME =
       java.util.regex.Pattern.compile("(?is)RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)");
   private static final java.util.regex.Pattern SHOW_NAME =
@@ -132,28 +168,47 @@ public class QueryProcessor {
     return null;
   }
 
-  /** Records SET and RESET in the session settings. */
-  private void setting(String sql) {
+  /** Records SET and RESET in the session settings; returns a warning for the client, if any. */
+  @Nullable private String setting(String sql) {
     java.util.regex.Matcher set = SET_VALUE.matcher(QueryParser.trimStatement(sql));
     if (set.matches()) {
-      String name = set.group(1) != null ? set.group(1) : "TimeZone"; // SET TIME ZONE 'x'
-      String value = (set.group(1) != null ? set.group(2) : set.group(3)).trim();
+      boolean local = "LOCAL".equalsIgnoreCase(set.group(1));
+      if (local && !inTransaction()) {
+        return WARNING + "SET LOCAL can only be used in transaction blocks";
+      }
+      String name = set.group(2) != null ? set.group(2) : "TimeZone"; // SET TIME ZONE 'x'
+      String value = (set.group(2) != null ? set.group(3) : set.group(4)).trim();
       if (value.length() >= 2 && value.startsWith("'") && value.endsWith("'")) {
         value = value.substring(1, value.length() - 1).replace("''", "'");
       } else if (value.equalsIgnoreCase("DEFAULT")) {
         String key = settingKey(name);
         if (key != null) {
+          if (local) {
+            localSaved.putIfAbsent(key, settings.get(key));
+          }
           settings.remove(key);
+          searchPathChanged(key);
         }
-        return;
+        return null;
       }
       String key = settingKey(name);
+      if ("TimeZone".equals(key)) {
+        value = zoneOf(value).getId().equals("Z") ? "UTC" : value; // validated here
+      }
+      if (local) {
+        localSaved.putIfAbsent(key == null ? name : key, settings.get(key == null ? name : key));
+      }
+      if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
+        value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        checkIsolation(value);
+      }
       if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
         throw new IllegalArgumentException(
             "invalid value for parameter \"" + MAX_ROWS_PER_WRITE + "\": \"" + value + "\"");
       }
       settings.put(key == null ? name : key, value);
-      return;
+      searchPathChanged(key);
+      return null;
     }
     java.util.regex.Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
     if (reset.matches()) {
@@ -163,11 +218,77 @@ public class QueryProcessor {
         String key = settingKey(reset.group(1));
         if (key != null) {
           settings.remove(key);
+          searchPathChanged(key);
         }
       }
     } else if (firstWord(sql).equals("DISCARD")) {
       settings.clear();
     }
+    searchPathChanged("search_path");
+    return null;
+  }
+
+  private void searchPathChanged(@Nullable String key) {
+    if ("search_path".equals(key)) {
+      parser.setSearchPath(current("search_path"));
+    }
+  }
+
+  /** PostgreSQL's TimeZone names: IANA zones, abbreviations such as JST, and fixed offsets. */
+  // SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE (Sequelize sends this on every connection)
+  private static final Pattern INTERVAL_ZONE =
+      Pattern.compile("(?i)^INTERVAL\\s+'([+-]?\\d{1,2}(?::\\d{2})?)'\\s+HOUR\\s+TO\\s+MINUTE$");
+
+  // SET TIME ZONE 9, SET TIME ZONE '-3.5': hours east of UTC
+  private static final Pattern NUMERIC_ZONE = Pattern.compile("^[+-]?\\d{1,2}(?:\\.\\d+)?$");
+  // SET TIME ZONE '+05:30', 'UTC+9': a POSIX zone, whose offset is positive WEST of UTC
+  private static final Pattern POSIX_ZONE =
+      Pattern.compile("(?i)^(?:UTC|GMT)?([+-])(\\d{1,2})(?::(\\d{2}))?$");
+
+  static java.time.ZoneId zoneOf(String name) {
+    String text = name.trim();
+    java.util.regex.Matcher m = INTERVAL_ZONE.matcher(text);
+    if (m.matches()) {
+      return offset(m.group(1), false);
+    }
+    if (NUMERIC_ZONE.matcher(text).matches()) {
+      return java.time.ZoneOffset.ofTotalSeconds((int) Math.round(Double.parseDouble(text) * 3600));
+    }
+    if (POSIX_ZONE.matcher(text).matches()) {
+      return offset(text.replaceFirst("(?i)^(UTC|GMT)", ""), true);
+    }
+    try {
+      return java.time.ZoneId.of(name, java.time.ZoneId.SHORT_IDS);
+    } catch (java.time.DateTimeException e) {
+      try {
+        return java.time.ZoneId.of(name.toUpperCase(Locale.ROOT), java.time.ZoneId.SHORT_IDS);
+      } catch (java.time.DateTimeException again) {
+        throw new IllegalArgumentException(
+            "invalid value for parameter \"TimeZone\": \"" + name + "\"");
+      }
+    }
+  }
+
+  /** {@code [+-]hh[:mm]} as an offset; a POSIX spec counts the other way round. */
+  private static java.time.ZoneOffset offset(String text, boolean posix) {
+    java.util.regex.Matcher m = Pattern.compile("^([+-]?)(\\d{1,2})(?::(\\d{2}))?$").matcher(text);
+    if (!m.matches()) {
+      throw new IllegalArgumentException(
+          "invalid value for parameter \"TimeZone\": \"" + text + "\"");
+    }
+    int sign = (m.group(1).equals("-") ? -1 : 1) * (posix ? -1 : 1);
+    int minutes = m.group(3) == null ? 0 : Integer.parseInt(m.group(3));
+    return java.time.ZoneOffset.ofHoursMinutes(sign * Integer.parseInt(m.group(2)), sign * minutes);
+  }
+
+  /** Puts the session's TimeZone on this thread before a statement runs. */
+  private void applyZone() {
+    String name = current("TimeZone");
+    if (!name.equals(zoneName)) {
+      zoneName = name;
+      zone = zoneOf(name);
+    }
+    Evaluator.setZone(zone);
   }
 
   /** The session's cap on rows a read-then-write statement may write; 0 means no limit. */
@@ -215,6 +336,16 @@ public class QueryProcessor {
   }
 
   /** The rows of one statement, pulled from ScalarDB as they are consumed; close it when done. */
+  /** Prefix of a notice the server sends with WARNING severity instead of NOTICE. */
+  public static final String WARNING = "WARNING: ";
+
+  private Rows warning(String message) {
+    Rows rows = new Rows(null, QueryParser.Cursor.EMPTY);
+    rows.notices =
+        Collections.singletonList(message.startsWith(WARNING) ? message : WARNING + message);
+    return rows;
+  }
+
   public final class Rows implements Iterator<Map<String, Object>>, AutoCloseable {
     @Nullable private final QueryParser.Plan plan;
     private final QueryParser.Cursor cursor;
@@ -222,9 +353,19 @@ public class QueryProcessor {
     private boolean exhausted;
     private int count;
 
+    private List<String> notices = Collections.emptyList();
+
     private Rows(@Nullable QueryParser.Plan plan, QueryParser.Cursor cursor) {
       this.plan = plan;
       this.cursor = cursor;
+      if (plan != null) {
+        notices = plan.notices;
+      }
+    }
+
+    /** Warnings to send the client before the command completes (PostgreSQL NOTICEs). */
+    public List<String> notices() {
+      return Collections.unmodifiableList(notices);
     }
 
     /** The output columns and their types where known (null for computed columns). */
@@ -332,6 +473,7 @@ public class QueryProcessor {
   /** As {@link #open(String)}, with values for the statement's {@code $n} placeholders. */
   public Rows open(String sql, List<Object> parameters)
       throws TransactionException, ExecutionException {
+    applyZone();
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
@@ -339,17 +481,19 @@ public class QueryProcessor {
     switch (word) {
       case "BEGIN":
       case "START":
-        if (transaction != null) {
+        if (inTransaction()) {
           throw new IllegalStateException("A transaction is already active");
         }
-        // BEGIN READ ONLY (what JDBC sends for a read-only connection) starts a read-only
+        // BEGIN READ ONLY (what JDBC sends for a read-only connection) will start a read-only
         // ScalarDB transaction: no coordinator write and no validation at commit
-        transaction = READ_ONLY.matcher(sql).find() ? manager.beginReadOnly() : manager.begin();
-        lastCommandTag = "BEGIN";
+        pendingReadOnly = isOn(current("default_transaction_read_only"));
+        transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
+        pending = true;
+        lastCommandTag = word.equals("START") ? "START TRANSACTION" : "BEGIN";
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "COMMIT":
       case "END":
-        if (transaction == null) {
+        if (!inTransaction()) {
           // As in PostgreSQL, only a warning: the error that ended the transaction stays visible
           lastCommandTag = "COMMIT";
           return new Rows(null, QueryParser.Cursor.EMPTY);
@@ -360,11 +504,11 @@ public class QueryProcessor {
           return new Rows(null, QueryParser.Cursor.EMPTY);
         }
         try {
-          active().commit();
+          if (transaction != null) {
+            transaction.commit();
+          }
         } finally {
-          transaction = null;
-          savepoints.clear();
-          writesSinceSavepoint = 0;
+          endTransaction();
         }
         lastCommandTag = "COMMIT";
         return new Rows(null, QueryParser.Cursor.EMPTY);
@@ -374,7 +518,7 @@ public class QueryProcessor {
             && sql.toUpperCase(Locale.ROOT).contains(" TO ")) {
           // ROLLBACK TO SAVEPOINT: fine while the savepoint saw only reads, which also clears an
           // error since the failed statement wrote nothing
-          if (transaction == null) {
+          if (!inTransaction()) {
             throw new IllegalStateException(
                 "ROLLBACK TO SAVEPOINT can only be used in transaction blocks");
           }
@@ -389,7 +533,7 @@ public class QueryProcessor {
         rollback();
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "SAVEPOINT":
-        if (transaction == null) {
+        if (!inTransaction()) {
           throw new IllegalStateException("SAVEPOINT can only be used in transaction blocks");
         }
         java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
@@ -398,7 +542,7 @@ public class QueryProcessor {
         lastCommandTag = "SAVEPOINT";
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "RELEASE":
-        if (transaction == null) {
+        if (!inTransaction()) {
           throw new IllegalStateException(
               "RELEASE SAVEPOINT can only be used in transaction blocks");
         }
@@ -408,27 +552,136 @@ public class QueryProcessor {
         lastCommandTag = "RELEASE";
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "SET":
+        {
+          java.util.regex.Matcher tx = SET_TRANSACTION.matcher(sql);
+          if (tx.matches()) {
+            if (tx.group(1) != null) {
+              sessionTransactionDefaults(tx.group(2)); // SET SESSION CHARACTERISTICS AS ...
+            } else if (!inTransaction()) {
+              lastCommandTag = "SET";
+              return warning("SET TRANSACTION can only be used in transaction blocks");
+            } else if (transaction != null) {
+              throw new IllegalStateException("SET TRANSACTION must be called before any query");
+            } else {
+              transactionCharacteristics(tx.group(2));
+            }
+            lastCommandTag = "SET";
+            return new Rows(null, QueryParser.Cursor.EMPTY);
+          }
+        }
+      // fall through
       case "RESET":
       case "DISCARD":
         // Session settings are recorded for SHOW; only the write cap changes behavior
-        setting(sql);
+        String warning = setting(sql);
         lastCommandTag = firstWord(sql).equals("DISCARD") ? "DISCARD ALL" : firstWord(sql);
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return warning == null ? new Rows(null, QueryParser.Cursor.EMPTY) : warning(warning);
       case "SHOW":
         {
           QueryParser.Plan plan = show(sql);
           return new Rows(plan, plan.open(manager));
         }
       default:
-        if (transaction != null && WRITES.contains(word)) {
+        if (inTransaction() && WRITES.contains(word)) {
           writesSinceSavepoint++;
         }
         try {
           return statement(sql, parameters);
         } catch (RuntimeException | TransactionException | ExecutionException e) {
-          aborted |= transaction != null;
+          aborted |= inTransaction();
           throw e;
         }
+    }
+  }
+
+  /** BEGIN or SET TRANSACTION options: ISOLATION LEVEL, READ ONLY, READ WRITE. */
+  private void transactionCharacteristics(String text) {
+    java.util.regex.Matcher level = ISOLATION.matcher(text);
+    if (level.find()) {
+      String requested = level.group(1).toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+      checkIsolation(requested); // throws before anything about the block changes
+      settings.put("transaction_isolation", requested);
+      transactionIsolationSet = true;
+    }
+    if (READ_ONLY.matcher(text).find()) {
+      pendingReadOnly = true;
+    } else if (READ_WRITE.matcher(text).find()) {
+      pendingReadOnly = false;
+    }
+  }
+
+  /** SET SESSION CHARACTERISTICS AS TRANSACTION ...: the defaults for later transactions. */
+  private void sessionTransactionDefaults(String text) {
+    java.util.regex.Matcher level = ISOLATION.matcher(text);
+    if (level.find()) {
+      String requested = level.group(1).toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+      checkIsolation(requested);
+      settings.put("default_transaction_isolation", requested);
+    }
+    if (READ_ONLY.matcher(text).find()) {
+      settings.put("default_transaction_read_only", "on");
+    } else if (READ_WRITE.matcher(text).find()) {
+      settings.put("default_transaction_read_only", "off");
+    }
+  }
+
+  /**
+   * A requested isolation level must not exceed what the engine runs at: ScalarDB's SNAPSHOT is
+   * READ COMMITTED here, SERIALIZABLE is SERIALIZABLE. A weaker request is accepted, as in
+   * PostgreSQL. Ignoring a stronger one would silently drop a guarantee the client asked for.
+   */
+  private void checkIsolation(String requested) {
+    String available = defaults.getOrDefault("transaction_isolation", "read committed");
+    if (isolationRank(requested) > isolationRank(available)) {
+      throw new IllegalArgumentException(
+          "isolation level "
+              + requested
+              + " is not available: this ScalarDB runs at "
+              + available
+              + " (scalar.db.consensus_commit.isolation_level=SERIALIZABLE gives serializable)");
+    }
+  }
+
+  private static int isolationRank(String level) {
+    switch (level) {
+      case "read uncommitted":
+        return 0;
+      case "read committed":
+        return 1;
+      case "repeatable read":
+        return 2;
+      default:
+        return 3;
+    }
+  }
+
+  private String current(String key) {
+    return settings.getOrDefault(key, defaults.getOrDefault(key, ""));
+  }
+
+  private static boolean isOn(String value) {
+    return value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true") || value.equals("1");
+  }
+
+  /** Forgets the transaction and what BEGIN or SET TRANSACTION set for it. */
+  private void endTransaction() {
+    transaction = null;
+    pending = false;
+    pendingReadOnly = false;
+    savepoints.clear();
+    writesSinceSavepoint = 0;
+    for (Map.Entry<String, String> saved : localSaved.entrySet()) {
+      if (saved.getValue() == null) {
+        settings.remove(saved.getKey()); // SET LOCAL ends with the transaction
+      } else {
+        settings.put(saved.getKey(), saved.getValue());
+      }
+    }
+    localSaved.clear();
+    searchPathChanged("search_path");
+    if (transactionIsolationSet) {
+      settings.remove("transaction_isolation");
+      transactionIsolationSet = false;
     }
   }
 
@@ -441,10 +694,8 @@ public class QueryProcessor {
         transaction.rollback();
       }
     } finally {
-      transaction = null;
+      endTransaction();
       aborted = false;
-      savepoints.clear();
-      writesSinceSavepoint = 0;
     }
     lastCommandTag = "ROLLBACK";
   }
@@ -469,15 +720,20 @@ public class QueryProcessor {
         planCache.clear();
         lastCommandTag = plan.commandTag(0);
         settleMetadata(lastCommandTag);
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        Rows rows = new Rows(null, QueryParser.Cursor.EMPTY);
+        rows.notices = plan.notices;
+        return rows;
       }
       if (plan.getWrite() != null) {
         // The read and the writes must share one transaction
         int written;
-        if (transaction != null) {
-          written = plan.executeWrite(transaction, maxRowsPerWrite());
+        if (inTransaction()) {
+          written = plan.executeWrite(active(), maxRowsPerWrite());
         } else {
-          DistributedTransaction own = manager.begin();
+          DistributedTransaction own =
+              isOn(current("default_transaction_read_only"))
+                  ? manager.beginReadOnly()
+                  : manager.begin();
           try {
             written = plan.executeWrite(own, maxRowsPerWrite());
             own.commit();
@@ -498,7 +754,7 @@ public class QueryProcessor {
             ? new Rows(null, QueryParser.Cursor.EMPTY)
             : new Rows(plan, plan.returned());
       }
-      QueryParser.Cursor cursor = transaction == null ? plan.open(manager) : plan.open(transaction);
+      QueryParser.Cursor cursor = inTransaction() ? plan.open(active()) : plan.open(manager);
       return new Rows(plan, cursor);
     }
   }
@@ -531,6 +787,7 @@ public class QueryProcessor {
 
   public Map<String, DataType> describe(String sql, List<Object> parameters)
       throws ExecutionException {
+    applyZone();
     Map<String, DataType> columns = new LinkedHashMap<>();
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
@@ -617,7 +874,7 @@ public class QueryProcessor {
   }
 
   public boolean inTransaction() {
-    return transaction != null;
+    return transaction != null || pending;
   }
 
   /**
@@ -626,7 +883,7 @@ public class QueryProcessor {
    * ROLLBACK} or {@code COMMIT} (which rolls back).
    */
   public void fail() {
-    aborted |= transaction != null;
+    aborted |= inTransaction();
   }
 
   /** True once a statement failed inside the transaction, until it is rolled back. */
@@ -634,9 +891,14 @@ public class QueryProcessor {
     return aborted;
   }
 
-  private DistributedTransaction active() {
+  /** The transaction block's ScalarDB transaction, started on first use. */
+  private DistributedTransaction active() throws TransactionException {
     if (transaction == null) {
-      throw new IllegalStateException("No active transaction");
+      if (!pending) {
+        throw new IllegalStateException("No active transaction");
+      }
+      transaction = pendingReadOnly ? manager.beginReadOnly() : manager.begin();
+      pending = false;
     }
     return transaction;
   }

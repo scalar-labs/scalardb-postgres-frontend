@@ -1,0 +1,48 @@
+{'OK': 49, 'FE_ERR': 1, 'BOTH_ERR': 3}
+=== FE_ERR ac_update_pk_column
+UPDATE dept SET id = 50 WHERE id = 1;
+SELECT * FROM emp;
+SELECT * FROM dept;
+SELECT * FROM proj;
+SELECT * FROM assign;
+SELECT * FROM types;
+
+  pg: 
+  fe: ERROR:  A primary key column cannot be updated: id
+=== BOTH_ERR ac_insert_multi_dup_within
+INSERT INTO dept VALUES (102, 'a', NULL, NULL, NULL), (102, 'b', NULL, NULL, NULL);
+SELECT * FROM emp;
+SELECT * FROM dept;
+SELECT * FROM proj;
+SELECT * FROM assign;
+SELECT * FROM types;
+
+  pg: ERROR:  duplicate key value violates unique constraint "dept_pkey"
+DETAIL:  Key (id)=(102) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "dept_pkey"
+=== BOTH_ERR ac_insert_multi_one_dup
+INSERT INTO dept VALUES (103, 'a', NULL, NULL, NULL), (1, 'b', NULL, NULL, NULL);
+SELECT * FROM emp;
+SELECT * FROM dept;
+SELECT * FROM proj;
+SELECT * FROM assign;
+SELECT * FROM types;
+
+  pg: ERROR:  duplicate key value violates unique constraint "dept_pkey"
+DETAIL:  Key (id)=(1) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "dept_pkey"
+=== BOTH_ERR ac_tx_error_then_commit
+BEGIN;
+UPDATE emp SET salary = 1 WHERE id = 1;
+SELECT nosuchcol FROM emp;
+COMMIT;
+SELECT * FROM emp;
+SELECT * FROM dept;
+SELECT * FROM proj;
+SELECT * FROM assign;
+SELECT * FROM types;
+
+  pg: ERROR:  column "nosuchcol" does not exist
+LINE 1: SELECT nosuchcol FROM emp;
+               ^
+  fe: ERROR:  Unknown column: nosuchcol

@@ -183,11 +183,13 @@ public class PostgresServerTest {
     when(manager.begin()).thenThrow(new AssertionError("boom"));
     try (Connection connection = connect("");
         Statement statement = connection.createStatement()) {
-      assertThatThrownBy(() -> statement.execute("BEGIN"))
+      statement.execute("BEGIN"); // the ScalarDB transaction starts with the first statement
+      assertThatThrownBy(() -> statement.executeQuery("SELECT id FROM t"))
           .isInstanceOf(SQLException.class)
           .hasMessageContaining("boom")
           .extracting(e -> ((SQLException) e).getSQLState())
           .isEqualTo("XX000");
+      statement.execute("ROLLBACK");
       try (ResultSet rs = statement.executeQuery("SELECT 1 AS one")) {
         assertThat(rs.next()).isTrue();
         assertThat(rs.getInt("one")).isEqualTo(1);
@@ -289,6 +291,17 @@ public class PostgresServerTest {
       b.putShort((short) d);
     }
     return b.array();
+  }
+
+  @Test
+  public void createTable_WithConstraints_ShouldWarnTheClient() throws Exception {
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      statement.execute("CREATE TABLE w (id INT, v INT NOT NULL, PRIMARY KEY (id))");
+      java.sql.SQLWarning warning = statement.getWarnings();
+      assertThat(warning == null ? null : warning.getMessage())
+          .contains("NOT NULL on column \"v\"");
+    }
   }
 
   @Test

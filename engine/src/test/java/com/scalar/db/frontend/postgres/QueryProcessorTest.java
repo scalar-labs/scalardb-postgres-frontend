@@ -106,6 +106,81 @@ public class QueryProcessorTest {
   }
 
   @Test
+  public void begin_WithIsolationLevelAndReadOnly_ShouldShapeTheScalarDbTransaction()
+      throws Exception {
+    // a stronger level than the engine's is refused, a weaker or equal one is reported
+    assertThatThrownBy(() -> processor.execute("BEGIN ISOLATION LEVEL SERIALIZABLE"))
+        .hasMessageContaining("not available");
+    processor.execute("BEGIN ISOLATION LEVEL READ COMMITTED");
+    assertThat(processor.execute("SHOW transaction_isolation"))
+        .containsExactly(Collections.singletonMap("transaction_isolation", "read committed"));
+    verify(manager, never()).begin(); // the ScalarDB transaction starts with the first statement
+    processor.execute("COMMIT");
+    verify(transaction, never()).commit();
+
+    // SET TRANSACTION READ ONLY before any query makes the transaction read-only
+    DistributedTransaction readOnly = mock(DistributedTransaction.class);
+    TestScanners.stub(readOnly);
+    when(manager.beginReadOnly()).thenReturn(readOnly);
+    processor.execute("BEGIN");
+    processor.execute("SET TRANSACTION READ ONLY");
+    processor.execute("SELECT id FROM t");
+    verify(manager).beginReadOnly();
+    assertThatThrownBy(() -> processor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
+        .hasMessageContaining("before any query");
+    processor.execute("ROLLBACK");
+    verify(readOnly).rollback();
+    assertThatThrownBy(
+            () ->
+                processor.execute(
+                    "SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
+        .hasMessageContaining("not available");
+  }
+
+  @Test
+  public void set_LocalAndTimeZone_ShouldScopeAndValidate() throws Exception {
+    processor.execute("BEGIN");
+    processor.execute("SET LOCAL application_name = 'inside'");
+    assertThat(processor.execute("SHOW application_name"))
+        .containsExactly(Collections.singletonMap("application_name", "inside"));
+    processor.execute("COMMIT");
+    assertThat(processor.execute("SHOW application_name"))
+        .containsExactly(Collections.singletonMap("application_name", ""));
+    // outside a transaction block SET LOCAL has no effect and warns, as in PostgreSQL
+    assertThat(processor.open("SET LOCAL application_name = 'outside'").notices())
+        .containsExactly(
+            QueryProcessor.WARNING + "SET LOCAL can only be used in transaction blocks");
+    assertThat(processor.execute("SHOW application_name"))
+        .containsExactly(Collections.singletonMap("application_name", ""));
+    assertThat(processor.open("SET TRANSACTION ISOLATION LEVEL READ COMMITTED").notices())
+        .containsExactly(
+            QueryProcessor.WARNING + "SET TRANSACTION can only be used in transaction blocks");
+    assertThatThrownBy(() -> processor.execute("SET TIME ZONE 'Mars/Olympus'"))
+        .hasMessageContaining("invalid value for parameter \"TimeZone\"");
+    processor.execute("SET TIME ZONE 'Asia/Tokyo'");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2024-01-01 09:00:00+09"));
+    processor.execute("RESET TIME ZONE");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2024-01-01 00:00:00+00"));
+    // the other spellings PostgreSQL accepts: an interval (Sequelize), hours, and a POSIX spec
+    // whose sign counts west of UTC
+    processor.execute("SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2024-01-01 09:00:00+09"));
+    processor.execute("SET TIME ZONE -3.5");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2023-12-31 20:30:00-03:30"));
+    processor.execute("SET TIME ZONE '+05:30'");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2023-12-31 18:30:00-05:30"));
+    processor.execute("SET TIME ZONE 'UTC+9'");
+    assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
+        .containsExactly(Collections.singletonMap("t", "2023-12-31 15:00:00-09"));
+    processor.execute("RESET TIME ZONE");
+  }
+
+  @Test
   public void execute_Ddl_ShouldRunOutsideTransactionsOnly() throws Exception {
     assertThat(processor.execute("CREATE TABLE t2 (id int PRIMARY KEY, v text)")).isEmpty();
     assertThat(processor.lastCommandTag()).isEqualTo("CREATE TABLE");
@@ -207,6 +282,7 @@ public class QueryProcessorTest {
   @Test
   public void execute_FailureInsideTransaction_ShouldAbortItUntilRollback() throws Exception {
     processor.execute("BEGIN");
+    processor.execute("SELECT id FROM t"); // starts the ScalarDB transaction
     assertThatThrownBy(() -> processor.execute("SELECT nope FROM t"))
         .isInstanceOf(IllegalArgumentException.class);
     assertThat(processor.isAborted()).isTrue();
@@ -319,7 +395,7 @@ public class QueryProcessorTest {
     assertThat(processor.execute("SHOW search_path"))
         .containsExactly(Collections.singletonMap("search_path", "\"$user\", public"));
     assertThat(processor.execute("SHOW TRANSACTION ISOLATION LEVEL"))
-        .containsExactly(Collections.singletonMap("transaction_isolation", "repeatable read"));
+        .containsExactly(Collections.singletonMap("transaction_isolation", "read committed"));
     processor.execute("SET application_name = 'app'");
     assertThat(processor.lastCommandTag()).isEqualTo("SET");
     assertThat(processor.execute("SHOW application_name"))

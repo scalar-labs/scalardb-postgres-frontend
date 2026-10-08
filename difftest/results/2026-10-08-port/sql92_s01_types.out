@@ -1,0 +1,165 @@
+{'DIFF': 8, 'PG_ERR': 5, 'NUM_FMT': 4, 'OK': 6, 'BOTH_ERR': 3}
+=== DIFF s01_6_1_char_n_padding
+DROP TABLE IF EXISTS t92_w1_c01; CREATE TABLE t92_w1_c01 (id INTEGER, c CHARACTER(5), PRIMARY KEY (id)); INSERT INTO t92_w1_c01 VALUES (1, 'ab'); SELECT id, c, CHAR_LENGTH(c), c || '|' FROM t92_w1_c01; DROP TABLE t92_w1_c01;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ id|c|char_length|?column?
+-1|ab   |2|ab|
++1|ab|2|ab|
+ (1 row)
+=== DIFF s01_6_1_char_n_comparison_pad
+DROP TABLE IF EXISTS t92_w1_c02; CREATE TABLE t92_w1_c02 (id INTEGER, c CHAR(5), PRIMARY KEY (id)); INSERT INTO t92_w1_c02 VALUES (1, 'ab'); SELECT id FROM t92_w1_c02 WHERE c = 'ab'; SELECT id FROM t92_w1_c02 WHERE c = 'ab   '; DROP TABLE t92_w1_c02;
+--- pg
++++ fe
+@@ -7,4 +7,3 @@
+ id
+-1
+-(1 row)
++(0 rows)
+ DROP TABLE
+=== PG_ERR s01_6_1_char_n_too_long
+DROP TABLE IF EXISTS t92_w1_c03; CREATE TABLE t92_w1_c03 (id INTEGER, c CHAR(3), PRIMARY KEY (id)); INSERT INTO t92_w1_c03 VALUES (1, 'abcdef'); SELECT * FROM t92_w1_c03; DROP TABLE t92_w1_c03;
+  pg: ERROR:  value too long for type character(3)
+  fe: 
+=== DIFF s01_6_1_char_n_too_long_trailing_spaces
+DROP TABLE IF EXISTS t92_w1_c04; CREATE TABLE t92_w1_c04 (id INTEGER, c CHAR(3), PRIMARY KEY (id)); INSERT INTO t92_w1_c04 VALUES (1, 'ab    '); SELECT id, c || '|' FROM t92_w1_c04; DROP TABLE t92_w1_c04;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ id|?column?
+-1|ab|
++1|ab    |
+ (1 row)
+=== PG_ERR s01_6_1_char_default_length_1
+DROP TABLE IF EXISTS t92_w1_c05; CREATE TABLE t92_w1_c05 (id INTEGER, c CHAR, PRIMARY KEY (id)); INSERT INTO t92_w1_c05 VALUES (1, 'xy'); SELECT * FROM t92_w1_c05; DROP TABLE t92_w1_c05;
+  pg: ERROR:  value too long for type character(1)
+  fe: 
+=== PG_ERR s01_6_1_varchar_n_too_long
+DROP TABLE IF EXISTS t92_w1_c06; CREATE TABLE t92_w1_c06 (id INTEGER, v VARCHAR(3), PRIMARY KEY (id)); INSERT INTO t92_w1_c06 VALUES (1, 'abcdef'); SELECT * FROM t92_w1_c06; DROP TABLE t92_w1_c06;
+  pg: ERROR:  value too long for type character varying(3)
+  fe: 
+=== DIFF s01_6_1_char_pk_padding
+DROP TABLE IF EXISTS t92_w1_c07; CREATE TABLE t92_w1_c07 (k CHAR(4), v INTEGER, PRIMARY KEY (k)); INSERT INTO t92_w1_c07 VALUES ('a', 1); SELECT v FROM t92_w1_c07 WHERE k = 'a'; SELECT v FROM t92_w1_c07 WHERE k = 'a   '; DROP TABLE t92_w1_c07;
+--- pg
++++ fe
+@@ -7,4 +7,3 @@
+ v
+-1
+-(1 row)
++(0 rows)
+ DROP TABLE
+=== DIFF s01_6_1_numeric_scale_rounding
+DROP TABLE IF EXISTS t92_w1_c08; CREATE TABLE t92_w1_c08 (id INTEGER, n NUMERIC(5,2), PRIMARY KEY (id)); INSERT INTO t92_w1_c08 VALUES (1, 1.005); INSERT INTO t92_w1_c08 VALUES (2, 2.5); INSERT INTO t92_w1_c08 VALUES (3, 123.456); SELECT * FROM t92_w1_c08; DROP TABLE t92_w1_c08;
+--- pg
++++ fe
+@@ -6,5 +6,5 @@
+ id|n
+-1|1.01
+-2|2.50
+-3|123.46
++1|1.005
++2|2.5
++3|123.456
+ (3 rows)
+=== PG_ERR s01_6_1_numeric_precision_overflow
+DROP TABLE IF EXISTS t92_w1_c09; CREATE TABLE t92_w1_c09 (id INTEGER, n NUMERIC(5,2), PRIMARY KEY (id)); INSERT INTO t92_w1_c09 VALUES (1, 12345.6); SELECT * FROM t92_w1_c09; DROP TABLE t92_w1_c09;
+  pg: ERROR:  numeric field overflow
+DETAIL:  A field with precision 5, scale 2 must round to an absolute value less than 10^3.
+  fe: 
+=== NUM_FMT s01_6_1_decimal_exact_sum
+DROP TABLE IF EXISTS t92_w1_c10; CREATE TABLE t92_w1_c10 (id INTEGER, d DECIMAL(10,2), PRIMARY KEY (id)); INSERT INTO t92_w1_c10 VALUES (1, 0.10); INSERT INTO t92_w1_c10 VALUES (2, 0.20); INSERT INTO t92_w1_c10 VALUES (3, 0.30); SELECT SUM(d), SUM(d) = 0.60 FROM t92_w1_c10; DROP TABLE t92_w1_c10;
+--- pg
++++ fe
+@@ -6,3 +6,3 @@
+ sum|?column?
+-0.60|t
++0.6|t
+ (1 row)
+=== DIFF s01_6_1_decimal_exact_equality
+DROP TABLE IF EXISTS t92_w1_c11; CREATE TABLE t92_w1_c11 (id INTEGER, d DECIMAL(10,2), PRIMARY KEY (id)); INSERT INTO t92_w1_c11 VALUES (1, 0.10); INSERT INTO t92_w1_c11 VALUES (2, 0.20); SELECT id FROM t92_w1_c11 WHERE d * 3 = 0.30 OR d + 0.10 = 0.30; DROP TABLE t92_w1_c11;
+--- pg
++++ fe
+@@ -5,5 +5,3 @@
+ id
+-1
+-2
+-(2 rows)
++(0 rows)
+ DROP TABLE
+=== NUM_FMT s01_6_1_decimal_large_exact
+DROP TABLE IF EXISTS t92_w1_c12; CREATE TABLE t92_w1_c12 (id INTEGER, d DECIMAL(20,0), PRIMARY KEY (id)); INSERT INTO t92_w1_c12 VALUES (1, 12345678901234567890); SELECT d, d + 1 FROM t92_w1_c12; DROP TABLE t92_w1_c12;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ d|?column?
+-12345678901234567890|12345678901234567891
++1.2345678901234567e+19|1.2345678901234567e+19
+ (1 row)
+=== NUM_FMT s01_6_1_decimal_division_scale
+DROP TABLE IF EXISTS t92_w1_c14; CREATE TABLE t92_w1_c14 (id INTEGER, d DECIMAL(10,2), PRIMARY KEY (id)); INSERT INTO t92_w1_c14 VALUES (1, 10.00); SELECT d / 3 FROM t92_w1_c14; DROP TABLE t92_w1_c14;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ ?column?
+-3.3333333333333333
++3.3333333333333335
+ (1 row)
+=== BOTH_ERR s01_6_1_numeric_as_pk
+DROP TABLE IF EXISTS t92_w1_c15; CREATE TABLE t92_w1_c15 (k NUMERIC(10,2), v INTEGER, PRIMARY KEY (k)); INSERT INTO t92_w1_c15 VALUES (1.10, 1); INSERT INTO t92_w1_c15 VALUES (1.1, 2); SELECT * FROM t92_w1_c15; DROP TABLE t92_w1_c15;
+  pg: ERROR:  duplicate key value violates unique constraint "t92_w1_c15_pkey"
+DETAIL:  Key (k)=(1.10) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "t92_w1_c15_pkey"
+=== PG_ERR s01_6_1_smallint_range
+DROP TABLE IF EXISTS t92_w1_c16; CREATE TABLE t92_w1_c16 (id INTEGER, s SMALLINT, PRIMARY KEY (id)); INSERT INTO t92_w1_c16 VALUES (1, 40000); SELECT * FROM t92_w1_c16; DROP TABLE t92_w1_c16;
+  pg: ERROR:  smallint out of range
+  fe: 
+=== BOTH_ERR s01_6_1_integer_range
+DROP TABLE IF EXISTS t92_w1_c17; CREATE TABLE t92_w1_c17 (id INTEGER, i INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w1_c17 VALUES (1, 2147483648); SELECT * FROM t92_w1_c17; DROP TABLE t92_w1_c17;
+  pg: ERROR:  integer out of range
+  fe: ERROR:  value "2147483648" is out of range for type integer
+=== DIFF s01_6_1_int_keyword_synonym
+DROP TABLE IF EXISTS t92_w1_c23; CREATE TABLE t92_w1_c23 (id INT, d DEC(5,1), PRIMARY KEY (id)); INSERT INTO t92_w1_c23 VALUES (1, 1.25); SELECT * FROM t92_w1_c23; DROP TABLE t92_w1_c23;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ id|d
+-1|1.3
++1|1.25
+ (1 row)
+=== BOTH_ERR s01_6_1_insert_string_into_int
+DROP TABLE IF EXISTS t92_w1_c24; CREATE TABLE t92_w1_c24 (id INTEGER, i INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w1_c24 VALUES (1, 'x'); SELECT * FROM t92_w1_c24; DROP TABLE t92_w1_c24;
+  pg: ERROR:  invalid input syntax for type integer: "x"
+LINE 1: INSERT INTO t92_w1_c24 VALUES (1, 'x');
+                                          ^
+  fe: ERROR:  invalid input syntax for type integer: "x"
+=== NUM_FMT s01_6_1_insert_int_into_char
+DROP TABLE IF EXISTS t92_w1_c25; CREATE TABLE t92_w1_c25 (id INTEGER, c CHAR(5), PRIMARY KEY (id)); INSERT INTO t92_w1_c25 VALUES (1, 42); SELECT * FROM t92_w1_c25; DROP TABLE t92_w1_c25;
+--- pg
++++ fe
+@@ -4,3 +4,3 @@
+ id|c
+-1|42   
++1|42
+ (1 row)
+=== DIFF s01_6_1_describe_column_types
+DROP TABLE IF EXISTS t92_w1_c26; CREATE TABLE t92_w1_c26 (id INTEGER, c CHAR(5), v VARCHAR(7), n NUMERIC(6,2), s SMALLINT, r REAL, f FLOAT(10), PRIMARY KEY (id)); SELECT column_name, data_type, character_maximum_length, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 't92_w1_c26' ORDER BY ordinal_position; DROP TABLE t92_w1_c26;
+--- pg
++++ fe
+@@ -3,9 +3,9 @@
+ column_name|data_type|character_maximum_length|numeric_precision|numeric_scale
+-c|character|5|<NULL>|<NULL>
+-f|real|<NULL>|24|<NULL>
+-id|integer|<NULL>|32|0
+-n|numeric|<NULL>|6|2
+-r|real|<NULL>|24|<NULL>
+-s|smallint|<NULL>|16|0
+-v|character varying|7|<NULL>|<NULL>
++c|text|<NULL>|<NULL>|<NULL>
++f|real|<NULL>|<NULL>|<NULL>
++id|integer|<NULL>|<NULL>|<NULL>
++n|double precision|<NULL>|<NULL>|<NULL>
++r|real|<NULL>|<NULL>|<NULL>
++s|integer|<NULL>|<NULL>|<NULL>
++v|text|<NULL>|<NULL>|<NULL>
+ (7 rows)

@@ -41,11 +41,11 @@ import com.scalar.db.io.TimeColumn;
 import com.scalar.db.io.TimestampColumn;
 import com.scalar.db.io.TimestampTZColumn;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -66,8 +66,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import net.sf.jsqlparser.expression.Alias;
+import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.BooleanValue;
 import net.sf.jsqlparser.expression.CastExpression;
+import net.sf.jsqlparser.expression.CollateExpression;
 import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
 import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
@@ -76,6 +78,7 @@ import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.RowGetExpression;
 import net.sf.jsqlparser.expression.SignedExpression;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
@@ -84,6 +87,7 @@ import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
 import net.sf.jsqlparser.expression.operators.relational.GreaterThanEquals;
+import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
 import net.sf.jsqlparser.expression.operators.relational.LikeExpression;
 import net.sf.jsqlparser.expression.operators.relational.MinorThan;
@@ -323,6 +327,12 @@ public class QueryParser {
 
     private boolean rootFixed; // the root is given, not built from the sources
     private boolean cacheable; // set by parse(): reusable with other parameter values
+
+    /** Warnings for the client (PostgreSQL NOTICEs): what a DDL accepted but cannot enforce. */
+    final List<String> notices = new ArrayList<>();
+
+    boolean correlated; // a subquery that reads the enclosing row: evaluated per row, never cached
+    @Nullable List<Map<String, Object>> cachedRows; // an uncorrelated subquery's rows, per run
     private final List<Source> sources;
     private final List<LogicalPlan.Join> joins;
     private final List<String> outputNames;
@@ -484,7 +494,110 @@ public class QueryParser {
       plan.setKind = kind;
       plan.setAll = all;
       plan.labels = left.labels;
+      plan.correlated = left.correlated || right.correlated;
       return plan;
+    }
+
+    /**
+     * The columns of a set operation must agree in type: a text column against an integer one is
+     * PostgreSQL's 42804, and an untyped literal ({@code '7'}, NULL) takes the type of the others,
+     * so {@code SELECT '7' UNION SELECT 7} is one row and the result advertises one type.
+     */
+    private static void unifyColumnTypes(List<Plan> terms) {
+      int columns = terms.get(0).outputNames.size();
+      for (int i = 0; i < columns; i++) {
+        int target = 0;
+        String targetCategory = null;
+        for (Plan term : terms) {
+          if (i >= term.outputExpressions.size()
+              || isUntypedLiteral(term.outputExpressions.get(i))) {
+            continue; // a VALUES or constant member has no expressions: its values decide
+          }
+          int[] oids = term.outputOids();
+          int oid = i < oids.length ? oids[i] : 0;
+          String category = typeCategory(oid);
+          if (category == null) {
+            continue;
+          }
+          if (targetCategory == null) {
+            target = oid;
+            targetCategory = category;
+          } else if (!category.equals(targetCategory)) {
+            throw new IllegalArgumentException(
+                "UNION types "
+                    + Catalog.typeName(target)
+                    + " and "
+                    + Catalog.typeName(oid)
+                    + " cannot be matched");
+          }
+        }
+        if (targetCategory == null) {
+          continue;
+        }
+        String typeName = targetCategory.equals("text") ? "text" : Catalog.typeName(target);
+        for (Plan term : terms) {
+          if (i >= term.outputExpressions.size()) {
+            continue;
+          }
+          Expression e = term.outputExpressions.get(i);
+          if (!isUntypedLiteral(e) || e instanceof NullValue) {
+            continue;
+          }
+          CastExpression cast = new CastExpression();
+          cast.setLeftExpression(e);
+          net.sf.jsqlparser.statement.create.table.ColDataType type =
+              new net.sf.jsqlparser.statement.create.table.ColDataType();
+          type.setDataType(typeName);
+          cast.setColDataType(type);
+          term.outputExpressions.set(i, cast);
+          if (term.logical != null && i < term.logical.outputOids.size()) {
+            term.logical.outputOids.set(i, target);
+          }
+          try {
+            term.outputTypes.set(i, dataType(typeName));
+          } catch (IllegalArgumentException unknownType) {
+            // leave the type to the values
+          }
+        }
+      }
+    }
+
+    private static boolean isUntypedLiteral(Expression e) {
+      e = unwrap(e);
+      return e instanceof StringValue || e instanceof NullValue;
+    }
+
+    @Nullable private static String typeCategory(int oid) {
+      switch (oid) {
+        case 16:
+          return "boolean";
+        case 20:
+        case 21:
+        case 23:
+        case 700:
+        case 701:
+        case 1700:
+          return "numeric";
+        case 18:
+        case 19:
+        case 25:
+        case 1043:
+          return "text";
+        case 1082:
+          return "date";
+        case 1083:
+          return "time";
+        case 1114:
+        case 1184:
+          return "timestamp";
+        case 17:
+          return "bytea";
+        case 114:
+        case 3802:
+          return "json";
+        default:
+          return null;
+      }
     }
 
     /** A DDL statement with its PostgreSQL command tag, such as {@code CREATE TABLE}. */
@@ -598,7 +711,18 @@ public class QueryParser {
         throw cause;
       }
       if (!mutations.isEmpty()) {
-        crud.mutate(mutations);
+        boolean inserts = mutations.stream().allMatch(m -> m instanceof Insert);
+        try {
+          crud.mutate(mutations);
+        } catch (TransactionException | IllegalArgumentException e) {
+          if (inserts
+              && e.getMessage() != null
+              && (e.getMessage().contains("DB-CORE-20013")
+                  || e.getMessage().contains("DB-CORE-10146"))) {
+            throw new UniqueViolationException(mutations.get(0), e);
+          }
+          throw e;
+        }
       }
       returned = new ArrayList<>();
       if (write.returning != null) {
@@ -974,6 +1098,7 @@ public class QueryParser {
 
     private void attach(Reader reader) {
       this.reader = reader;
+      cachedRows = null;
       for (Source s : sources) {
         if (s.derived != null) {
           s.derived.attach(reader);
@@ -1634,10 +1759,10 @@ public class QueryParser {
     }
     DataType type = metadata.getColumnDataType(existing(metadata, name));
     if (type == DataType.TIMESTAMP && value instanceof java.time.Instant) {
-      // PostgreSQL compares a timestamp with a timestamptz in the session's zone, UTC here
-      value = LocalDateTime.ofInstant((java.time.Instant) value, java.time.ZoneOffset.UTC);
+      // PostgreSQL compares a timestamp with a timestamptz in the session's zone
+      value = LocalDateTime.ofInstant((java.time.Instant) value, Evaluator.zone());
     } else if (type == DataType.TIMESTAMPTZ && value instanceof LocalDateTime) {
-      value = ((LocalDateTime) value).toInstant(java.time.ZoneOffset.UTC);
+      value = ((LocalDateTime) value).atZone(Evaluator.zone()).toInstant();
     }
     String text;
     if (value instanceof java.nio.ByteBuffer) {
@@ -2052,9 +2177,6 @@ public class QueryParser {
   static String normalize(String sql) {
     return escapeStringQuotes(
         sql.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
-            // anchored on the keyword: a leading \\s+ would rescan a long run of whitespace
-            // from every position in it
-            .replaceAll("(?i)(?<=\\s)COLLATE\\s+[\\w.\"]+", "")
             // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
             .replaceAll(
                 "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
@@ -2140,13 +2262,28 @@ public class QueryParser {
         .withDialect(net.sf.jsqlparser.parser.AbstractJSqlParser.Dialect.POSTGRESQL);
   }
 
-  /** JSQLParser parses {@code (e)} as a one-element parenthesized list: the {@code e} inside. */
+  /**
+   * Strips one-element parentheses (JSQLParser parses {@code (e)} as a one-element parenthesized
+   * list) and, after checking that it is byte order, a COLLATE clause.
+   */
   static Expression unwrap(Expression e) {
-    while (e instanceof ParenthesedExpressionList
-        && ((ParenthesedExpressionList<?>) e).size() == 1) {
-      e = ((ParenthesedExpressionList<?>) e).get(0);
+    while (true) {
+      if (e instanceof ParenthesedExpressionList
+          && ((ParenthesedExpressionList<?>) e).size() == 1) {
+        e = ((ParenthesedExpressionList<?>) e).get(0);
+      } else if (e instanceof CollateExpression) {
+        Evaluator.checkCollation(((CollateExpression) e).getCollate());
+        e = ((CollateExpression) e).getLeftExpression();
+      } else if (e instanceof RowGetExpression
+          && ((RowGetExpression) e).getExpression() instanceof CollateExpression) {
+        // JSQLParser reads COLLATE pg_catalog.default after ~ as (x COLLATE pg_catalog).default
+        CollateExpression c = (CollateExpression) ((RowGetExpression) e).getExpression();
+        Evaluator.checkCollation(c.getCollate() + "." + ((RowGetExpression) e).getColumnName());
+        e = c.getLeftExpression();
+      } else {
+        return e;
+      }
     }
-    return e;
   }
 
   private static final Pattern EXPLAIN =
@@ -2275,6 +2412,14 @@ public class QueryParser {
           return updateByScan(update);
         }
         Target t = target(update.getTable());
+        for (UpdateSet set : update.getUpdateSets()) {
+          for (int i = 0; i < set.getColumns().size(); i++) {
+            if (keyColumns(t).contains(columnName(set.getColumn(i)))) {
+              throw new IllegalArgumentException(
+                  "A primary key column cannot be updated: " + columnName(set.getColumn(i)));
+            }
+          }
+        }
         return Plan.deferred(ctx -> Collections.singletonList(update(update, t, ctx)));
       } finally {
         ctes = saved;
@@ -2311,9 +2456,57 @@ public class QueryParser {
     return namespace(table.getSchemaName());
   }
 
-  /** The namespace a schema name means: none or {@code public} is the connected namespace. */
+  /** The user the client connected as, for {@code current_user}. */
+  void setUser(String user) {
+    catalog.user = user;
+  }
+
+  // PostgreSQL's search_path: where an unqualified table is looked up, and where DDL creates;
+  // "$user" and public both mean the connected namespace
+  private List<String> searchPath = Arrays.asList("$user", "public");
+
+  /** Sets the session's search_path from its text, such as {@code "$user", public, orm}. */
+  void setSearchPath(String value) {
+    List<String> entries = new ArrayList<>();
+    for (String entry : value.split(",")) {
+      String e = entry.trim();
+      if (!e.isEmpty()) {
+        entries.add(e.startsWith("\"") ? unquote(e) : e.toLowerCase(Locale.ROOT));
+      }
+    }
+    searchPath = entries.isEmpty() ? Arrays.asList("$user", "public") : entries;
+  }
+
+  /** The namespaces search_path names, in order, without repeats. */
+  private List<String> searchNamespaces() {
+    List<String> out = new ArrayList<>();
+    for (String entry : searchPath) {
+      String namespace = entry.equals("$user") || entry.equals("public") ? defaultNamespace : entry;
+      if (!out.contains(namespace)) {
+        out.add(namespace);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The namespace a schema name means: {@code public} is the connected namespace, and none means
+   * the first namespace of search_path (for DDL, the first one that exists).
+   */
   private String namespace(@Nullable String schema) {
-    return schema == null || unquote(schema).equals("public") ? defaultNamespace : unquote(schema);
+    if (schema != null) {
+      return unquote(schema).equals("public") ? defaultNamespace : unquote(schema);
+    }
+    for (String candidate : searchNamespaces()) {
+      try {
+        if (candidate.equals(defaultNamespace) || admin.namespaceExists(candidate)) {
+          return candidate;
+        }
+      } catch (ExecutionException e) {
+        throw new IllegalStateException(e);
+      }
+    }
+    throw new IllegalArgumentException("no schema has been selected to create in");
   }
 
   /**
@@ -2322,6 +2515,13 @@ public class QueryParser {
    * otherwise.
    */
   private Plan createTable(CreateTable create) {
+    if (create.getCreateOptionsStrings() != null
+        && String.join(" ", create.getCreateOptionsStrings())
+            .toUpperCase(Locale.ROOT)
+            .matches(".*\\bTEMP(ORARY)?\\b.*")) {
+      throw new IllegalArgumentException(
+          "Temporary tables are not supported: a table created here would be permanent");
+    }
     String namespace = namespaceOf(create.getTable());
     String name = unquote(create.getTable().getName());
     if (create.getColumnDefinitions() == null) {
@@ -2332,14 +2532,32 @@ public class QueryParser {
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
     List<String> primaryKey = new ArrayList<>();
+    List<String> notices = new ArrayList<>();
     for (ColumnDefinition definition : create.getColumnDefinitions()) {
       String column = unquote(definition.getColumnName());
+      String specs =
+          definition.getColumnSpecs() == null
+              ? ""
+              : String.join(" ", definition.getColumnSpecs()).toUpperCase(Locale.ROOT);
+      boolean keyColumn = specs.contains("PRIMARY KEY");
+      notices.addAll(
+          unenforced(column, definition.getColDataType().getDataType(), specs, keyColumn));
+      for (String earlier : columns) {
+        if (earlier.equals(column)) {
+          throw new IllegalArgumentException("column \"" + column + "\" specified more than once");
+        }
+        if (earlier.equalsIgnoreCase(column)) {
+          throw new IllegalArgumentException(
+              "Columns differing only in case are not supported: \""
+                  + earlier
+                  + "\" and \""
+                  + column
+                  + "\" (the JDBC backend reads columns by name, case-insensitively)");
+        }
+      }
       columns.add(column);
-      builder.addColumn(column, dataType(definition.getColDataType().getDataType()));
-      if (definition.getColumnSpecs() != null
-          && String.join(" ", definition.getColumnSpecs())
-              .toUpperCase(Locale.ROOT)
-              .contains("PRIMARY KEY")) {
+      builder.addColumn(column, columnType(definition.getColDataType().getDataType()));
+      if (keyColumn) {
         primaryKey.add(column);
       }
     }
@@ -2349,8 +2567,13 @@ public class QueryParser {
           for (String column : index.getColumnsNames()) {
             primaryKey.add(unquote(column));
           }
+        } else {
+          notices.add("constraint " + index + " is not enforced by ScalarDB");
         }
       }
+    }
+    for (String column : primaryKey) {
+      notices.removeIf(n -> n.startsWith("NOT NULL on column \"" + column + "\""));
     }
     Map<String, String> options = new HashMap<>();
     if (create.getTableOptionsStrings() != null) {
@@ -2393,8 +2616,88 @@ public class QueryParser {
     }
     TableMetadata metadata = builder.build();
     boolean ifNotExists = create.isIfNotExists();
-    return Plan.ddl(
-        () -> admin.createTable(namespace, name, metadata, ifNotExists), "CREATE TABLE");
+    Plan plan =
+        Plan.ddl(() -> admin.createTable(namespace, name, metadata, ifNotExists), "CREATE TABLE");
+    plan.notices.addAll(notices);
+    return plan;
+  }
+
+  /**
+   * What a column definition asks for that ScalarDB cannot keep: constraints other than the key,
+   * defaults, and type modifiers. Accepted with a NOTICE rather than refused, since every ORM
+   * writes them, but never silently.
+   */
+  private static List<String> unenforced(
+      String column, String declared, String specs, boolean keyColumn) {
+    List<String> out = new ArrayList<>();
+    String base = declared.toLowerCase(Locale.ROOT).replaceAll("\\s*\\([^)]*\\)", "").trim();
+    boolean withArgs = declared.contains("(");
+    String col = "column \"" + column + "\"";
+    Matcher collate = Pattern.compile("COLLATE\\s+(\\S+)").matcher(specs);
+    if (collate.find()) {
+      Evaluator.checkCollation(collate.group(1));
+    }
+    if (specs.contains("NOT NULL") && !keyColumn) {
+      out.add("NOT NULL on " + col + " is not enforced by ScalarDB");
+    }
+    for (String constraint : new String[] {"UNIQUE", "CHECK", "REFERENCES"}) {
+      if (specs.contains(constraint)) {
+        out.add(constraint + " on " + col + " is not enforced by ScalarDB");
+      }
+    }
+    if (specs.contains("DEFAULT")) {
+      out.add("DEFAULT on " + col + " is not kept: the column reads NULL when it is omitted");
+    }
+    switch (base) {
+      case "char":
+      case "character":
+      case "bpchar":
+        out.add(
+            "CHAR on "
+                + col
+                + " is stored as text: no blank padding, so comparisons do not ignore trailing"
+                + " spaces, and the length is not enforced");
+        break;
+      case "varchar":
+      case "character varying":
+        if (withArgs) {
+          out.add("the length of " + col + " (" + declared.trim() + ") is not enforced");
+        }
+        break;
+      case "numeric":
+      case "decimal":
+      case "dec":
+        out.add(
+            "NUMERIC on "
+                + col
+                + " is stored as double precision (binary floating point): precision and scale are"
+                + " not kept, and decimal fractions are approximate");
+        break;
+      case "smallint":
+      case "int2":
+        out.add("SMALLINT on " + col + " is stored as integer: its range is not enforced");
+        break;
+      case "serial":
+      case "bigserial":
+      case "smallserial":
+        out.add(
+            "serial on " + col + " does not generate values here: inserts must supply the column");
+        break;
+      default:
+        break;
+    }
+    return out;
+  }
+
+  /**
+   * The ScalarDB type of a declared column: {@code float(p)} up to 24 is real, as in PostgreSQL.
+   */
+  private static DataType columnType(String declared) {
+    Matcher floatP = Pattern.compile("(?i)^\\s*float\\s*\\(\\s*(\\d+)\\s*\\)").matcher(declared);
+    if (floatP.find() && Integer.parseInt(floatP.group(1)) <= 24) {
+      return DataType.FLOAT;
+    }
+    return dataType(declared);
   }
 
   private Plan createIndex(CreateIndex create) {
@@ -2404,8 +2707,24 @@ public class QueryParser {
     if (columns.size() != 1) {
       throw new IllegalArgumentException("ScalarDB indexes cover one column: " + create);
     }
+    if (!columns.get(0).matches("\"?[\\w$ ]+\"?")) {
+      throw new IllegalArgumentException("Expression indexes are not supported: " + columns.get(0));
+    }
     String column = unquote(columns.get(0));
-    return Plan.ddl(() -> admin.createIndex(namespace, name, column, false), "CREATE INDEX");
+    Plan plan = Plan.ddl(() -> admin.createIndex(namespace, name, column, false), "CREATE INDEX");
+    if ("UNIQUE".equalsIgnoreCase(create.getIndex().getType())) {
+      plan.notices.add(
+          "UNIQUE on index "
+              + unquote(create.getIndex().getName())
+              + " is not enforced by ScalarDB");
+    }
+    if (create.getWhere() != null) {
+      plan.notices.add(
+          "the WHERE of index "
+              + unquote(create.getIndex().getName())
+              + " is ignored: the index covers every row");
+    }
+    return plan;
   }
 
   private Plan drop(Drop drop) {
@@ -2534,6 +2853,7 @@ public class QueryParser {
       case "float":
       case "numeric":
       case "decimal":
+      case "dec":
         return DataType.DOUBLE;
       case "boolean":
       case "bool":
@@ -2565,6 +2885,7 @@ public class QueryParser {
   private static final class Scope {
     final List<LogicalPlan.Source> sources;
     @Nullable final Scope outer;
+    boolean correlated; // a column was resolved in an enclosing scope
 
     Scope(List<LogicalPlan.Source> sources, @Nullable Scope outer) {
       this.sources = sources;
@@ -2611,11 +2932,12 @@ public class QueryParser {
       }
       if (found == null) {
         if (outer != null) {
+          correlated = true;
           return outer.resolve(c);
         }
         throw new IllegalArgumentException("Unknown column: " + c);
       }
-      c.setTable(new Table(found.qualifier));
+      c.setTable(new Table(quoteIfNeeded(found.qualifier)));
       found.projections.add(name);
       return found;
     }
@@ -2670,6 +2992,10 @@ public class QueryParser {
       boolean recursive = false; // the keyword covers the whole list
       for (WithItem<?> item : items) {
         recursive |= item.isRecursive();
+        if (!(item.getParenthesedStatement() instanceof Select)) {
+          throw new IllegalArgumentException(
+              "Data-modifying statements in WITH are not supported: " + item.getAliasName());
+        }
       }
       for (WithItem<?> item : items) {
         scope.put(
@@ -2693,6 +3019,10 @@ public class QueryParser {
   }
 
   private Plan block(PlainSelect select, @Nullable Scope outer) throws ExecutionException {
+    if (select.getIntoTables() != null && !select.getIntoTables().isEmpty()) {
+      throw new IllegalArgumentException(
+          "SELECT INTO is not supported: use CREATE TABLE and INSERT ... SELECT");
+    }
     LogicalPlan logical = bind(select, outer);
     Optimizer.optimize(logical);
     return physical(logical, outer == null);
@@ -2712,6 +3042,7 @@ public class QueryParser {
       }
       terms.add(plan);
     }
+    Plan.unifyColumnTypes(terms);
     List<SetOperation> operations = new ArrayList<>(set.getOperations());
     for (int i = 0; i < operations.size(); ) {
       if (operations.get(i) instanceof net.sf.jsqlparser.statement.select.IntersectOp) {
@@ -2743,7 +3074,7 @@ public class QueryParser {
     if (set.getOrderByElements() != null) {
       result.orderBy = set.getOrderByElements();
     }
-    if (set.getLimit() != null) {
+    if (set.getLimit() != null && !set.getLimit().isLimitAll()) {
       result.limit = intValue(set.getLimit().getRowCount(), -1);
       if (set.getLimit().getOffset() != null) {
         result.offset = intValue(set.getLimit().getOffset(), 0);
@@ -2925,6 +3256,7 @@ public class QueryParser {
     for (Expression e : plan.outputExpressions) {
       plan.aggregated |= hasAggregate(e);
     }
+    validateGrouping(plan, select);
     plan.distinct = select.getDistinct() != null;
     if (plan.distinct && select.getDistinct().getOnSelectItems() != null) {
       for (SelectItem<?> item : select.getDistinct().getOnSelectItems()) {
@@ -2955,7 +3287,7 @@ public class QueryParser {
         }
       }
     }
-    if (select.getLimit() != null) {
+    if (select.getLimit() != null && !select.getLimit().isLimitAll()) {
       plan.limit = intValue(select.getLimit().getRowCount(), -1);
       if (select.getLimit().getOffset() != null) {
         plan.offset = intValue(select.getLimit().getOffset(), 0);
@@ -2980,6 +3312,26 @@ public class QueryParser {
         plan.expanded.add(plan.outputNames.get(i));
       }
     }
+    if (plan.distinct && plan.distinctOn.isEmpty()) {
+      Set<String> outputs = new HashSet<>();
+      for (Expression out : plan.outputExpressions) {
+        outputs.add(unwrap(out).toString());
+      }
+      for (OrderByElement o : plan.orderBy) {
+        Expression e = unwrap(o.getExpression());
+        boolean inList =
+            e instanceof LongValue
+                || outputs.contains(e.toString())
+                || (isColumn(e)
+                    && ((net.sf.jsqlparser.schema.Column) e).getTable() == null
+                    && plan.outputNames.contains(columnName(e)));
+        if (!inList) {
+          throw new IllegalArgumentException(
+              "for SELECT DISTINCT, ORDER BY expressions must appear in select list");
+        }
+      }
+    }
+    plan.correlated = scope.correlated;
     return plan;
   }
 
@@ -3505,6 +3857,7 @@ public class QueryParser {
             streaming,
             lp);
     plan.labels = lp.outputLabels;
+    plan.correlated = lp.correlated;
     return plan;
   }
 
@@ -3673,6 +4026,9 @@ public class QueryParser {
     String alias = item.getAlias() == null ? null : unquote(item.getAlias().getName());
     if (item instanceof Table) {
       Table table = (Table) item;
+      if (table.getSampleClause() != null) {
+        throw new IllegalArgumentException("TABLESAMPLE is not supported");
+      }
       String schema = table.getSchemaName() == null ? null : unquote(table.getSchemaName());
       String name = unquote(table.getName());
       Cte cte = schema == null ? ctes.get(name) : null;
@@ -3945,10 +4301,80 @@ public class QueryParser {
         refs.add(s);
       }
     }
+    checkTextAgainstNumber(e, scope);
     for (Select sub : subselects(e)) {
       subplans.put(sub, select(sub, scope));
     }
     return refs;
+  }
+
+  /**
+   * {@code name = 1} on a text column is an error in PostgreSQL (operator does not exist: text =
+   * integer); comparing the texts would silently match nothing, so it is refused here too.
+   */
+  private static void checkTextAgainstNumber(Expression e, Scope scope) {
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          protected <S> Void visitBinaryExpression(BinaryExpression expr, S context) {
+            if (expr instanceof ComparisonOperator) {
+              check(
+                  expr.getLeftExpression(), expr.getRightExpression(), expr.getStringExpression());
+              check(
+                  expr.getRightExpression(), expr.getLeftExpression(), expr.getStringExpression());
+            }
+            return super.visitBinaryExpression(expr, context);
+          }
+
+          @Override
+          public <S> Void visit(InExpression in, S context) {
+            if (in.getRightExpression() instanceof ExpressionList) {
+              for (Expression item : (ExpressionList<?>) in.getRightExpression()) {
+                check(in.getLeftExpression(), item, "IN");
+              }
+            }
+            return super.visit(in, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+
+          private void check(Expression column, Expression other, String op) {
+            Expression literal = unwrap(other);
+            if (literal instanceof SignedExpression) {
+              literal = ((SignedExpression) literal).getExpression();
+            }
+            boolean number = literal instanceof LongValue || literal instanceof DoubleValue;
+            if (!number || !isColumn(unwrap(column))) {
+              return;
+            }
+            net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) unwrap(column);
+            String name = columnName(c);
+            if (c.getTable() == null && (isBooleanLiteral(name) || isKeyword(name))) {
+              return;
+            }
+            LogicalPlan.Source s = scope.resolve(c);
+            DataType type =
+                s.target != null
+                    ? s.target.metadata.getColumnDataType(name)
+                    : s.derived != null && s.columns.contains(name)
+                        ? s.derived.outputTypes.get(s.columns.indexOf(name))
+                        : null;
+            if (type == DataType.TEXT) {
+              throw new IllegalArgumentException(
+                  "operator does not exist: text "
+                      + op
+                      + (literal instanceof LongValue ? " integer" : " numeric"));
+            }
+          }
+        });
   }
 
   @Nullable private static DataType outputType(Expression e, List<LogicalPlan.Source> sources) {
@@ -4137,7 +4563,11 @@ public class QueryParser {
       }
       Map<String, Column<?>> columns = new LinkedHashMap<>();
       for (int i = 0; i < names.size(); i++) {
-        columns.put(names.get(i), value(t.metadata, names.get(i), row.get(i), ctx));
+        columns.put(
+            names.get(i),
+            isDefaultKeyword(row.get(i))
+                ? columnFromText(t.metadata, names.get(i), null) // no column defaults: NULL
+                : value(t.metadata, names.get(i), row.get(i), ctx));
       }
       mutations.add(put(t, columns, upsert));
     }
@@ -4233,7 +4663,7 @@ public class QueryParser {
     Set<String> updated = new HashSet<>();
     for (UpdateSet set : action.getUpdateSets()) {
       for (int i = 0; i < set.getColumns().size(); i++) {
-        Expression value = set.getValue(i);
+        Expression value = defaultToNull(set.getValue(i));
         String column = columnName(set.getColumn(i));
         if (!(value instanceof net.sf.jsqlparser.schema.Column)
             || ((net.sf.jsqlparser.schema.Column) value).getTable() == null
@@ -4261,7 +4691,8 @@ public class QueryParser {
     }
     for (UpdateSet set : update.getUpdateSets()) {
       for (int i = 0; i < set.getColumns().size(); i++) {
-        b.value(value(t.metadata, columnName(set.getColumn(i)), set.getValue(i), ctx));
+        b.value(
+            value(t.metadata, columnName(set.getColumn(i)), defaultToNull(set.getValue(i)), ctx));
       }
     }
     // A condition makes ScalarDB report a missing or non-matching row (as 0 rows) instead of
@@ -4298,7 +4729,7 @@ public class QueryParser {
       throws ExecutionException {
     for (UpdateSet set : update.getUpdateSets()) {
       for (int i = 0; i < set.getColumns().size(); i++) {
-        if (!isLiteral(set.getValue(i))) {
+        if (!isLiteral(defaultToNull(set.getValue(i)))) {
           return false;
         }
       }
@@ -4336,7 +4767,6 @@ public class QueryParser {
     return table.getAlias() != null ? unquote(table.getAlias().getName()) : t.table;
   }
 
-  /** A read of {@code columns} plus {@code extras} (named $1, $2, ...) under {@code where}. */
   /**
    * The read driving a write: the target's {@code columns} and the {@code extras} as {@code $n},
    * over the target joined with {@code joins} (UPDATE ... FROM, DELETE ... USING). With {@code
@@ -4456,7 +4886,7 @@ public class QueryParser {
     for (UpdateSet set : update.getUpdateSets()) {
       for (int i = 0; i < set.getColumns().size(); i++) {
         setColumns.add(columnName(set.getColumn(i)));
-        setValues.add(set.getValue(i));
+        setValues.add(defaultToNull(set.getValue(i)));
       }
     }
     for (String column : setColumns) {
@@ -4588,7 +5018,7 @@ public class QueryParser {
         }
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < names.size(); i++) {
-          row.put(names.get(i), evalLiteral(tuple.get(i)));
+          row.put(names.get(i), isDefaultKeyword(tuple.get(i)) ? null : evalLiteral(tuple.get(i)));
         }
         rows.add(row);
       }
@@ -4618,7 +5048,7 @@ public class QueryParser {
                   "A primary key column cannot be updated: " + column);
             }
             setColumns.add(column);
-            setValues.add(set.getValue(i));
+            setValues.add(defaultToNull(set.getValue(i)));
           }
         }
       }
@@ -4702,18 +5132,30 @@ public class QueryParser {
   }
 
   private Target target(Table table) throws ExecutionException {
-    String namespace = namespace(table.getSchemaName());
     String name = unquote(table.getName());
-    String key = namespace + "." + name;
-    TableMetadata metadata = metadataCache.get(key);
-    if (metadata == null) {
-      metadata = admin.getTableMetadata(namespace, name);
+    List<String> candidates =
+        table.getSchemaName() == null
+            ? searchNamespaces() // an unqualified table: the first namespace of search_path that
+            // has it
+            : Collections.singletonList(namespace(table.getSchemaName()));
+    for (String namespace : candidates) {
+      String key = namespace + "." + name;
+      TableMetadata metadata = metadataCache.get(key);
       if (metadata == null) {
-        throw new IllegalArgumentException("Table not found: " + key);
+        metadata = admin.getTableMetadata(namespace, name);
+        if (metadata != null) {
+          metadataCache.put(key, metadata);
+        }
       }
-      metadataCache.put(key, metadata);
+      if (metadata != null) {
+        return new Target(namespace, name, metadata);
+      }
     }
-    return new Target(namespace, name, metadata);
+    throw new IllegalArgumentException(
+        "Table not found: "
+            + (table.getSchemaName() == null ? String.join(", ", candidates) : candidates.get(0))
+            + "."
+            + name);
   }
 
   // ---- WHERE clause ----
@@ -4770,8 +5212,16 @@ public class QueryParser {
   /** A column holding the value of a constant expression (a literal or a placeholder). */
   private static Column<?> value(
       TableMetadata metadata, String name, Expression e, Evaluator.Context ctx) {
-    return columnFromValue(
-        metadata, name, Evaluator.eval(e, Collections.<Map<String, Object>>emptyList(), ctx));
+    Object v = Evaluator.eval(e, Collections.<Map<String, Object>>emptyList(), ctx);
+    DataType type = metadata.getColumnDataType(name);
+    if ((type == DataType.INT || type == DataType.BIGINT)
+        && v instanceof Number
+        && !Evaluator.isIntegral(v)
+        && Evaluator.isFinite(v)) {
+      // a decimal written to an integer column is rounded, as PostgreSQL does (2.5 is 3)
+      v = new BigDecimal(Evaluator.text(v)).setScale(0, RoundingMode.HALF_UP);
+    }
+    return columnFromValue(metadata, name, v);
   }
 
   /** Returns the ScalarDB condition for a {@code column op literal} conjunct, or null. */
@@ -4835,9 +5285,22 @@ public class QueryParser {
               || (ctx != null && isConstant(c.getRightExpression())))) {
         return null;
       }
-      Column<?> column =
-          valueColumn(
-              metadata, columnName(c.getLeftExpression()), c.getRightExpression(), row, ctx);
+      Column<?> column;
+      try {
+        column =
+            valueColumn(
+                metadata, columnName(c.getLeftExpression()), c.getRightExpression(), row, ctx);
+      } catch (IllegalArgumentException | ArithmeticException failure) {
+        if (c.getRightExpression() instanceof DoubleValue
+            || (c.getRightExpression() instanceof SignedExpression
+                && ((SignedExpression) c.getRightExpression()).getExpression()
+                    instanceof DoubleValue)) {
+          // grade > 12.5 compares as numbers in PostgreSQL; ScalarDB has no such condition on an
+          // integer column, so the comparison is evaluated in memory
+          return null;
+        }
+        throw failure;
+      }
       return column == null ? null : ConditionBuilder.buildConditionalExpression(column, op);
     }
     return null;
@@ -5225,6 +5688,155 @@ public class QueryParser {
     return out;
   }
 
+  /**
+   * PostgreSQL's grouping rules (SQLSTATE 42803): no aggregate in WHERE, no aggregate inside an
+   * aggregate, and in a grouped query every output or HAVING column is a grouping expression, sits
+   * inside an aggregate, or belongs to a table whose whole primary key is grouped.
+   */
+  private static void validateGrouping(LogicalPlan plan, PlainSelect select) {
+    if (select.getWhere() != null && hasAggregate(select.getWhere())) {
+      throw new IllegalArgumentException("aggregate functions are not allowed in WHERE");
+    }
+    for (Expression e : plan.outputExpressions) {
+      noNestedAggregate(e);
+    }
+    if (plan.having != null) {
+      noNestedAggregate(plan.having);
+    }
+    if (!plan.aggregated) {
+      return;
+    }
+    Set<String> grouped = new HashSet<>();
+    if (plan.groupBy != null) {
+      for (Expression g : plan.groupBy) {
+        grouped.add(g.toString());
+      }
+    }
+    for (Expression e : plan.outputExpressions) {
+      checkGrouped(e, grouped, plan);
+    }
+    if (plan.having != null) {
+      checkGrouped(plan.having, grouped, plan);
+    }
+  }
+
+  private static void checkGrouped(Expression e, Set<String> grouped, LogicalPlan plan) {
+    e = unwrap(e);
+    if (grouped.contains(e.toString())
+        || (e instanceof Function && Evaluator.isAggregate((Function) e))
+        || Evaluator.isFilteredAggregate(e)) {
+      return;
+    }
+    if (e instanceof net.sf.jsqlparser.expression.AnalyticExpression) {
+      for (Expression part : Windows.parts((net.sf.jsqlparser.expression.AnalyticExpression) e)) {
+        checkGrouped(part, grouped, plan);
+      }
+      return;
+    }
+    for (net.sf.jsqlparser.schema.Column c : columnsOutsideAggregates(e)) {
+      if (c.getTable() == null || grouped.contains(c.toString()) || keyGrouped(c, grouped, plan)) {
+        continue;
+      }
+      throw new IllegalArgumentException(
+          "column \""
+              + c
+              + "\" must appear in the GROUP BY clause or be used in an aggregate function");
+    }
+  }
+
+  /** PostgreSQL's functional dependency: the column's table has its whole primary key grouped. */
+  private static boolean keyGrouped(
+      net.sf.jsqlparser.schema.Column c, Set<String> grouped, LogicalPlan plan) {
+    String qualifier = unquote(c.getTable().getName());
+    for (LogicalPlan.Source s : plan.sources) {
+      if (!s.qualifier.equals(qualifier) || s.target == null) {
+        continue;
+      }
+      List<String> keys = new ArrayList<>(s.target.metadata.getPartitionKeyNames());
+      keys.addAll(s.target.metadata.getClusteringKeyNames());
+      for (String key : keys) {
+        if (!grouped.contains(
+            new net.sf.jsqlparser.schema.Column(new Table(c.getTable().getName()), key)
+                .toString())) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** The column references of {@code e} outside aggregate calls and subqueries. */
+  private static List<net.sf.jsqlparser.schema.Column> columnsOutsideAggregates(Expression e) {
+    List<net.sf.jsqlparser.schema.Column> out = new ArrayList<>();
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
+            String name = unquote(column.getColumnName());
+            if (!(column.getTable() == null && (isBooleanLiteral(name) || isKeyword(name)))) {
+              out.add(column);
+            }
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Function function, S context) {
+            return Evaluator.isAggregate(function) ? null : super.visit(function, context);
+          }
+
+          @Override
+          public <S> Void visit(
+              net.sf.jsqlparser.expression.AnalyticExpression analytic, S context) {
+            if (!Evaluator.isFilteredAggregate(analytic)) {
+              for (Expression part : Windows.parts(analytic)) {
+                part.accept(this, context);
+              }
+            }
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+        });
+    return out;
+  }
+
+  private static void noNestedAggregate(Expression e) {
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(Function function, S context) {
+            if (Evaluator.isAggregate(function) && function.getParameters() != null) {
+              for (Expression p : function.getParameters()) {
+                if (hasAggregate(p)) {
+                  throw new IllegalArgumentException("aggregate function calls cannot be nested");
+                }
+              }
+              return null;
+            }
+            return super.visit(function, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+        });
+  }
+
   private static boolean hasAggregate(Expression e) {
     boolean[] found = {false};
     e.accept(
@@ -5511,13 +6123,25 @@ public class QueryParser {
     throw new IllegalArgumentException("Expected a column name: " + e);
   }
 
-  /** TRUE and FALSE are parsed as bare column references. */
+  /** {@code col = DEFAULT} in SET: there are no column defaults here, so it means NULL. */
+  private static Expression defaultToNull(Expression e) {
+    return isDefaultKeyword(e) ? new NullValue() : e;
+  }
+
+  /** {@code DEFAULT} in a VALUES row: there are no column defaults here, so it means NULL. */
+  static boolean isDefaultKeyword(Expression e) {
+    return isColumn(e)
+        && ((net.sf.jsqlparser.schema.Column) e).getTable() == null
+        && columnName(e).equalsIgnoreCase("default");
+  }
+
   /** SQL keywords that parse as columns and evaluate to session values, see the Evaluator. */
   static boolean isKeyword(String name) {
     switch (name.toLowerCase(Locale.ROOT)) {
       case "current_catalog":
       case "current_schema":
       case "current_user":
+      case "user":
       case "session_user":
       case "current_role":
         return true;
@@ -5533,8 +6157,15 @@ public class QueryParser {
   /** An identifier as PostgreSQL resolves it: quoted as written, unquoted folded to lower case. */
   static String unquote(String identifier) {
     return identifier.startsWith("\"")
-        ? identifier.substring(1, identifier.length() - 1)
+        ? identifier.substring(1, identifier.length() - 1).replace("\"\"", "\"")
         : identifier.toLowerCase(Locale.ROOT);
+  }
+
+  /** The identifier as SQL text: quoted when unquoting would change it. */
+  static String quoteIfNeeded(String identifier) {
+    return identifier.matches("[a-z_][a-z0-9_$]*")
+        ? identifier
+        : "\"" + identifier.replace("\"", "\"\"") + "\"";
   }
 
   // A trailing zone offset as PostgreSQL and its drivers write it: +09, +09:00, -0530
@@ -5560,11 +6191,11 @@ public class QueryParser {
       t = t.substring(0, t.length() - 1) + "+00:00"; // pgx and ISO 8601 write UTC as Z
     }
     if (t.length() == 10) {
-      return LocalDate.parse(t).atStartOfDay().toInstant(ZoneOffset.UTC);
+      return LocalDate.parse(t).atStartOfDay().atZone(Evaluator.zone()).toInstant();
     }
     return OFFSET.matcher(t).find() && t.indexOf('T') > 0
         ? offsetDateTime(t).toInstant()
-        : LocalDateTime.parse(t).toInstant(ZoneOffset.UTC);
+        : LocalDateTime.parse(t).atZone(Evaluator.zone()).toInstant();
   }
 
   private static OffsetDateTime offsetDateTime(String t) {

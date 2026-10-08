@@ -1,0 +1,71 @@
+{'OK': 13, 'BOTH_ERR': 7, 'FE_ERR': 8}
+=== BOTH_ERR session_timezone_invalid
+SET TIME ZONE 'Mars/Olympus';
+  pg: ERROR:  invalid value for parameter "TimeZone": "Mars/Olympus"
+  fe: ERROR:  invalid value for parameter "TimeZone": "Mars/Olympus"
+=== BOTH_ERR session_set_local_outside_tx
+SET LOCAL application_name = 'outside'; SHOW application_name;
+  pg: WARNING:  SET LOCAL can only be used in transaction blocks
+  fe: WARNING:  SET LOCAL can only be used in transaction blocks
+=== BOTH_ERR session_search_path_missing
+SET search_path TO nosuch; SELECT count(*) FROM emp;
+  pg: ERROR:  relation "emp" does not exist
+LINE 1: SELECT count(*) FROM emp;
+                             ^
+  fe: ERROR:  Table not found: nosuch.emp
+=== FE_ERR refuse_tablesample
+SELECT count(*) FROM emp TABLESAMPLE SYSTEM (10);
+  pg: 
+  fe: ERROR:  TABLESAMPLE is not supported
+=== FE_ERR refuse_collate_locale
+SELECT name FROM emp WHERE id <= 3 ORDER BY name COLLATE "en_US";
+  pg: 
+  fe: ERROR:  collation "en_US" is not supported: only "C" (byte order) is available
+=== BOTH_ERR refuse_distinct_order_by
+SELECT DISTINCT name FROM emp ORDER BY salary;
+  pg: ERROR:  for SELECT DISTINCT, ORDER BY expressions must appear in select list
+LINE 1: SELECT DISTINCT name FROM emp ORDER BY salary;
+                                               ^
+  fe: ERROR:  for SELECT DISTINCT, ORDER BY expressions must appear in select list
+=== FE_ERR refuse_select_into
+BEGIN; SELECT id INTO emp_copy FROM emp; ROLLBACK;
+  pg: 
+  fe: ERROR:  SELECT INTO is not supported: use CREATE TABLE and INSERT ... SELECT
+=== FE_ERR refuse_temp_table
+CREATE TEMP TABLE tmp_probe (id INT PRIMARY KEY);
+  pg: 
+  fe: ERROR:  Temporary tables are not supported: a table created here would be permanent
+=== FE_ERR refuse_modifying_cte
+WITH d AS (DELETE FROM emp WHERE id = -1 RETURNING id) SELECT * FROM d;
+  pg: 
+  fe: ERROR:  Data-modifying statements in WITH are not supported: d
+=== FE_ERR refuse_expression_index
+BEGIN; CREATE INDEX emp_lower_name ON emp (lower(name)); ROLLBACK;
+  pg: 
+  fe: ERROR:  Expression indexes are not supported: lower(name)
+=== FE_ERR refuse_serializable_on_snapshot
+BEGIN ISOLATION LEVEL SERIALIZABLE; SELECT 1; COMMIT;
+  pg: 
+  fe: ERROR:  isolation level serializable is not available: this ScalarDB runs at read committed (scalar.db.consensus_commit.isolation_level=SERIALIZABLE gives serializable)
+=== BOTH_ERR refuse_aggregate_in_where
+SELECT id FROM emp WHERE max(salary) > 1;
+  pg: ERROR:  aggregate functions are not allowed in WHERE
+LINE 1: SELECT id FROM emp WHERE max(salary) > 1;
+                                 ^
+  fe: ERROR:  aggregate functions are not allowed in WHERE
+=== BOTH_ERR refuse_ungrouped_column
+SELECT dept_id, name FROM emp GROUP BY dept_id;
+  pg: ERROR:  column "emp.name" must appear in the GROUP BY clause or be used in an aggregate function
+LINE 1: SELECT dept_id, name FROM emp GROUP BY dept_id;
+                        ^
+  fe: ERROR:  column "emp.name" must appear in the GROUP BY clause or be used in an aggregate function
+=== BOTH_ERR refuse_union_type_mismatch
+SELECT id FROM emp UNION SELECT name FROM emp;
+  pg: ERROR:  UNION types integer and text cannot be matched
+LINE 1: SELECT id FROM emp UNION SELECT name FROM emp;
+                                        ^
+  fe: ERROR:  UNION types integer and text cannot be matched
+=== FE_ERR refuse_update_pk
+UPDATE emp SET id = -5 WHERE id = -4;
+  pg: 
+  fe: ERROR:  A primary key column cannot be updated: id

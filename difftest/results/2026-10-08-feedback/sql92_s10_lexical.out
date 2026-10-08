@@ -1,0 +1,27 @@
+{'OK': 13, 'BOTH_ERR': 2, 'FE_ERR': 2}
+=== BOTH_ERR s10_5_2_delimited_identifier_upper_no_match
+SELECT "EMPNAME" FROM t92_staff WHERE empnum = 'E1';
+  pg: ERROR:  column "EMPNAME" does not exist
+LINE 1: SELECT "EMPNAME" FROM t92_staff WHERE empnum = 'E1';
+               ^
+  fe: ERROR:  Unknown column: "EMPNAME"
+=== FE_ERR s10_5_2_delimited_identifier_case_distinct
+DROP TABLE IF EXISTS t92_w10_c05; CREATE TABLE t92_w10_c05 ("a" INTEGER, "A" INTEGER, PRIMARY KEY ("a")); INSERT INTO t92_w10_c05 VALUES (1, 2); SELECT "a", "A" FROM t92_w10_c05; DROP TABLE t92_w10_c05;
+  pg: 
+  fe: ERROR:  Columns differing only in case are not supported: "a" and "A" (the JDBC backend reads columns by name, case-insensitively)
+ERROR:  Table not found: sdb.t92_w10_c05
+ERROR:  Table not found: sdb.t92_w10_c05
+ERROR:  DB-CORE-10016: The table does not exist. Table: sdb.t92_w10_c05
+=== FE_ERR s10_5_2_delimited_identifier_embedded_quote
+DROP TABLE IF EXISTS t92_w10_c06; CREATE TABLE t92_w10_c06 ("we""ird" INTEGER, PRIMARY KEY ("we""ird")); INSERT INTO t92_w10_c06 VALUES (1); SELECT "we""ird" FROM t92_w10_c06; DROP TABLE t92_w10_c06;
+  pg: 
+  fe: ERROR:  DB-CORE-30002: Creating the table failed. Table: sdb.t92_w10_c06
+ERROR:  Table not found: sdb.t92_w10_c06
+ERROR:  Table not found: sdb.t92_w10_c06
+ERROR:  DB-CORE-10016: The table does not exist. Table: sdb.t92_w10_c06
+=== BOTH_ERR s10_5_2_reserved_word_as_identifier_error
+DROP TABLE IF EXISTS t92_w10_c07; CREATE TABLE t92_w10_c07 (select INTEGER, PRIMARY KEY (select)); DROP TABLE IF EXISTS t92_w10_c07;
+  pg: ERROR:  syntax error at or near "select"
+LINE 1: CREATE TABLE t92_w10_c07 (select INTEGER, PRIMARY KEY (selec...
+                                  ^
+  fe: ERROR:  Invalid SQL: CREATE TABLE t92_w10_c07 (select INTEGER, PRIMARY KEY (select))

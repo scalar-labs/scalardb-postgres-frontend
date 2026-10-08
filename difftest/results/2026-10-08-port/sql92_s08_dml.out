@@ -1,0 +1,47 @@
+{'OK': 30, 'BOTH_ERR': 8, 'FE_ERR': 1}
+=== BOTH_ERR s08_13_8_insert_too_many_values
+DROP TABLE IF EXISTS t92_w8_c06; CREATE TABLE t92_w8_c06 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c06 VALUES (1, 2, 3); SELECT * FROM t92_w8_c06; DROP TABLE t92_w8_c06;
+  pg: ERROR:  INSERT has more expressions than target columns
+LINE 1: INSERT INTO t92_w8_c06 VALUES (1, 2, 3);
+                                             ^
+  fe: ERROR:  INSERT row must have one value per column: [1, 2, 3]
+=== BOTH_ERR s08_13_8_insert_too_few_values_with_list
+DROP TABLE IF EXISTS t92_w8_c07; CREATE TABLE t92_w8_c07 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c07 (id, a) VALUES (1); SELECT * FROM t92_w8_c07; DROP TABLE t92_w8_c07;
+  pg: ERROR:  INSERT has more target columns than expressions
+LINE 1: INSERT INTO t92_w8_c07 (id, a) VALUES (1);
+                                    ^
+  fe: ERROR:  INSERT row must have one value per column: [1]
+=== BOTH_ERR s08_13_8_insert_unknown_column
+DROP TABLE IF EXISTS t92_w8_c08; CREATE TABLE t92_w8_c08 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c08 (id, nosuch) VALUES (1, 2); SELECT * FROM t92_w8_c08; DROP TABLE t92_w8_c08;
+  pg: ERROR:  column "nosuch" of relation "t92_w8_c08" does not exist
+LINE 1: INSERT INTO t92_w8_c08 (id, nosuch) VALUES (1, 2);
+                                    ^
+  fe: ERROR:  Unknown column: nosuch
+=== BOTH_ERR s08_13_8_insert_duplicate_pk
+DROP TABLE IF EXISTS t92_w8_c09; CREATE TABLE t92_w8_c09 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c09 VALUES (1, 1); INSERT INTO t92_w8_c09 VALUES (1, 2); SELECT * FROM t92_w8_c09; DROP TABLE t92_w8_c09;
+  pg: ERROR:  duplicate key value violates unique constraint "t92_w8_c09_pkey"
+DETAIL:  Key (id)=(1) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "t92_w8_c09_pkey"
+=== BOTH_ERR s08_13_8_insert_select_dup_pk_atomic
+DROP TABLE IF EXISTS t92_w8_c13; CREATE TABLE t92_w8_c13 (g INTEGER, PRIMARY KEY (g)); INSERT INTO t92_w8_c13 SELECT grade FROM t92_staff; SELECT COUNT(*) FROM t92_w8_c13; DROP TABLE t92_w8_c13;
+  pg: ERROR:  duplicate key value violates unique constraint "t92_w8_c13_pkey"
+DETAIL:  Key (g)=(12) already exists.
+  fe: ERROR:  duplicate key value violates unique constraint "t92_w8_c13_pkey"
+=== BOTH_ERR s08_13_10_update_statement_atomic_on_error
+DROP TABLE IF EXISTS t92_w8_c25; CREATE TABLE t92_w8_c25 (id INTEGER, a INTEGER, b INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c25 VALUES (1, 10, 1); INSERT INTO t92_w8_c25 VALUES (2, 10, 0); INSERT INTO t92_w8_c25 VALUES (3, 10, 1); UPDATE t92_w8_c25 SET a = a / b; SELECT * FROM t92_w8_c25; DROP TABLE t92_w8_c25;
+  pg: ERROR:  division by zero
+  fe: ERROR:  division by zero
+=== BOTH_ERR s08_13_10_update_overflow_atomic
+DROP TABLE IF EXISTS t92_w8_c26; CREATE TABLE t92_w8_c26 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c26 VALUES (1, 1); INSERT INTO t92_w8_c26 VALUES (2, 2147483647); UPDATE t92_w8_c26 SET a = a + 1; SELECT * FROM t92_w8_c26; DROP TABLE t92_w8_c26;
+  pg: ERROR:  integer out of range
+  fe: ERROR:  integer out of range
+=== BOTH_ERR s08_13_10_update_unknown_column
+DROP TABLE IF EXISTS t92_w8_c27; CREATE TABLE t92_w8_c27 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c27 VALUES (1, 1); UPDATE t92_w8_c27 SET nosuch = 1; SELECT * FROM t92_w8_c27; DROP TABLE t92_w8_c27;
+  pg: ERROR:  column "nosuch" of relation "t92_w8_c27" does not exist
+LINE 1: UPDATE t92_w8_c27 SET nosuch = 1;
+                              ^
+  fe: ERROR:  Unknown column: nosuch
+=== FE_ERR s08_13_10_update_pk_column
+DROP TABLE IF EXISTS t92_w8_c28; CREATE TABLE t92_w8_c28 (id INTEGER, a INTEGER, PRIMARY KEY (id)); INSERT INTO t92_w8_c28 VALUES (1, 1); UPDATE t92_w8_c28 SET id = 2 WHERE id = 1; SELECT * FROM t92_w8_c28; DROP TABLE t92_w8_c28;
+  pg: 
+  fe: ERROR:  A primary key column cannot be updated: id

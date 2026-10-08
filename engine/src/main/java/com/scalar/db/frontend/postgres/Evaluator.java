@@ -39,6 +39,7 @@ import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NotExpression;
 import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.RowGetExpression;
 import net.sf.jsqlparser.expression.SignedExpression;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.TimeKeyExpression;
@@ -136,6 +137,13 @@ final class Evaluator {
       if (plan == null) {
         throw new IllegalArgumentException("Unsupported subquery: " + select);
       }
+      if (!plan.correlated) {
+        // the same rows for every outer row: read once per execution of the statement
+        if (plan.cachedRows == null) {
+          plan.cachedRows = plan.evaluate(outer);
+        }
+        return plan.cachedRows;
+      }
       Map<String, Object> row = new LinkedHashMap<>();
       if (outer != null) {
         row.putAll(outer);
@@ -145,6 +153,52 @@ final class Evaluator {
       }
       return plan.evaluate(row);
     }
+  }
+
+  /**
+   * The session's TimeZone, one per connection thread: timestamptz values print in it, a
+   * timestamptz literal without an offset is read in it, and CURRENT_DATE and friends follow it.
+   */
+  private static final ThreadLocal<java.time.ZoneId> ZONE =
+      ThreadLocal.withInitial(() -> ZoneOffset.UTC);
+
+  static void setZone(java.time.ZoneId zone) {
+    ZONE.set(zone);
+  }
+
+  static java.time.ZoneId zone() {
+    return ZONE.get();
+  }
+
+  /** PostgreSQL's offset suffix: {@code +09}, {@code -03}, {@code +05:30}. */
+  static String offsetText(ZoneOffset offset) {
+    int total = offset.getTotalSeconds();
+    int abs = Math.abs(total);
+    String text = String.format("%s%02d", total < 0 ? "-" : "+", abs / 3600);
+    return (abs % 3600) / 60 == 0 ? text : text + String.format(":%02d", (abs % 3600) / 60);
+  }
+
+  /** A timestamp truncated to {@code precision} fractional digits, as {@code now(3)} does. */
+  /** Rounds to {@code precision} fractional digits, half up, as PostgreSQL does (56.5 is 57). */
+  private static Object truncated(Object v, int precision) {
+    long unit = (long) Math.pow(10, Math.max(0, 9 - Math.min(precision, 9)));
+    if (v instanceof Instant) {
+      Instant i = (Instant) v;
+      return Instant.ofEpochSecond(i.getEpochSecond()).plusNanos(rounded(i.getNano(), unit));
+    }
+    if (v instanceof LocalDateTime) {
+      LocalDateTime t = (LocalDateTime) v;
+      return t.withNano(0).plusNanos(rounded(t.getNano(), unit));
+    }
+    if (v instanceof LocalTime) {
+      LocalTime t = (LocalTime) v;
+      return t.withNano(0).plusNanos(rounded(t.getNano(), unit));
+    }
+    return v;
+  }
+
+  private static long rounded(long nanos, long unit) {
+    return (nanos + unit / 2) / unit * unit;
   }
 
   static boolean isTrue(@Nullable Object value) {
@@ -180,6 +234,24 @@ final class Evaluator {
       }
     }
     return true;
+  }
+
+  /**
+   * Only byte-order collations exist here: ScalarDB orders text by its bytes, so any locale
+   * collation would silently sort differently from PostgreSQL.
+   */
+  static void checkCollation(String name) {
+    String collation = name.replace("\"", "").toLowerCase(Locale.ROOT);
+    collation = collation.substring(collation.lastIndexOf('.') + 1);
+    if (!collation.equals("c")
+        && !collation.equals("posix")
+        && !collation.equals("ucs_basic")
+        && !collation.equals("default")) {
+      throw new IllegalArgumentException(
+          "collation \""
+              + name.replace("\"", "")
+              + "\" is not supported: only \"C\" (byte order) is available");
+    }
   }
 
   @Nullable static Object eval(Expression e, List<Map<String, Object>> group, Context ctx) {
@@ -330,8 +402,10 @@ final class Evaluator {
     if (e instanceof CaseExpression) {
       return caseOf((CaseExpression) e, group, ctx);
     }
-    if (e instanceof CollateExpression) {
-      return eval(((CollateExpression) e).getLeftExpression(), group, ctx);
+    if (e instanceof CollateExpression
+        || (e instanceof RowGetExpression
+            && ((RowGetExpression) e).getExpression() instanceof CollateExpression)) {
+      return eval(QueryParser.unwrap(e), group, ctx);
     }
     if (e instanceof RegExpMatchOperator) {
       RegExpMatchOperator re = (RegExpMatchOperator) e;
@@ -981,9 +1055,10 @@ final class Evaluator {
         case "current_schema":
           return ctx.catalog == null ? null : "public"; // the connected namespace shows as public
         case "current_user":
+        case "user":
         case "session_user":
         case "current_role":
-          return Catalog.OWNER;
+          return ctx.catalog == null ? Catalog.OWNER : ctx.catalog.user;
         default:
           break;
       }
@@ -1012,12 +1087,12 @@ final class Evaluator {
       case "NOW":
         return Instant.now();
       case "CURRENT_DATE":
-        return LocalDate.now(ZoneOffset.UTC);
+        return LocalDate.now(zone());
       case "CURRENT_TIME":
       case "LOCALTIME":
-        return LocalTime.now(ZoneOffset.UTC);
+        return LocalTime.now(zone());
       case "LOCALTIMESTAMP":
-        return LocalDateTime.now(ZoneOffset.UTC);
+        return LocalDateTime.now(zone());
       default:
         throw new IllegalArgumentException("Unsupported expression: " + keyword);
     }
@@ -1048,7 +1123,7 @@ final class Evaluator {
         || Double.isFinite(((Number) v).doubleValue());
   }
 
-  private static boolean isIntegral(Object v) {
+  static boolean isIntegral(Object v) {
     return v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte;
   }
 
@@ -1101,8 +1176,9 @@ final class Evaluator {
       return timestampText((LocalDateTime) v);
     }
     if (v instanceof Instant) {
-      // Always UTC: PostgreSQL prints the offset as +00, with minutes only when they are not zero
-      return timestampText(LocalDateTime.ofInstant((Instant) v, ZoneOffset.UTC)) + "+00";
+      // in the session's zone, with PostgreSQL's offset suffix (+00, +09, +05:30)
+      java.time.ZonedDateTime z = ((Instant) v).atZone(zone());
+      return timestampText(z.toLocalDateTime()) + offsetText(z.getOffset());
     }
     if (v instanceof ByteBuffer) {
       ByteBuffer b = ((ByteBuffer) v).duplicate();
@@ -1344,7 +1420,7 @@ final class Evaluator {
       return (LocalDateTime) v;
     }
     if (v instanceof Instant) {
-      return LocalDateTime.ofInstant((Instant) v, ZoneOffset.UTC);
+      return LocalDateTime.ofInstant((Instant) v, zone());
     }
     if (v instanceof LocalDate) {
       return ((LocalDate) v).atStartOfDay();
@@ -1466,9 +1542,7 @@ final class Evaluator {
                 ? ((LocalDate) v).atStartOfDay()
                 : v instanceof LocalTime
                     ? LocalDate.of(1970, 1, 1).atTime((LocalTime) v) // epoch: seconds of the day
-                    : v instanceof Instant
-                        ? LocalDateTime.ofInstant((Instant) v, ZoneOffset.UTC)
-                        : null;
+                    : v instanceof Instant ? LocalDateTime.ofInstant((Instant) v, zone()) : null;
     if (t == null) {
       throw new IllegalArgumentException("Cannot extract " + field + " from " + text(v));
     }
@@ -1507,6 +1581,13 @@ final class Evaluator {
   @Nullable private static Object dateTrunc(String unit, @Nullable Object v) {
     if (v == null) {
       return null;
+    }
+    if (v instanceof Instant) {
+      // a timestamptz is truncated in the session's zone and stays a timestamptz
+      Object local =
+          java.util.Objects.requireNonNull(
+              dateTrunc(unit, LocalDateTime.ofInstant((Instant) v, zone())));
+      return ((LocalDateTime) local).atZone(zone()).toInstant();
     }
     LocalDateTime t = v instanceof LocalDate ? ((LocalDate) v).atStartOfDay() : (LocalDateTime) v;
     switch (unit.toLowerCase(Locale.ROOT)) {
@@ -1571,6 +1652,14 @@ final class Evaluator {
     }
     String t = type.toLowerCase(Locale.ROOT).trim();
     t = t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
+    if (t.startsWith("time")) {
+      // timestamp(p), timestamptz(p), time(p): the fraction is rounded to p digits
+      java.util.regex.Matcher precision = Pattern.compile("\\s*\\((\\d+)\\)").matcher(t);
+      if (precision.find()) {
+        Object exact = cast(precision.replaceFirst("").trim(), v);
+        return exact == null ? null : truncated(exact, Integer.parseInt(precision.group(1)));
+      }
+    }
     String s = text(v);
     try {
       if (t.equals("oid") || t.startsWith("reg")) {
@@ -1627,6 +1716,13 @@ final class Evaluator {
         return v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
       }
       if (t.contains("char") || t.equals("text") || t.equals("string")) {
+        java.util.regex.Matcher length = Pattern.compile("\\((\\d+)\\)").matcher(t);
+        if (length.find()) {
+          int n = Integer.parseInt(length.group(1)); // char(n) and varchar(n) casts truncate
+          if (s.codePointCount(0, s.length()) > n) {
+            return s.substring(0, s.offsetByCodePoints(0, n));
+          }
+        }
         return s;
       }
       if (t.equals("boolean") || t.equals("bool")) {
@@ -1635,16 +1731,31 @@ final class Evaluator {
             : v instanceof Number ? ((Number) v).intValue() != 0 : parseBoolean(s);
       }
       if (t.equals("date")) {
-        return v instanceof LocalDate ? v : LocalDate.parse(s);
+        return v instanceof LocalDate
+            ? v
+            : v instanceof LocalDateTime
+                ? ((LocalDateTime) v).toLocalDate()
+                : v instanceof Instant
+                    ? ((Instant) v).atZone(zone()).toLocalDate()
+                    : LocalDate.parse(
+                        s.trim().length() > 10 ? s.trim().substring(0, 10) : s.trim());
       }
       if (t.equals("time")) {
         return v instanceof LocalTime ? v : LocalTime.parse(s);
       }
       if (t.equals("timestamptz") || t.contains("with time zone")) {
-        return v instanceof Instant ? v : OffsetDateTime.parse(s.replace(' ', 'T')).toInstant();
+        return v instanceof Instant
+            ? v
+            : v instanceof LocalDateTime
+                ? ((LocalDateTime) v).atZone(zone()).toInstant()
+                : QueryParser.instant(s);
       }
       if (t.startsWith("timestamp")) {
-        return v instanceof LocalDateTime ? v : LocalDateTime.parse(s.replace(' ', 'T'));
+        return v instanceof LocalDateTime
+            ? v
+            : v instanceof Instant
+                ? LocalDateTime.ofInstant((Instant) v, zone())
+                : QueryParser.localDateTime(s);
       }
     } catch (RuntimeException e) {
       throw new IllegalArgumentException("Cannot cast '" + s + "' to " + type, e);
@@ -1788,6 +1899,11 @@ final class Evaluator {
         return str(args, 0).toLowerCase(Locale.ROOT);
       case "GEN_RANDOM_UUID":
         return java.util.UUID.randomUUID().toString();
+      case "CURRENT_TIMESTAMP":
+      case "LOCALTIMESTAMP":
+      case "CURRENT_TIME":
+      case "LOCALTIME":
+        return truncated(now(name), ((Number) args.get(0)).intValue()); // the precision form
       case "TO_JSON":
       case "TO_JSONB":
         return new Json.Value(Json.toNode(args.get(0)), name.equals("TO_JSONB"), null);
@@ -1949,8 +2065,7 @@ final class Evaluator {
             return null;
           }
           // with two arguments b is set (a NULL one returned above)
-          LocalDateTime to =
-              b != null ? asTimestamp(a) : LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+          LocalDateTime to = b != null ? asTimestamp(a) : LocalDate.now(zone()).atStartOfDay();
           LocalDateTime from = b != null ? asTimestamp(b) : asTimestamp(a);
           if (to == null || from == null) {
             throw new IllegalArgumentException("age needs timestamps: " + f);
