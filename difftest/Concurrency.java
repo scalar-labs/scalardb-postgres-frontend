@@ -36,6 +36,8 @@ public class Concurrency {
 
   public static void main(String[] args) throws Exception {
     url = "jdbc:postgresql://localhost:" + args[0] + "/" + args[1];
+    // the fat jar's merged META-INF/services/java.sql.Driver lists only the Spanner driver
+    Class.forName("org.postgresql.Driver");
     boolean serializable = args[2].equalsIgnoreCase("SERIALIZABLE");
     setUp(args[1]);
 

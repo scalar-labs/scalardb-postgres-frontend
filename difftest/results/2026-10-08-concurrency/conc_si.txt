@@ -1,0 +1,12 @@
+lost update (read+write)     expected=240 actual=240
+  retries: 1142
+lost update (v = v + 1)      expected=240 actual=240
+unique insert: successes     expected=30 actual=30
+unique insert: rows          expected=30 actual=30
+bank: final total            expected=1000 actual=1000
+  reads during transfers: attempts=160 committed=116 inconsistent=74
+  read-only reader: attempts=80 committed=59 skewed=39; read-write reader: attempts=80 committed=57 skewed=35
+session usable after rollback expected=1 actual=1
+SQLSTATE histogram: {40001=2595, 25P02=1, 42703=1}
+anomalies (SNAPSHOT): read skew=74, write skew=100, phantom inserts=100
+PASS
