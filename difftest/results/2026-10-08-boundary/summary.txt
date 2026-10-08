@@ -1,0 +1,49 @@
+Boundary-value fixes of 2026-10-08, prompted by the Japanese boundary report (report-boundary-20261008.md:
+149 cases on frontend commit 1fe8373aa of the ScalarDB postgres-frontend branch, against PostgreSQL and MySQL
+backends, each compared with native PostgreSQL 16). The frontend-side findings are fixed here; the new cases live in
+cases_types.sql and cases_session.sql, with their statuses in results/baseline/types.txt and session.txt.
+
+Fixed:
+  REAL/DOUBLE literals beyond the type's range were stored as Infinity or 0 (report I-REAL-02/04, I-DBL-02): now
+    22003 "value ... is out of range for type real" (types_float_literal_overflow, types_float_literal_underflow:
+    BOTH_ERR)
+  Float arithmetic and float sums overflowed to Infinity (S-AGG-06): now 22003 "value out of range: overflow", with
+    PostgreSQL's underflow check for * and / (types_float_arith_overflow, types_float_arith_underflow,
+    types_float_sum_overflow: BOTH_ERR; types_float_infinity_operands OK, an infinite operand is not an overflow)
+  TIME with 7 fractional digits was truncated by ScalarDB's TimeColumn.of; now rounded half up as PostgreSQL does
+    (I-TIME-03; types_time_rounds_half_up OK). TIMESTAMP/TIMESTAMPTZ are rounded to ScalarDB's milliseconds instead
+    of truncated (I-TS-01, I-TSZ-01), and CREATE TABLE says so with a NOTICE unless the column is TIMESTAMP(3) or
+    coarser (types_timestamptz_millis_round_half_up OK; notice_timestamp_precision FE_ERR is that NOTICE on stderr;
+    accept_timestamp3_without_notice OK)
+  DATE/TIMESTAMP outside ScalarDB's years 1000 to 9999 (I-DATE-02/04, I-TS-04) were 22007 "invalid input syntax":
+    now 22008 "date/time field value out of range" naming ScalarDB's bounds (refuse_date_before_year_1000 FE_ERR:
+    PostgreSQL accepts the year 999)
+  LIMIT -1 returned every row (S-LIM-04): now 2201W, and OFFSET -1 is 2201X (refuse_limit_negative,
+    refuse_offset_negative: BOTH_ERR)
+  A NUL in a text value reached the backing database (I-STR-08: PostgreSQL rejected it as XX000, MySQL stored it):
+    now 22021 in the frontend (refuse_nul_in_string BOTH_ERR)
+  VARCHAR(10485761), CHAR(0) and NUMERIC(1001) were accepted (D-DECL-02/04/05): now 22023 with PostgreSQL's
+    messages (refuse_varchar_length_over_max, refuse_char_zero_length, refuse_numeric_precision_over_max: BOTH_ERR)
+  Names PostgreSQL would truncate (D-ID-T64/T65, D-ID-C63/C64): a table or schema name over 63 bytes, or a column
+    name over 56 (ScalarDB adds a before_ copy of each column), is refused with 42622 instead of leaving a table
+    ScalarDB cannot read back (refuse_table_name_over_63 BOTH_ERR, PostgreSQL's truncation NOTICE is on stderr;
+    refuse_column_name_over_56 FE_ERR)
+  More than 1600 columns (D-COL-1601) is 54011 before ScalarDB is asked. For every error raised by the backing
+    database (DB-CORE-30002 "Creating the table failed" and the like, D-COL-1600, D-KEY-02, D-IDX-01) the root
+    SQLException's SQLSTATE and message are now passed through instead of XX000 with no reason
+  DROP SCHEMA on a namespace that still has tables (M-12b) was 42601: now 2BP01 (refuse_drop_schema_not_empty
+    BOTH_ERR, drop_schema_after_its_table OK)
+
+Already fixed before this run: WHERE int_col > 2147483648 (S-CMP-04/05) compares in memory since 73ba17a
+  (int_vs_bigint_literal); an empty-string partition key (I-KEY-04) is 22023 since 1beb13b.
+
+Not changed, ScalarDB core or the backing database: SMALLINT, NUMERIC and CHAR(n) modifiers (announced by NOTICE),
+  the collation of pushed-down text comparisons, MySQL's varchar(128) key columns and 3072-byte index limit,
+  NaN, Infinity and -0 on MySQL, and the 60 s to 150 s commit waits while a backing database is down.
+
+The report's one wrong attribution: Core-direct CREATE TABLE with a 64-character name on PostgreSQL failed with
+  "relation already exists", because its runner never dropped the 63-character table of the previous case and
+  PostgreSQL truncated the new name onto it; ScalarDB itself accepts the name. The refusal above closes that hole.
+
+Also: sql92-entry s10_long_identifier_63 used a 67-character table name (t92_ plus 63 letters), which PostgreSQL
+  truncated silently; it now uses 63 characters as its name says, and the over-63 case is refuse_table_name_over_63.

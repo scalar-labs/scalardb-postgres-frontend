@@ -23,6 +23,9 @@ python3 fuzz.py 7 300 > fuzz_cases.sql && STOP=0 python3 run.py fuzz_cases.sql  
 
 `cases_session.sql` covers session semantics (`SET TIME ZONE`, `search_path`, `SET LOCAL`) and the
 statements the frontend refuses on purpose; its `refuse_*` cases are expected `FE_ERR`.
+The boundary cases of 2026-10-08 (float overflow, sub-millisecond rounding, negative `LIMIT`, name and
+type-modifier limits) are in `cases_types.sql` and `cases_session.sql`; `results/2026-10-08-boundary/summary.txt`
+explains their statuses.
 
 `results/baseline/*.txt` record the expected status of every case (`name status` per line).
 `EXPECT=results/baseline/read.txt python3 run.py cases_read.sql` exits 1 and prints `CHANGED` for any

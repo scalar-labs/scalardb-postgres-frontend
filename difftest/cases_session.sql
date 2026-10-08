@@ -56,3 +56,29 @@ SELECT dept_id, name FROM emp GROUP BY dept_id;
 SELECT id FROM emp UNION SELECT name FROM emp;
 -- @refuse_update_pk
 UPDATE emp SET id = -5 WHERE id = -4;
+-- @refuse_limit_negative
+SELECT id FROM emp LIMIT -1;
+-- @refuse_offset_negative
+SELECT id FROM emp OFFSET -1;
+-- @refuse_nul_in_string
+SELECT count(*) FROM emp WHERE name = E'a\000b';
+-- @refuse_date_before_year_1000
+BEGIN; INSERT INTO emp (id, name, hired) VALUES (-100, 'probe', '0999-12-31'); ROLLBACK;
+-- @refuse_varchar_length_over_max
+BEGIN; CREATE TABLE probe_vc (id INT PRIMARY KEY, v VARCHAR(10485761)); ROLLBACK;
+-- @refuse_char_zero_length
+BEGIN; CREATE TABLE probe_c0 (id INT PRIMARY KEY, v CHAR(0)); ROLLBACK;
+-- @refuse_numeric_precision_over_max
+BEGIN; CREATE TABLE probe_n (id INT PRIMARY KEY, v NUMERIC(1001)); ROLLBACK;
+-- @refuse_table_name_over_63
+BEGIN; CREATE TABLE t_dd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (id INT PRIMARY KEY); ROLLBACK;
+-- @refuse_column_name_over_56
+BEGIN; CREATE TABLE probe_col (id INT PRIMARY KEY, c_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx INT); ROLLBACK;
+-- @notice_timestamp_precision
+CREATE TABLE IF NOT EXISTS probe_ts (id INT PRIMARY KEY, at TIMESTAMP); DROP TABLE probe_ts;
+-- @accept_timestamp3_without_notice
+CREATE TABLE IF NOT EXISTS probe_ts3 (id INT PRIMARY KEY, at TIMESTAMP(3)); DROP TABLE probe_ts3;
+-- @refuse_drop_schema_not_empty
+CREATE SCHEMA IF NOT EXISTS probe_ne; CREATE TABLE IF NOT EXISTS probe_ne.t (id INT PRIMARY KEY); DROP SCHEMA probe_ne;
+-- @drop_schema_after_its_table
+DROP TABLE probe_ne.t; DROP SCHEMA probe_ne;

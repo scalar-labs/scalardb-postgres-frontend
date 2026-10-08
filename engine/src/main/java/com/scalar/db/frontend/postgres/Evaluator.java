@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -203,9 +202,11 @@ final class Evaluator {
     return (abs % 3600) / 60 == 0 ? text : text + String.format(":%02d", (abs % 3600) / 60);
   }
 
-  /** A timestamp truncated to {@code precision} fractional digits, as {@code now(3)} does. */
-  /** Rounds to {@code precision} fractional digits, half up, as PostgreSQL does (56.5 is 57). */
-  private static Object truncated(Object v, int precision) {
+  /**
+   * A timestamp or time rounded to {@code precision} fractional digits, half up, as PostgreSQL does
+   * for {@code now(3)} and a cast to {@code timestamp(3)} (56.5 is 57).
+   */
+  static Object roundedTo(Object v, int precision) {
     long unit = (long) Math.pow(10, Math.max(0, 9 - Math.min(precision, 9)));
     if (v instanceof Instant) {
       Instant i = (Instant) v;
@@ -224,6 +225,15 @@ final class Evaluator {
 
   private static long rounded(long nanos, long unit) {
     return (nanos + unit / 2) / unit * unit;
+  }
+
+  /** A float sum as a double; PostgreSQL reports an overflow rather than returning Infinity. */
+  private static double finiteSum(BigDecimal sum) {
+    double d = sum.doubleValue();
+    if (Double.isInfinite(d)) {
+      throw new ArithmeticException("value out of range: overflow");
+    }
+    return d;
   }
 
   static boolean isTrue(@Nullable Object value) {
@@ -1360,16 +1370,29 @@ final class Evaluator {
     }
     double a = ((Number) l).doubleValue();
     double b = ((Number) r).doubleValue();
+    double v;
     if (e instanceof Addition) {
-      return a + b;
+      v = a + b;
+    } else if (e instanceof Subtraction) {
+      v = a - b;
+    } else if (e instanceof Multiplication) {
+      v = a * b;
+    } else {
+      v = e instanceof Modulo ? a % b : a / b;
     }
-    if (e instanceof Subtraction) {
-      return a - b;
+    // PostgreSQL's float checks: an infinite result from finite operands, or zero from non-zero
+    // ones
+    if (Double.isInfinite(v) && !Double.isInfinite(a) && !Double.isInfinite(b)) {
+      throw new ArithmeticException("value out of range: overflow");
     }
-    if (e instanceof Multiplication) {
-      return a * b;
+    if (v == 0
+        && a != 0
+        && (e instanceof Multiplication
+            ? b != 0
+            : e instanceof Division && !Double.isInfinite(b))) {
+      throw new ArithmeticException("value out of range: underflow");
     }
-    return e instanceof Modulo ? a % b : a / b;
+    return v;
   }
 
   /**
@@ -1776,7 +1799,7 @@ final class Evaluator {
       java.util.regex.Matcher precision = Pattern.compile("\\s*\\((\\d+)\\)").matcher(t);
       if (precision.find()) {
         Object exact = cast(precision.replaceFirst("").trim(), v);
-        return exact == null ? null : truncated(exact, Integer.parseInt(precision.group(1)));
+        return exact == null ? null : roundedTo(exact, Integer.parseInt(precision.group(1)));
       }
     }
     String s = text(v);
@@ -2022,7 +2045,7 @@ final class Evaluator {
       case "LOCALTIMESTAMP":
       case "CURRENT_TIME":
       case "LOCALTIME":
-        return truncated(now(name), ((Number) args.get(0)).intValue()); // the precision form
+        return roundedTo(now(name), ((Number) args.get(0)).intValue()); // the precision form
       case "TO_JSON":
       case "TO_JSONB":
         return new Json.Value(Json.toNode(args.get(0)), name.equals("TO_JSONB"), null);
@@ -2416,11 +2439,11 @@ final class Evaluator {
         if (name.equals("AVG")) {
           // the average of integers or numerics is numeric, with PostgreSQL's division scale
           return floating
-              ? (Object) (sum.doubleValue() / values.size()) // PostgreSQL accumulates from +0
+              ? (Object) (finiteSum(sum) / values.size()) // PostgreSQL accumulates from +0
               : divide(sum, BigDecimal.valueOf(values.size()));
         }
         if (floating) {
-          return negativeZero ? -0.0 : sum.doubleValue(); // sum starts from the first value
+          return negativeZero ? -0.0 : finiteSum(sum); // sum starts from the first value
         }
         if (integral) {
           try {

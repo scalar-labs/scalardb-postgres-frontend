@@ -188,7 +188,17 @@ honor is announced with a `NOTICE`. It does not silently return a different resu
 - **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
   `'ab   '` differ; `VARCHAR(n)` lengths are not enforced; `NUMERIC(p,s)` and `DECIMAL` are stored
   as `double precision`, so money arithmetic is approximate; `SMALLINT` is an `integer` without a
-  range check. Each is reported with a `NOTICE` at `CREATE TABLE`.
+  range check. Each is reported with a `NOTICE` at `CREATE TABLE`. A modifier PostgreSQL itself
+  rejects (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
+- **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
+  precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
+  the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.
+  `DATE` and `TIMESTAMP` values must fall in the years 1000 to 9999 (`22008` otherwise).
+- **Names are shorter than PostgreSQL's.** A table or schema name over 63 bytes, or a column name
+  over 56, is refused (`42622`) rather than truncated as PostgreSQL does: ScalarDB keeps the full
+  name and reads columns back by it, and stores a `before_` copy of each column, so a truncated
+  name would leave a table that cannot be read. A table has at most 1600 columns as in PostgreSQL,
+  and on a PostgreSQL backend the `before_` copies halve what fits.
 - **Isolation levels.** ScalarDB's `SNAPSHOT` reads each record's committed version without a
   snapshot across records, which `SHOW transaction_isolation` reports as `read committed`;
   `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a

@@ -1492,6 +1492,47 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_CreateTable_ShouldRefuseWhatPostgresRefusesOrScalarDbCannotKeep()
+      throws Exception {
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE d (id INT, v VARCHAR(10485761), PRIMARY KEY (id))"))
+        .hasMessage("length for type varchar cannot exceed 10485760");
+    assertThatThrownBy(() -> parser.parse("CREATE TABLE d (id INT, v CHAR(0), PRIMARY KEY (id))"))
+        .hasMessage("length for type char must be at least 1");
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE d (id INT, v NUMERIC(1001), PRIMARY KEY (id))"))
+        .hasMessage("NUMERIC precision 1001 must be between 1 and 1000");
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE d (id INT, v NUMERIC(10, 1001), PRIMARY KEY (id))"))
+        .hasMessage("NUMERIC scale 1001 must be between -1000 and 1000");
+    // names PostgreSQL would truncate: ScalarDB keeps the full name, and adds before_ to columns
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE " + "t".repeat(64) + " (id INT, PRIMARY KEY (id))"))
+        .hasMessageContaining("is too long: at most 63 bytes");
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "CREATE TABLE d (id INT, " + "c".repeat(57) + " INT, PRIMARY KEY (id))"))
+        .hasMessageContaining("is too long: at most 56 bytes");
+    assertThatThrownBy(() -> parser.parse("ALTER TABLE t ADD COLUMN " + "c".repeat(57) + " INT"))
+        .hasMessageContaining("is too long: at most 56 bytes");
+    assertThat(
+            parser.parse(
+                    "CREATE TABLE "
+                        + "t".repeat(63)
+                        + " (id INT, "
+                        + "c".repeat(56)
+                        + " INT, at TIMESTAMP(3), PRIMARY KEY (id))")
+                .notices)
+        .isEmpty();
+    // ScalarDB keeps milliseconds: said at CREATE TABLE unless the declaration asks for no more
+    assertThat(parser.parse("CREATE TABLE d (id INT, at TIMESTAMP, PRIMARY KEY (id))").notices)
+        .anyMatch(n -> n.startsWith("TIMESTAMP on column \"at\""));
+    assertThat(parser.parse("CREATE TABLE d (id INT, at TIMESTAMPTZ(6), PRIMARY KEY (id))").notices)
+        .anyMatch(n -> n.startsWith("TIMESTAMP on column \"at\""));
+  }
+
+  @Test
   public void execute_UncorrelatedSubquery_ShouldRunOnce() throws Exception {
     stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 2, "b", 2.5, false)));
     String once =

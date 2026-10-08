@@ -40,4 +40,4 @@ WHERE
 -- @s10_multiple_statements_one_line
 SELECT 1 FROM t92_staff WHERE empnum = 'E1'; SELECT 2 FROM t92_staff WHERE empnum = 'E2';
 -- @s10_long_identifier_63
-DROP TABLE IF EXISTS t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabc; CREATE TABLE t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabc (id INTEGER, PRIMARY KEY (id)); SELECT COUNT(*) FROM t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabc; DROP TABLE t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabc;
+DROP TABLE IF EXISTS t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghi; CREATE TABLE t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghi (id INTEGER, PRIMARY KEY (id)); SELECT COUNT(*) FROM t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghi; DROP TABLE t92_abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghi;

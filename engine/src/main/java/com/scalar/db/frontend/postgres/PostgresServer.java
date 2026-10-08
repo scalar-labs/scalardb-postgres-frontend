@@ -529,6 +529,13 @@ public class PostgresServer implements AutoCloseable {
       Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);
       String message = e.getMessage() == null ? e.toString() : e.getMessage();
+      // ScalarDB's "Creating the table failed" and the like keep the database's reason in the cause
+      Throwable root = rootCause(e);
+      if (root instanceof java.sql.SQLException
+          && root.getMessage() != null
+          && !message.contains(root.getMessage())) {
+        message += " Details: " + root.getMessage();
+      }
       if (e instanceof Error) {
         logger.warn("Statement failed with an error", e);
       } else {
@@ -567,6 +574,9 @@ public class PostgresServer implements AutoCloseable {
       }
       if (m.contains("DB-CORE-10020") || m.contains("DB-CORE-10017")) {
         return "22023"; // invalid_parameter_value: a key or value ScalarDB does not accept
+      }
+      if (m.contains("DB-CORE-10053")) {
+        return "2BP01"; // dependent_objects_still_exist: DROP SCHEMA with tables in it
       }
       if (e instanceof QueryParser.UniqueViolationException) {
         return "23505"; // unique_violation
@@ -620,6 +630,26 @@ public class PostgresServer implements AutoCloseable {
       if (m.startsWith("date/time field value out of range")) {
         return "22008"; // datetime_field_overflow
       }
+      if (m.startsWith("LIMIT must not be negative")) {
+        return "2201W"; // invalid_row_count_in_limit_clause
+      }
+      if (m.startsWith("OFFSET must not be negative")) {
+        return "2201X"; // invalid_row_count_in_result_offset_clause
+      }
+      if (m.startsWith("invalid byte sequence")) {
+        return "22021"; // character_not_in_repertoire: a NUL in a string
+      }
+      if (m.startsWith("tables can have at most")) {
+        return "54011"; // too_many_columns
+      }
+      if (m.startsWith("length for type ")
+          || m.startsWith("NUMERIC precision ")
+          || m.startsWith("NUMERIC scale ")) {
+        return "22023"; // invalid_parameter_value: a type modifier PostgreSQL rejects too
+      }
+      if (m.startsWith("identifier \"") && m.contains("is too long")) {
+        return "42622"; // name_too_long
+      }
       if (m.startsWith("value \"") && m.contains("is out of range")) {
         return "22003"; // numeric_value_out_of_range
       }
@@ -659,7 +689,24 @@ public class PostgresServer implements AutoCloseable {
       if (m.contains("DB-CORE-10020")) {
         return "23502"; // not_null_violation: a NULL key column
       }
+      // A failure in the backing database (a CREATE TABLE it refused, a value it rejected) carries
+      // its own SQLSTATE, which says more than internal_error; HY000 is a vendor's "other"
+      Throwable root = rootCause(e);
+      if (root instanceof java.sql.SQLException) {
+        String state = ((java.sql.SQLException) root).getSQLState();
+        if (state != null && state.length() == 5 && !state.startsWith("HY")) {
+          return state;
+        }
+      }
       return e instanceof IllegalArgumentException ? "42601" : "XX000";
+    }
+
+    private static Throwable rootCause(Throwable e) {
+      Throwable root = e;
+      while (root.getCause() != null && root.getCause() != root) {
+        root = root.getCause();
+      }
+      return root;
     }
 
     private void readyForQuery(QueryProcessor processor) throws IOException {

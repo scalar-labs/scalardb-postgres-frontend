@@ -406,6 +406,16 @@ public class PostgresServerTest {
       assertSqlState(statement, "SELECT * FROM nosuch", "42P01");
       assertSqlState(statement, "SELECT CAST('x' AS INT)", "22P02");
       assertSqlState(statement, "SELECT (SELECT id FROM t), 1", "21000");
+      assertSqlState(statement, "SELECT id FROM t LIMIT -1", "2201W");
+      assertSqlState(statement, "SELECT id FROM t OFFSET -1", "2201X");
+      assertSqlState(statement, "SELECT CAST(1e308 AS DOUBLE PRECISION) * 10", "22003");
+      assertSqlState(statement, "INSERT INTO t VALUES (2, E'a\\000b')", "22021");
+      assertSqlState(statement, "SELECT id FROM t WHERE name = E'a\\000b'", "22021");
+      assertSqlState(statement, "CREATE TABLE d (id INT, v CHAR(0), PRIMARY KEY (id))", "22023");
+      assertSqlState(
+          statement,
+          "CREATE TABLE d (id INT, " + "c".repeat(57) + " INT, PRIMARY KEY (id))",
+          "42622");
       assertSqlState(statement, "INSERT INTO t VALUES (1, 'a')", "23505");
       // The same ScalarDB error on an upsert is a write-write conflict the client should retry
       assertSqlState(

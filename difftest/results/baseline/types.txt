@@ -12,3 +12,11 @@ types_real_cmp OK
 types_insert OK
 types_update OK
 types_bind OK
+types_float_literal_overflow BOTH_ERR
+types_float_literal_underflow BOTH_ERR
+types_float_arith_overflow BOTH_ERR
+types_float_arith_underflow BOTH_ERR
+types_float_infinity_operands OK
+types_float_sum_overflow BOTH_ERR
+types_time_rounds_half_up OK
+types_timestamptz_millis_round_half_up OK

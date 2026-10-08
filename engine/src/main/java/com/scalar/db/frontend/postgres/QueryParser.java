@@ -2406,7 +2406,7 @@ public class QueryParser {
     Matcher schema = CREATE_SCHEMA.matcher(trimmed);
     if (schema.matches()) {
       boolean ifNotExists = schema.group(1) != null;
-      String name = namespace(schema.group(2));
+      String name = checkedName(namespace(schema.group(2)), false);
       return Plan.ddl(() -> admin.createNamespace(name, ifNotExists), "CREATE SCHEMA");
     }
     Matcher explain = EXPLAIN.matcher(trimmed);
@@ -2603,18 +2603,21 @@ public class QueryParser {
           "Temporary tables are not supported: a table created here would be permanent");
     }
     String namespace = namespaceOf(create.getTable());
-    String name = unquote(create.getTable().getName());
+    String name = checkedName(unquote(create.getTable().getName()), false);
     if (create.getColumnDefinitions() == null) {
       throw new IllegalArgumentException(
           "Unsupported CREATE TABLE form (a ScalarDB table needs explicit columns and a primary key): "
               + create);
+    }
+    if (create.getColumnDefinitions().size() > 1600) {
+      throw new IllegalArgumentException("tables can have at most 1600 columns");
     }
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
     List<String> primaryKey = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (ColumnDefinition definition : create.getColumnDefinitions()) {
-      String column = unquote(definition.getColumnName());
+      String column = checkedName(unquote(definition.getColumnName()), true);
       String specs =
           definition.getColumnSpecs() == null
               ? ""
@@ -2712,6 +2715,7 @@ public class QueryParser {
     List<String> out = new ArrayList<>();
     String base = declared.toLowerCase(Locale.ROOT).replaceAll("\\s*\\([^)]*\\)", "").trim();
     boolean withArgs = declared.contains("(");
+    long[] args = typeArguments(declared);
     String col = "column \"" + column + "\"";
     Matcher collate = Pattern.compile("COLLATE\\s+(\\S+)").matcher(specs);
     if (collate.find()) {
@@ -2737,6 +2741,7 @@ public class QueryParser {
       case "char":
       case "character":
       case "bpchar":
+        checkLength("char", args);
         out.add(
             "CHAR on "
                 + col
@@ -2745,6 +2750,7 @@ public class QueryParser {
         break;
       case "varchar":
       case "character varying":
+        checkLength("varchar", args);
         if (withArgs) {
           out.add("the length of " + col + " (" + declared.trim() + ") is not enforced");
         }
@@ -2752,6 +2758,14 @@ public class QueryParser {
       case "numeric":
       case "decimal":
       case "dec":
+        if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
+          throw new IllegalArgumentException(
+              "NUMERIC precision " + args[0] + " must be between 1 and 1000");
+        }
+        if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
+          throw new IllegalArgumentException(
+              "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
+        }
         out.add(
             "NUMERIC on "
                 + col
@@ -2761,6 +2775,18 @@ public class QueryParser {
       case "smallint":
       case "int2":
         out.add("SMALLINT on " + col + " is stored as integer: its range is not enforced");
+        break;
+      case "timestamp":
+      case "timestamp without time zone":
+      case "timestamptz":
+      case "timestamp with time zone":
+        if (args.length == 0 || args[0] > 3) {
+          out.add(
+              "TIMESTAMP on "
+                  + col
+                  + " is stored with millisecond precision (ScalarDB's): finer fractions are"
+                  + " rounded");
+        }
         break;
       case "serial":
       case "bigserial":
@@ -2884,14 +2910,14 @@ public class QueryParser {
       if (expression.getOperation() == AlterOperation.ADD
           && expression.getColDataTypeList() != null) {
         for (AlterExpression.ColumnDataType c : expression.getColDataTypeList()) {
-          String column = unquote(c.getColumnName());
+          String column = checkedName(unquote(c.getColumnName()), true);
           DataType type = dataType(c.getColDataType().getDataType());
           steps.add(() -> admin.addNewColumnToTable(namespace, name, column, type));
         }
       } else if (expression.getOperation() == AlterOperation.RENAME
           && expression.getColOldName() != null) {
         String oldName = unquote(expression.getColOldName());
-        String newName = unquote(expression.getColumnName());
+        String newName = checkedName(unquote(expression.getColumnName()), true);
         steps.add(() -> admin.renameColumn(namespace, name, oldName, newName));
       } else {
         throw new IllegalArgumentException(
@@ -2905,6 +2931,51 @@ public class QueryParser {
           }
         },
         "ALTER TABLE");
+  }
+
+  /** The numeric arguments of a declared type: {10, 2} for {@code NUMERIC (10, 2)}. */
+  private static long[] typeArguments(String declared) {
+    Matcher m = Pattern.compile("\\(([^)]*)\\)").matcher(declared);
+    if (!m.find()) {
+      return new long[0];
+    }
+    return Arrays.stream(m.group(1).split(","))
+        .map(String::trim)
+        .filter(a -> a.matches("-?\\d+"))
+        .mapToLong(Long::parseLong)
+        .toArray();
+  }
+
+  /** The length PostgreSQL accepts for CHAR(n) and VARCHAR(n), with its messages. */
+  private static void checkLength(String type, long[] args) {
+    if (args.length > 0 && args[0] < 1) {
+      throw new IllegalArgumentException("length for type " + type + " must be at least 1");
+    }
+    if (args.length > 0 && args[0] > 10485760) {
+      throw new IllegalArgumentException("length for type " + type + " cannot exceed 10485760");
+    }
+  }
+
+  /**
+   * A new table, schema or column name. PostgreSQL truncates a name over 63 bytes with a NOTICE,
+   * but ScalarDB keeps the full name in its metadata and reads columns back by it, so the table
+   * could not be read; and on PostgreSQL each column also gets a {@code before_} copy, which leaves
+   * 56 bytes for the column's own name. Such names are refused rather than truncated.
+   */
+  static String checkedName(String name, boolean column) {
+    int max = column ? 63 - "before_".length() : 63;
+    if (name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > max) {
+      throw new IllegalArgumentException(
+          "identifier \""
+              + name
+              + "\" is too long: at most "
+              + max
+              + " bytes"
+              + (column
+                  ? ", since ScalarDB stores a before_ copy of each column within PostgreSQL's 63"
+                  : ""));
+    }
+    return name;
   }
 
   /** The ScalarDB type for a PostgreSQL type name; length and precision arguments are ignored. */
@@ -3162,16 +3233,16 @@ public class QueryParser {
       result.orderBy = set.getOrderByElements();
     }
     if (set.getLimit() != null && !set.getLimit().isLimitAll()) {
-      result.limit = intValue(set.getLimit().getRowCount(), -1);
+      result.limit = intValue(set.getLimit().getRowCount(), -1, "LIMIT");
       if (set.getLimit().getOffset() != null) {
-        result.offset = intValue(set.getLimit().getOffset(), 0);
+        result.offset = intValue(set.getLimit().getOffset(), 0, "OFFSET");
       }
     }
     if (set.getFetch() != null) {
       result.limit = fetchCount(set.getFetch());
     }
     if (set.getOffset() != null) {
-      result.offset = intValue(set.getOffset().getOffset(), 0);
+      result.offset = intValue(set.getOffset().getOffset(), 0, "OFFSET");
     }
     return result;
   }
@@ -3375,13 +3446,13 @@ public class QueryParser {
       }
     }
     if (select.getLimit() != null && !select.getLimit().isLimitAll()) {
-      plan.limit = intValue(select.getLimit().getRowCount(), -1);
+      plan.limit = intValue(select.getLimit().getRowCount(), -1, "LIMIT");
       if (select.getLimit().getOffset() != null) {
-        plan.offset = intValue(select.getLimit().getOffset(), 0);
+        plan.offset = intValue(select.getLimit().getOffset(), 0, "OFFSET");
       }
     }
     if (select.getOffset() != null) {
-      plan.offset = intValue(select.getOffset().getOffset(), 0);
+      plan.offset = intValue(select.getOffset().getOffset(), 0, "OFFSET");
     }
     if (select.getFetch() != null) {
       plan.limit = fetchCount(select.getFetch());
@@ -5801,7 +5872,8 @@ public class QueryParser {
     Set<String> grouped = new HashSet<>();
     if (plan.groupBy != null) {
       for (Expression g : plan.groupBy) {
-        grouped.add(unwrap(g).toString()); // GROUP BY c1 resolves to the output's (x + y) as written
+        grouped.add(
+            unwrap(g).toString()); // GROUP BY c1 resolves to the output's (x + y) as written
       }
     }
     for (Expression e : plan.outputExpressions) {
@@ -5986,22 +6058,50 @@ public class QueryParser {
    */
   private static Column<?> columnFromText(TableMetadata metadata, String name, @Nullable String s) {
     DataType type = metadata.getColumnDataType(existing(metadata, name));
+    if (type == DataType.TEXT && s != null && s.indexOf('\0') >= 0) {
+      // PostgreSQL has no NUL in text, and some backing databases would store it
+      throw new IllegalArgumentException("invalid byte sequence for encoding \"UTF8\": 0x00");
+    }
     try {
       return parseColumn(type, name, s);
     } catch (RuntimeException e) {
       String pgType = pgTypeName(type);
+      String failure = String.valueOf(e.getMessage());
       boolean temporal =
           type == DataType.DATE
               || type == DataType.TIME
               || type == DataType.TIMESTAMP
               || type == DataType.TIMESTAMPTZ;
-      if (temporal && String.valueOf(e.getMessage()).contains("Invalid")) {
+      if (temporal && failure.contains("out of the valid range")) {
+        // ScalarDB stores the years 1000 to 9999 (DB-CORE-10158 and the like)
+        Matcher bounds = Pattern.compile("between (\\S+) and (\\S+)\\.").matcher(failure);
+        String range =
+            bounds.find()
+                ? " (ScalarDB stores "
+                    + pgType
+                    + " values from "
+                    + bounds.group(1)
+                    + " to "
+                    + bounds.group(2)
+                    + ")"
+                : "";
+        throw new IllegalArgumentException(
+            "date/time field value out of range: \"" + s + "\"" + range, e);
+      }
+      if (temporal && failure.contains("Invalid")) {
         // parsed, but no such day or time, e.g. 2023-02-30
         throw new IllegalArgumentException("date/time field value out of range: \"" + s + "\"", e);
       }
-      if (e instanceof ArithmeticException && isInteger(s)) {
+      if (e instanceof ArithmeticException
+          && (isInteger(s) || type == DataType.FLOAT || type == DataType.DOUBLE)) {
+        // a float literal in scientific notation, as PostgreSQL shows it, rather than 1 and 309
+        // zeros
+        String shown =
+            isInteger(s) && type != DataType.FLOAT && type != DataType.DOUBLE
+                ? s
+                : new BigDecimal(String.valueOf(s).trim()).stripTrailingZeros().toString();
         throw new IllegalArgumentException(
-            "value \"" + s + "\" is out of range for type " + pgType, e);
+            "value \"" + shown + "\" is out of range for type " + pgType, e);
       }
       throw new IllegalArgumentException(
           "invalid input syntax for type " + pgType + ": \"" + s + "\"", e);
@@ -6049,9 +6149,13 @@ public class QueryParser {
             ? BigIntColumn.ofNull(name)
             : BigIntColumn.of(name, new BigDecimal(s).longValueExact());
       case FLOAT:
-        return s == null ? FloatColumn.ofNull(name) : FloatColumn.of(name, Float.parseFloat(s));
+        return s == null
+            ? FloatColumn.ofNull(name)
+            : FloatColumn.of(name, (float) inRange(s, Float.parseFloat(s)));
       case DOUBLE:
-        return s == null ? DoubleColumn.ofNull(name) : DoubleColumn.of(name, Double.parseDouble(s));
+        return s == null
+            ? DoubleColumn.ofNull(name)
+            : DoubleColumn.of(name, inRange(s, Double.parseDouble(s)));
       case TEXT:
         return TextColumn.of(name, s);
       case BLOB:
@@ -6059,16 +6163,41 @@ public class QueryParser {
       case DATE:
         return s == null ? DateColumn.ofNull(name) : DateColumn.of(name, LocalDate.parse(s));
       case TIME:
-        return s == null ? TimeColumn.ofNull(name) : TimeColumn.of(name, LocalTime.parse(s));
+        // ScalarDB keeps microseconds, as PostgreSQL does; a finer fraction rounds half up as there
+        return s == null
+            ? TimeColumn.ofNull(name)
+            : TimeColumn.of(name, (LocalTime) Evaluator.roundedTo(LocalTime.parse(s), 6));
       case TIMESTAMP:
+        // ScalarDB keeps milliseconds (said at CREATE TABLE); of() would truncate, so round first
         return s == null
             ? TimestampColumn.ofNull(name)
-            : TimestampColumn.of(name, localDateTime(s));
+            : TimestampColumn.of(name, (LocalDateTime) Evaluator.roundedTo(localDateTime(s), 3));
       case TIMESTAMPTZ:
-        return s == null ? TimestampTZColumn.ofNull(name) : TimestampTZColumn.of(name, instant(s));
+        return s == null
+            ? TimestampTZColumn.ofNull(name)
+            : TimestampTZColumn.of(name, (java.time.Instant) Evaluator.roundedTo(instant(s), 3));
       default:
         throw new AssertionError();
     }
+  }
+
+  /**
+   * The parsed value, unless the text is a finite number that overflowed to Infinity or underflowed
+   * to zero, which PostgreSQL rejects as out of range.
+   */
+  private static double inRange(String s, double parsed) {
+    if (Double.isInfinite(parsed) || parsed == 0) {
+      BigDecimal exact;
+      try {
+        exact = new BigDecimal(s.trim());
+      } catch (NumberFormatException notDecimal) {
+        return parsed; // 'Infinity', 'NaN' and the like mean what they say
+      }
+      if (Double.isInfinite(parsed) || exact.signum() != 0) {
+        throw new ArithmeticException("out of range: " + s);
+      }
+    }
+    return parsed;
   }
 
   static boolean isLiteral(Expression e) {
@@ -6198,13 +6327,20 @@ public class QueryParser {
 
   /** FETCH FIRST n ROWS ONLY; a bare FETCH FIRST ROW ONLY is one row. */
   private static int fetchCount(net.sf.jsqlparser.statement.select.Fetch fetch) {
-    return fetch.getExpression() == null ? 1 : intValue(fetch.getExpression(), -1);
+    return fetch.getExpression() == null ? 1 : intValue(fetch.getExpression(), -1, "LIMIT");
   }
 
-  /** LIMIT/OFFSET value; NULL means "none", as in PostgreSQL. */
-  private static int intValue(Expression e, int ifNull) {
+  /** LIMIT/OFFSET value; NULL means "none", as in PostgreSQL, and a negative one is refused. */
+  private static int intValue(Expression e, int ifNull, String clause) {
     String s = literal(e);
-    return s == null ? ifNull : new BigDecimal(s).intValueExact();
+    if (s == null) {
+      return ifNull;
+    }
+    int v = new BigDecimal(s).intValueExact();
+    if (v < 0) {
+      throw new IllegalArgumentException(clause + " must not be negative");
+    }
+    return v;
   }
 
   static boolean isColumn(Expression e) {
