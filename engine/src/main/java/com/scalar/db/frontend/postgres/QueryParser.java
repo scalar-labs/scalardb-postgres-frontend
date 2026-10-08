@@ -58,6 +58,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -189,6 +190,21 @@ public class QueryParser {
     }
 
     // Rows are read by the operators built from this source; catalog rows are preloaded here
+
+    /** The ScalarDB read of a source that is not a lookup. */
+    Operation scan() {
+      return Objects.requireNonNull(scan, () -> qualifier + " has no scan");
+    }
+
+    /** The keyed read this source repeats per outer row; only for a lookup source. */
+    LogicalPlan.Source lookup() {
+      return Objects.requireNonNull(lookup, () -> qualifier + " is not a lookup");
+    }
+
+    /** The key columns a lookup binds to outer expressions; only for a lookup source. */
+    Map<String, Expression> lookupParams() {
+      return Objects.requireNonNull(lookupParams, () -> qualifier + " is not a lookup");
+    }
   }
 
   /** Rows an UPDATE, DELETE or INSERT ... SELECT driven by a read may write, unless raised. */
@@ -208,8 +224,7 @@ public class QueryParser {
   /** Decides what one row of the driving read does; may read ScalarDB (ON CONFLICT). */
   interface Mutator {
     /** The effect for {@code row}, or null to skip it. */
-    @Nullable
-    Effect apply(Map<String, Object> row, Reader reader);
+    @Nullable Effect apply(Map<String, Object> row, Reader reader);
   }
 
   /** A RETURNING clause: output names and the expressions over the row each write leaves. */
@@ -244,7 +259,7 @@ public class QueryParser {
     Cursor EMPTY =
         new Cursor() {
           @Override
-          public Map<String, Object> next() {
+          @Nullable public Map<String, Object> next() {
             return null;
           }
 
@@ -252,8 +267,7 @@ public class QueryParser {
           public void close() {}
         };
 
-    @Nullable
-    Map<String, Object> next();
+    @Nullable Map<String, Object> next();
 
     /** Releases the ScalarDB scanners behind the stream; safe to call more than once. */
     @Override
@@ -284,7 +298,7 @@ public class QueryParser {
     }
 
     public TransactionException cause() {
-      return (TransactionException) getCause();
+      return (TransactionException) Objects.requireNonNull(getCause());
     }
   }
 
@@ -305,8 +319,7 @@ public class QueryParser {
 
     // DML whose mutations are built from the statement when first needed, with the parameters
     // bound at the time, so the plan can be reused
-    @Nullable
-    private java.util.function.Function<Evaluator.Context, List<Mutation>> mutationBuilder;
+    @Nullable private java.util.function.Function<Evaluator.Context, List<Mutation>> mutationBuilder;
 
     private boolean rootFixed; // the root is given, not built from the sources
     private boolean cacheable; // set by parse(): reusable with other parameter values
@@ -353,8 +366,7 @@ public class QueryParser {
     }
 
     /** The mutations of a DML statement, built on first use with the current parameters. */
-    @Nullable
-    List<Mutation> mutations() {
+    @Nullable List<Mutation> mutations() {
       if (mutations == null && mutationBuilder != null) {
         mutations = mutationBuilder.apply(context(null));
       }
@@ -518,15 +530,14 @@ public class QueryParser {
     }
 
     /** The statement an EXPLAIN ANALYZE runs, or null. */
-    @Nullable
-    Plan getAnalyze() {
+    @Nullable Plan getAnalyze() {
       return analyze;
     }
 
     /** The EXPLAIN ANALYZE output after the statement ran: the tree with counts, then the time. */
     Cursor report() {
       List<String> lines = new ArrayList<>();
-      explain(analyze, lines, 0, true);
+      explain(Objects.requireNonNull(analyze, "an EXPLAIN ANALYZE plan"), lines, 0, true);
       lines.add(
           String.format(
               Locale.ROOT, "Execution Time: %.3f ms", (System.nanoTime() - started) / 1e6));
@@ -538,8 +549,7 @@ public class QueryParser {
     }
 
     /** The read-then-write form of this statement, or null. */
-    @Nullable
-    WriteByScan getWrite() {
+    @Nullable WriteByScan getWrite() {
       return write;
     }
 
@@ -657,7 +667,7 @@ public class QueryParser {
             private boolean closed;
 
             @Override
-            public Map<String, Object> next() {
+            @Nullable public Map<String, Object> next() {
               try {
                 Optional<Result> result = scanner.one();
                 return result.isPresent() ? rowOf(qualifier, columns, result.get()) : null;
@@ -684,8 +694,7 @@ public class QueryParser {
     }
 
     /** The DDL statement to run, or null for a query or DML. */
-    @Nullable
-    public Ddl getDdl() {
+    @Nullable public Ddl getDdl() {
       return ddl;
     }
 
@@ -793,8 +802,7 @@ public class QueryParser {
     }
 
     /** The bound and optimized logical plan this physical plan was made from; null for DML. */
-    @Nullable
-    LogicalPlan getLogical() {
+    @Nullable LogicalPlan getLogical() {
       return logical;
     }
 
@@ -953,8 +961,7 @@ public class QueryParser {
     }
 
     /** The root of the operator tree that runs this statement; null for DML. */
-    @Nullable
-    public Operator getRoot() {
+    @Nullable public Operator getRoot() {
       return mutations() == null ? root() : null;
     }
 
@@ -1117,7 +1124,7 @@ public class QueryParser {
         return new Operators.Values(
             s.loaded, s.catalogTable + " AS " + s.qualifier + " (in memory)");
       }
-      return new Operators.Scan(s.scan, s.qualifier, s.columns, stream);
+      return new Operators.Scan(s.scan(), s.qualifier, s.columns, stream);
     }
 
     /** Reads a lookup source for one outer row, binding its lookup columns to the row's values. */
@@ -1208,7 +1215,7 @@ public class QueryParser {
         List<Operation> operations,
         List<Map<String, Object>>[] results) {
       Get first = (Get) operations.get(group.get(0));
-      List<String> keyNames = new ArrayList<>(s.lookup.target.metadata.getClusteringKeyNames());
+      List<String> keyNames = new ArrayList<>(s.lookup().table().metadata.getClusteringKeyNames());
       Set<AndConditionSet> keys = new LinkedHashSet<>();
       for (int i : group) {
         Get get = (Get) operations.get(i);
@@ -1247,7 +1254,7 @@ public class QueryParser {
       for (Result result : reader().read(scan)) {
         List<Object> key = new ArrayList<>();
         for (String name : keyNames) {
-          key.add(result.getColumns().get(name).getValueAsObject());
+          key.add(Objects.requireNonNull(result.getColumns().get(name), name).getValueAsObject());
         }
         byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(result);
       }
@@ -1266,31 +1273,30 @@ public class QueryParser {
      * The read of a lookup source for one outer row: its lookup columns and late-bound conditions
      * take the row's and the parameters' values. Null when a value is NULL, which matches nothing.
      */
-    @Nullable
-    Operation lookupOperation(Source s, Map<String, Object> left, Evaluator.Context ctx) {
-      List<ConditionalExpression> conditions = new ArrayList<>(s.lookup.pushed);
-      for (Map.Entry<String, Expression> p : s.lookupParams.entrySet()) {
+    @Nullable Operation lookupOperation(Source s, Map<String, Object> left, Evaluator.Context ctx) {
+      List<ConditionalExpression> conditions = new ArrayList<>(s.lookup().pushed);
+      for (Map.Entry<String, Expression> p : s.lookupParams().entrySet()) {
         Object value = Evaluator.eval(p.getValue(), Collections.singletonList(left), ctx);
         if (value == null) {
           return null; // NULL never equals anything
         }
-        Column<?> column = columnFromValue(s.lookup.target.metadata, p.getKey(), value);
+        Column<?> column = columnFromValue(s.lookup().table().metadata, p.getKey(), value);
         conditions.add(
             ConditionBuilder.buildConditionalExpression(column, ConditionalExpression.Operator.EQ));
       }
-      for (Expression late : s.lookup.pushedLate) {
-        ConditionalExpression condition = pushable(late, s.lookup.target.metadata, left, ctx);
+      for (Expression late : s.lookup().pushedLate) {
+        ConditionalExpression condition = pushable(late, s.lookup().table().metadata, left, ctx);
         if (condition == null) {
           return null;
         }
         conditions.add(condition);
       }
-      return operation(s.lookup, conditions, s.lookupOrderBy, s.lookupLimit);
+      return operation(s.lookup(), conditions, s.lookupOrderBy, s.lookupLimit);
     }
 
     /** True if the lookup's bindings refer to parameters only, not to an outer row. */
     private static boolean selfContained(Source s) {
-      for (Expression e : s.lookupParams.values()) {
+      for (Expression e : s.lookupParams().values()) {
         if (!columnRefs(e).isEmpty()) {
           return false;
         }
@@ -1306,7 +1312,7 @@ public class QueryParser {
     Iterator<Map<String, Object>> iterator = rows.iterator();
     return new Cursor() {
       @Override
-      public Map<String, Object> next() {
+      @Nullable public Map<String, Object> next() {
         return iterator.hasNext() ? iterator.next() : null;
       }
 
@@ -1504,9 +1510,9 @@ public class QueryParser {
 
   /** Describes a keyed lookup: which key columns are bound to outer expressions or literals. */
   static String describeLookup(Source s) {
-    LogicalPlan.Source b = s.lookup;
-    TableMetadata metadata = b.target.metadata;
-    Set<String> bound = new LinkedHashSet<>(s.lookupParams.keySet());
+    LogicalPlan.Source b = s.lookup();
+    TableMetadata metadata = b.table().metadata;
+    Set<String> bound = new LinkedHashSet<>(s.lookupParams().keySet());
     for (ConditionalExpression c : b.pushed) {
       if (c.getOperator() == ConditionalExpression.Operator.EQ) {
         bound.add(c.getColumn().getName());
@@ -1515,7 +1521,7 @@ public class QueryParser {
     boolean partition = bound.containsAll(metadata.getPartitionKeyNames());
     boolean full = partition && bound.containsAll(metadata.getClusteringKeyNames());
     StringBuilder t = new StringBuilder(full ? "Get " : "Scan ");
-    t.append(b.target.namespace).append('.').append(b.target.table);
+    t.append(b.table().namespace).append('.').append(b.table().table);
     if (partition) {
       t.append(" partitionKey=").append(boundText(metadata.getPartitionKeyNames(), s));
       if (full && !metadata.getClusteringKeyNames().isEmpty()) {
@@ -1523,7 +1529,7 @@ public class QueryParser {
       }
     } else {
       for (String index : metadata.getSecondaryIndexNames()) {
-        if (s.lookupParams.containsKey(index)) {
+        if (s.lookupParams().containsKey(index)) {
           t.append(" indexKey=").append(boundText(Collections.singleton(index), s));
           break;
         }
@@ -1605,12 +1611,12 @@ public class QueryParser {
     StringBuilder sb = new StringBuilder("{");
     for (String column : columns) {
       sb.append(sb.length() == 1 ? "" : ", ").append(column).append('=');
-      Expression param = s.lookupParams.get(column);
+      Expression param = s.lookupParams().get(column);
       if (param != null) {
         sb.append(param);
         continue;
       }
-      for (ConditionalExpression c : s.lookup.pushed) {
+      for (ConditionalExpression c : s.lookup().pushed) {
         if (c.getOperator() == ConditionalExpression.Operator.EQ
             && c.getColumn().getName().equals(column)) {
           sb.append(valueText(c.getColumn()));
@@ -1860,8 +1866,7 @@ public class QueryParser {
   }
 
   /** ANY, SOME or ALL over a single argument that is not a subquery, as the parser gives it. */
-  @Nullable
-  static Function arrayQuantifier(Expression e) {
+  @Nullable static Function arrayQuantifier(Expression e) {
     if (!(e instanceof Function)) {
       return null;
     }
@@ -1872,8 +1877,7 @@ public class QueryParser {
   }
 
   /** The array's elements as literals, or null when they are not known while planning. */
-  @Nullable
-  private static List<Expression> arrayItems(Expression a) {
+  @Nullable private static List<Expression> arrayItems(Expression a) {
     if (a instanceof net.sf.jsqlparser.expression.ArrayConstructor) {
       return new ArrayList<Expression>(
           ((net.sf.jsqlparser.expression.ArrayConstructor) a).getExpressions());
@@ -1985,8 +1989,7 @@ public class QueryParser {
   }
 
   /** The value bound to a placeholder of the statement being planned. */
-  @Nullable
-  private static Object bound(JdbcParameter p) {
+  @Nullable private static Object bound(JdbcParameter p) {
     EMBEDDED.set(true);
     List<Object> parameters = BOUND.get();
     int i = p.getIndex() - 1;
@@ -1997,8 +2000,7 @@ public class QueryParser {
   }
 
   /** Evaluates a constant expression while planning; a placeholder in it is embedded. */
-  @Nullable
-  private static Object evalLiteral(Expression e) {
+  @Nullable private static Object evalLiteral(Expression e) {
     embed(e);
     return Evaluator.eval(e, Collections.<Map<String, Object>>emptyList(), literalContext());
   }
@@ -2152,7 +2154,7 @@ public class QueryParser {
   private static final Pattern VACUUM = Pattern.compile("(?is)^\\s*VACUUM\\b.*$");
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile(
-          "(?is)^\\s*(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?\\s*;?\\s*$");
+          "(?is)^\\s*+(CREATE|DROP)\\s++COORDINATOR\\s++TABLES(\\s++IF\\s++(NOT\\s++)?EXISTS)?\\s*+;?\\s*+$");
 
   private Plan plan(String sql) throws ExecutionException {
     // Statements JSQLParser does not accept
@@ -3416,7 +3418,7 @@ public class QueryParser {
         single
             && !lp.aggregated
             && !lp.orderBy.isEmpty()
-            && clusteringOrder(lp.orderBy, lp.sources.get(0).target.metadata);
+            && clusteringOrder(lp.orderBy, lp.sources.get(0).table().metadata);
     boolean pushLimit =
         single
             // ScalarDB reads limit 0 as "no limit", so LIMIT 0 stays in memory
@@ -3503,8 +3505,7 @@ public class QueryParser {
     return "?column?";
   }
 
-  @Nullable
-  private static String strongLabel(Expression e) {
+  @Nullable private static String strongLabel(Expression e) {
     e = unwrap(e);
     if (isColumn(e)) {
       // JSQLParser reads TRUE and FALSE as columns
@@ -3831,8 +3832,7 @@ public class QueryParser {
   }
 
   /** The body of a recursive CTE when it has the shape {@code anchor UNION [ALL] step}. */
-  @Nullable
-  private static SetOperationList recursiveBody(WithItem<?> item) {
+  @Nullable private static SetOperationList recursiveBody(WithItem<?> item) {
     Select body = item.getSelect();
     while (body instanceof ParenthesedSelect) {
       body = ((ParenthesedSelect) body).getSelect();
@@ -3923,8 +3923,7 @@ public class QueryParser {
     return refs;
   }
 
-  @Nullable
-  private static DataType outputType(Expression e, List<LogicalPlan.Source> sources) {
+  @Nullable private static DataType outputType(Expression e, List<LogicalPlan.Source> sources) {
     if (!isColumn(e) || ((net.sf.jsqlparser.schema.Column) e).getTable() == null) {
       return null;
     }
@@ -3952,7 +3951,7 @@ public class QueryParser {
       List<ConditionalExpression> pushed,
       List<OrderByElement> orderBy,
       int limit) {
-    Target t = s.target;
+    Target t = s.table();
     List<String> projections = s.star ? Collections.emptyList() : new ArrayList<>(s.projections);
     Key partitionKey = equalsKey(pushed, t.metadata.getPartitionKeyNames());
     Scan base;
@@ -4378,8 +4377,7 @@ public class QueryParser {
   }
 
   /** The RETURNING clause over {@code t}, or null. */
-  @Nullable
-  private static Returning returning(@Nullable ReturningClause clause, Target t, String qualifier) {
+  @Nullable private static Returning returning(@Nullable ReturningClause clause, Target t, String qualifier) {
     if (clause == null) {
       return null;
     }
@@ -4749,8 +4747,7 @@ public class QueryParser {
   }
 
   /** Returns the ScalarDB condition for a {@code column op literal} conjunct, or null. */
-  @Nullable
-  static ConditionalExpression pushable(Expression e, TableMetadata metadata) {
+  @Nullable static ConditionalExpression pushable(Expression e, TableMetadata metadata) {
     return pushable(e, metadata, null, null);
   }
 
@@ -4759,8 +4756,7 @@ public class QueryParser {
    * ctx} (and {@code row}) when a context is given, so placeholders take their bound values. Null
    * when the condition cannot be pushed, or when its value is NULL, which matches nothing.
    */
-  @Nullable
-  static ConditionalExpression pushable(
+  @Nullable static ConditionalExpression pushable(
       Expression e,
       TableMetadata metadata,
       @Nullable Map<String, Object> row,
@@ -4820,8 +4816,7 @@ public class QueryParser {
   }
 
   /** The compared value as a column, or null for NULL. Without a context, the literal's text. */
-  @Nullable
-  private static Column<?> valueColumn(
+  @Nullable private static Column<?> valueColumn(
       TableMetadata metadata,
       String name,
       Expression value,
@@ -4840,8 +4835,7 @@ public class QueryParser {
     return v == null ? null : columnFromValue(metadata, name, v);
   }
 
-  @Nullable
-  private static ConditionalExpression.Operator operator(ComparisonOperator e) {
+  @Nullable private static ConditionalExpression.Operator operator(ComparisonOperator e) {
     if (e instanceof EqualsTo) {
       return ConditionalExpression.Operator.EQ;
     }
@@ -4864,8 +4858,7 @@ public class QueryParser {
   }
 
   /** Finds the first condition on {@code name} with one of {@code ops}; removes and returns it. */
-  @Nullable
-  private static ConditionalExpression take(
+  @Nullable private static ConditionalExpression take(
       List<ConditionalExpression> conditions, String name, ConditionalExpression.Operator... ops) {
     for (ConditionalExpression c : conditions) {
       if (c.getColumn().getName().equals(name) && Arrays.asList(ops).contains(c.getOperator())) {
@@ -4879,8 +4872,7 @@ public class QueryParser {
   /**
    * Builds a key from '=' conditions on all of {@code names}, or returns null if any is missing.
    */
-  @Nullable
-  private static Key equalsKey(List<ConditionalExpression> conditions, Collection<String> names) {
+  @Nullable private static Key equalsKey(List<ConditionalExpression> conditions, Collection<String> names) {
     List<ConditionalExpression> found = new ArrayList<>();
     for (String name : names) {
       for (ConditionalExpression c : conditions) {
@@ -5357,8 +5349,7 @@ public class QueryParser {
   }
 
   /** Returns the literal as text (numbers unchanged, strings unquoted), or null for NULL. */
-  @Nullable
-  private static String literal(Expression e) {
+  @Nullable private static String literal(Expression e) {
     if (e instanceof NullValue) {
       return null;
     }

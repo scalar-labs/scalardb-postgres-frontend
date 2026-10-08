@@ -33,11 +33,11 @@ final class Interval implements Comparable<Interval> {
   // A time of day, or an amount with an optional unit, or anything else (an error)
   private static final Pattern TOKEN =
       Pattern.compile(
-          "([+-]?\\d+:\\d{1,2}(?::\\d{1,2}(?:\\.\\d+)?)?)|([+-]?\\d+(?:\\.\\d+)?)\\s*([a-zA-Z]*)|(\\S+)");
+          "([+-]?\\d++:\\d{1,2}(?::\\d{1,2}(?:\\.\\d++)?)?)|([+-]?\\d++(?:\\.\\d++)?)\\s*+([a-zA-Z]*+)|(\\S++)");
   private static final Pattern ISO =
       Pattern.compile(
-          "(?i)P(?:(-?\\d+)Y)?(?:(-?\\d+)M)?(?:(-?\\d+)W)?(?:(-?\\d+)D)?"
-              + "(?:T(?:(-?\\d+)H)?(?:(-?\\d+)M)?(?:(-?\\d+(?:\\.\\d+)?)S)?)?");
+          "(?i)P(?:(-?\\d++)Y)?(?:(-?\\d++)M)?(?:(-?\\d++)W)?(?:(-?\\d++)D)?"
+              + "(?:T(?:(-?\\d++)H)?(?:(-?\\d++)M)?(?:(-?\\d++(?:\\.\\d++)?)S)?)?");
 
   /**
    * Parses PostgreSQL's input forms: {@code 1 year 2 mons 3 days 04:05:06.5}, unit words in their

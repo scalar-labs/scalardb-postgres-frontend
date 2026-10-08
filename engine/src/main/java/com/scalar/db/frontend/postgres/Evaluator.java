@@ -182,8 +182,7 @@ final class Evaluator {
     return true;
   }
 
-  @Nullable
-  static Object eval(Expression e, List<Map<String, Object>> group, Context ctx) {
+  @Nullable static Object eval(Expression e, List<Map<String, Object>> group, Context ctx) {
     e = QueryParser.unwrap(e);
     if (e instanceof net.sf.jsqlparser.expression.BooleanValue) {
       return ((net.sf.jsqlparser.expression.BooleanValue) e).getValue();
@@ -216,10 +215,16 @@ final class Evaluator {
     }
     if (e instanceof IntervalExpression) {
       IntervalExpression iv = (IntervalExpression) e;
-      String p =
-          iv.getExpression() != null
-              ? text(eval(iv.getExpression(), group, ctx))
-              : String.valueOf(iv.getParameter());
+      String p;
+      if (iv.getExpression() != null) {
+        Object amount = eval(iv.getExpression(), group, ctx);
+        if (amount == null) {
+          return null; // an interval of NULL is NULL
+        }
+        p = text(amount);
+      } else {
+        p = String.valueOf(iv.getParameter());
+      }
       p = p.startsWith("'") && p.endsWith("'") ? p.substring(1, p.length() - 1) : p;
       // INTERVAL '1' DAY carries its unit apart from the amount (the leading field of HOUR TO
       // MINUTE)
@@ -645,7 +650,7 @@ final class Evaluator {
    * are flattened and applied left to right. {@code ->} and {@code #>} yield JSON, {@code ->>} and
    * {@code #>>} text.
    */
-  private static Object json(
+  @Nullable private static Object json(
       net.sf.jsqlparser.expression.JsonExpression j, List<Map<String, Object>> group, Context ctx) {
     List<Map.Entry<Expression, String>> steps = new ArrayList<>();
     jsonSteps(j, steps);
@@ -710,8 +715,7 @@ final class Evaluator {
   }
 
   /** Rows compared element-wise; null when a pair decides nothing because one side is NULL. */
-  @Nullable
-  static Integer rowCompare(List<?> a, List<?> b) {
+  @Nullable static Integer rowCompare(List<?> a, List<?> b) {
     if (a.size() != b.size()) {
       throw new IllegalArgumentException("Unequal number of entries in row expressions");
     }
@@ -923,8 +927,7 @@ final class Evaluator {
     return s;
   }
 
-  @Nullable
-  private static Object column(Column c, List<Map<String, Object>> group, Context ctx) {
+  @Nullable private static Object column(Column c, List<Map<String, Object>> group, Context ctx) {
     String raw = QueryParser.unquote(c.getColumnName());
     // JSQLParser keeps an array subscript such as conkey[1] inside the column name
     int bracket = raw.indexOf('[');
@@ -948,8 +951,7 @@ final class Evaluator {
     return array == null || index < 1 || index > array.size() ? null : array.get(index - 1);
   }
 
-  @Nullable
-  private static Object columnValue(
+  @Nullable private static Object columnValue(
       Column c, String name, List<Map<String, Object>> group, Context ctx) {
     Map<String, Object> row = group.isEmpty() ? Collections.emptyMap() : group.get(0);
     List<Map<String, Object>> candidates =
@@ -1021,8 +1023,7 @@ final class Evaluator {
     }
   }
 
-  @Nullable
-  private static Object negate(@Nullable Object v) {
+  @Nullable private static Object negate(@Nullable Object v) {
     if (v == null) {
       return null;
     }
@@ -1179,8 +1180,7 @@ final class Evaluator {
         + e;
   }
 
-  @Nullable
-  private static Object arithmetic(
+  @Nullable private static Object arithmetic(
       BinaryExpression e, List<Map<String, Object>> group, Context ctx) {
     Object l = eval(e.getLeftExpression(), group, ctx);
     Object r = eval(e.getRightExpression(), group, ctx);
@@ -1276,8 +1276,7 @@ final class Evaluator {
    * interval, interval times or divided by a number, and the difference of two timestamps or times,
    * which is an interval. Null when the operands are not of these kinds.
    */
-  @Nullable
-  private static Object temporalArithmetic(BinaryExpression e, Object l, Object r) {
+  @Nullable private static Object temporalArithmetic(BinaryExpression e, Object l, Object r) {
     boolean add = e instanceof Addition;
     boolean sub = e instanceof Subtraction;
     if (r instanceof Interval && (add || sub)) {
@@ -1323,8 +1322,7 @@ final class Evaluator {
   }
 
   /** A timestamp, timestamptz, date or time moved by an interval; null for other values. */
-  @Nullable
-  private static Object shift(Object v, Interval iv) {
+  @Nullable private static Object shift(Object v, Interval iv) {
     if (v instanceof LocalDateTime) {
       return iv.addTo((LocalDateTime) v);
     }
@@ -1341,8 +1339,7 @@ final class Evaluator {
   }
 
   /** A timestamp, timestamptz (in UTC) or date as a local timestamp; null for other values. */
-  @Nullable
-  private static LocalDateTime asTimestamp(Object v) {
+  @Nullable private static LocalDateTime asTimestamp(Object v) {
     if (v instanceof LocalDateTime) {
       return (LocalDateTime) v;
     }
@@ -1359,8 +1356,7 @@ final class Evaluator {
    * {@code AT TIME ZONE}: a timestamptz becomes the local timestamp in the zone, and a timestamp
    * (taken as local time in the zone) becomes a timestamptz.
    */
-  @Nullable
-  private static Object atTimeZone(@Nullable Object v, @Nullable Object zone) {
+  @Nullable private static Object atTimeZone(@Nullable Object v, @Nullable Object zone) {
     if (v == null || zone == null) {
       return null;
     }
@@ -1397,8 +1393,7 @@ final class Evaluator {
   }
 
   /** The comparison's outcome given {@code compare(left, right)}; null for an unknown operator. */
-  @Nullable
-  private static Boolean compared(ComparisonOperator op, int c) {
+  @Nullable private static Boolean compared(ComparisonOperator op, int c) {
     if (op instanceof EqualsTo) {
       return c == 0;
     }
@@ -1420,12 +1415,6 @@ final class Evaluator {
     return null;
   }
 
-  /**
-   * {@code x op ANY|SOME|ALL (subquery)} with SQL's three-valued logic: ANY is true if some
-   * comparison is true, ALL is false if some comparison is false, and otherwise a NULL on either
-   * side makes the result NULL.
-   */
-  @Nullable
   /** The elements of an array value: a list, or PostgreSQL's array text. */
   static List<?> elements(Object array) {
     return array instanceof List
@@ -1433,8 +1422,12 @@ final class Evaluator {
         : QueryParser.parseArrayText(String.valueOf(array));
   }
 
-  @Nullable
-  private static Boolean anyOrAll(
+  /**
+   * {@code x op ANY|SOME|ALL (subquery)} with SQL's three-valued logic: ANY is true if some
+   * comparison is true, ALL is false if some comparison is false, and otherwise a NULL on either
+   * side makes the result NULL.
+   */
+  @Nullable private static Boolean anyOrAll(
       ComparisonOperator op, @Nullable Object left, boolean all, List<?> values) {
     boolean sawNull = false;
     for (Object right : values) {
@@ -1454,8 +1447,7 @@ final class Evaluator {
   }
 
   /** {@code EXTRACT(field FROM v)} and {@code date_part}: an integer, or a fraction for seconds. */
-  @Nullable
-  static Object extract(String field, @Nullable Object v) {
+  @Nullable static Object extract(String field, @Nullable Object v) {
     if (v == null) {
       return null;
     }
@@ -1512,8 +1504,7 @@ final class Evaluator {
   }
 
   /** {@code date_trunc(unit, v)}: the timestamp truncated to the start of the unit. */
-  @Nullable
-  private static Object dateTrunc(String unit, @Nullable Object v) {
+  @Nullable private static Object dateTrunc(String unit, @Nullable Object v) {
     if (v == null) {
       return null;
     }
@@ -1558,8 +1549,7 @@ final class Evaluator {
     return o.isAsc() ? compare(a, b) : compare(b, a);
   }
 
-  @Nullable
-  private static Object caseOf(CaseExpression c, List<Map<String, Object>> group, Context ctx) {
+  @Nullable private static Object caseOf(CaseExpression c, List<Map<String, Object>> group, Context ctx) {
     Object subject =
         c.getSwitchExpression() == null ? null : eval(c.getSwitchExpression(), group, ctx);
     for (WhenClause when : c.getWhenClauses()) {
@@ -1575,8 +1565,7 @@ final class Evaluator {
     return c.getElseExpression() == null ? null : eval(c.getElseExpression(), group, ctx);
   }
 
-  @Nullable
-  static Object cast(String type, @Nullable Object v) {
+  @Nullable static Object cast(String type, @Nullable Object v) {
     if (v == null) {
       return null;
     }
@@ -1672,8 +1661,7 @@ final class Evaluator {
     return new BigDecimal(n.toString()).setScale(0, RoundingMode.HALF_UP).longValueExact();
   }
 
-  @Nullable
-  private static Object trim(TrimFunction t, List<Map<String, Object>> group, Context ctx) {
+  @Nullable private static Object trim(TrimFunction t, List<Map<String, Object>> group, Context ctx) {
     boolean fromForm = t.getFromExpression() != null;
     Object str = eval(fromForm ? t.getFromExpression() : t.getExpression(), group, ctx);
     Object chars =
@@ -1697,8 +1685,7 @@ final class Evaluator {
     return s.substring(start, end);
   }
 
-  @Nullable
-  private static Object scalar(Function f, List<Map<String, Object>> group, Context ctx) {
+  @Nullable private static Object scalar(Function f, List<Map<String, Object>> group, Context ctx) {
     String name = functionName(f);
     if (name.equals("GROUPING")) {
       // grouping(a, b): a bit per argument, 1 when the grouping set left that expression out
@@ -1961,9 +1948,10 @@ final class Evaluator {
           if (a == null || (args.size() > 1 && b == null)) {
             return null;
           }
+          // with two arguments b is set (a NULL one returned above)
           LocalDateTime to =
-              args.size() > 1 ? asTimestamp(a) : LocalDate.now(ZoneOffset.UTC).atStartOfDay();
-          LocalDateTime from = args.size() > 1 ? asTimestamp(b) : asTimestamp(a);
+              b != null ? asTimestamp(a) : LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+          LocalDateTime from = b != null ? asTimestamp(b) : asTimestamp(a);
           if (to == null || from == null) {
             throw new IllegalArgumentException("age needs timestamps: " + f);
           }
@@ -1979,8 +1967,7 @@ final class Evaluator {
   private static final Object NOT_A_CATALOG_FUNCTION = new Object();
 
   /** The pg_catalog functions psql uses when describing objects. */
-  @Nullable
-  private static Object catalogFunction(String name, List<Object> args, Context ctx) {
+  @Nullable private static Object catalogFunction(String name, List<Object> args, Context ctx) {
     try {
       switch (name) {
         case "PG_GET_USERBYID":
@@ -2063,8 +2050,7 @@ final class Evaluator {
     }
   }
 
-  @Nullable
-  private static Object arg(List<Object> args, int i) {
+  @Nullable private static Object arg(List<Object> args, int i) {
     return i < args.size() ? args.get(i) : null;
   }
 
@@ -2082,8 +2068,7 @@ final class Evaluator {
     return (Number) args.get(i);
   }
 
-  @Nullable
-  private static Object aggregate(Function f, List<Map<String, Object>> group, Context ctx) {
+  @Nullable private static Object aggregate(Function f, List<Map<String, Object>> group, Context ctx) {
     String name = f.getName().toUpperCase(Locale.ROOT);
     ExpressionList<?> params = f.getParameters();
     boolean star =
@@ -2149,8 +2134,7 @@ final class Evaluator {
   }
 
   /** Applies an aggregate to the non-null values collected over its rows or window frame. */
-  @Nullable
-  static Object aggregateValues(
+  @Nullable static Object aggregateValues(
       String name, List<Object> values, @Nullable Object delimiter, Expression f) {
     switch (name) {
       case "COUNT":

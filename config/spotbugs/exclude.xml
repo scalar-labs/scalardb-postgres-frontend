@@ -1,30 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
-  <!-- For all code !-->
+  <!-- For all code -->
   <Match>
     <Or>
       <Bug pattern="THROWS_METHOD_THROWS_CLAUSE_BASIC_EXCEPTION"/>
       <Bug pattern="THROWS_METHOD_THROWS_CLAUSE_THROWABLE"/>
       <Bug pattern="THROWS_METHOD_THROWS_RUNTIMEEXCEPTION"/>
-      <!-- Temporarily excluded. See https://github.com/spotbugs/spotbugs/issues/1694 -->
+      <!-- False positives on try-with-resources; see https://github.com/spotbugs/spotbugs/issues/1694 -->
       <Bug pattern="RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"/>
-      <!-- To exclude Lombok thrown warnings -->
-      <Bug pattern="SAME_NAME_BUT_DIFFERENT"/>
       <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Or>
   </Match>
 
-  <!-- For test code !-->
+  <!-- FindSecBugs' ReDoS heuristic does not model possessive quantifiers. These static patterns
+       (interval and number parsing, CREATE/DROP COORDINATOR TABLES) use them so that client SQL
+       cannot make them backtrack; a new pattern in a static initializer of these classes is
+       still checked by hand in review. -->
+  <Match>
+    <Bug pattern="REDOS"/>
+    <Or>
+      <Class name="com.scalar.db.frontend.postgres.Interval"/>
+      <Class name="com.scalar.db.frontend.postgres.PostgresServer"/>
+      <Class name="com.scalar.db.frontend.postgres.QueryParser"/>
+    </Or>
+    <Method name="&lt;clinit&gt;"/>
+  </Match>
+
+  <!-- For test code: tests and their helpers (TestScanners) -->
   <Match>
     <Or>
-      <Class name="~.*\.*Test"/>
-      <Class name="~.*\.*Test\$.*"/>
-      <Class name="~.*\.*Test\..*"/>
-      <Class name="~.*\.*TestBase"/>
-      <Class name="~.*\.*TestBase\$.*"/>
-      <Class name="~.*\.*TestBase\..*"/>
-      <Class name="~.*\.*TestUtils"/>
-      <Class name="~.*\.*TestUtils\$.*"/>
-      <Class name="~.*\.*IntegrationTest.*"/>
+      <Class name="~.*Test"/>
+      <Class name="~.*Test\$.*"/>
+      <Class name="~.*TestScanners(\$.*)?"/>
     </Or>
     <Or>
       <Bug pattern="RV_RETURN_VALUE_IGNORED"/>
@@ -33,16 +40,10 @@
       <Bug pattern="EC_UNRELATED_TYPES"/>
       <Bug pattern="OBL_UNSATISFIED_OBLIGATION"/>
       <Bug pattern="ODR_OPEN_DATABASE_RESOURCE"/>
+      <!-- Test doubles hand over the iterators they are given -->
+      <Bug pattern="EI_EXPOSE_REP"/>
+      <!-- Tests send SQL they build themselves to the server under test -->
+      <Bug pattern="SQL_INJECTION_JDBC"/>
     </Or>
-  </Match>
-  <!-- Ignore mutable object exposure warnings(caused by Lombok) for all classes in dataloader.core -->
-  <Match>
-    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
-    <Package name="~com.scalar.db.dataloader.core.*"/>
-  </Match>
-  <!-- Ignore mutable object exposure warnings for Protocol Buffers generated classes -->
-  <Match>
-    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_EXPOSE_REP"/>
-    <Package name="~com.scalar.db.transaction.consensuscommit.proto.*"/>
   </Match>
 </FindBugsFilter>

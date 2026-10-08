@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
 import net.sf.jsqlparser.expression.Expression;
@@ -58,6 +59,11 @@ final class LogicalPlan {
 
     boolean isTable() {
       return target != null;
+    }
+
+    /** The ScalarDB table this source reads; only for a source that {@link #isTable}. */
+    QueryParser.Target table() {
+      return Objects.requireNonNull(target, () -> qualifier + " is not a table");
     }
   }
 

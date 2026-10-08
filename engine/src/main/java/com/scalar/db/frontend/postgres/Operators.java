@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
 import net.sf.jsqlparser.expression.Expression;
@@ -29,7 +30,7 @@ final class Operators {
 
   private static final Iterator<Map<String, Object>> NONE = Collections.emptyIterator();
 
-  private static Map<String, Object> pull(Iterator<Map<String, Object>> rows) {
+  @Nullable private static Map<String, Object> pull(Iterator<Map<String, Object>> rows) {
     return rows.hasNext() ? rows.next() : null;
   }
 
@@ -54,7 +55,7 @@ final class Operators {
     }
 
     @Override
-    public final Map<String, Object> next() {
+    @Nullable public final Map<String, Object> next() {
       Map<String, Object> row = fetch();
       if (row != null) {
         rows++;
@@ -64,8 +65,7 @@ final class Operators {
 
     abstract void start(Execution execution);
 
-    @Nullable
-    abstract Map<String, Object> fetch();
+    @Nullable abstract Map<String, Object> fetch();
 
     /** Runs a read on behalf of this operator, attributing the ScalarDB calls it makes to it. */
     <T> T reading(Execution execution, java.util.function.Supplier<T> read) {
@@ -153,7 +153,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return rows != null ? rows.next() : pull(cached);
     }
 
@@ -203,7 +203,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(rows);
     }
 
@@ -243,7 +243,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(remaining);
     }
 
@@ -281,7 +281,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       for (Map<String, Object> row = input.next(); row != null; row = input.next()) {
         if (Evaluator.allTrue(conditions, row, ctx)) {
           return row;
@@ -327,7 +327,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       Map<String, Object> row = input.next();
       if (row == null) {
         return null;
@@ -381,7 +381,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(out);
     }
 
@@ -411,7 +411,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       while (!pending.hasNext()) {
         Map<String, Object> row = input.next();
         if (row == null) {
@@ -458,7 +458,7 @@ final class Operators {
     private final List<OrderByElement> orderBy;
     private final List<String> names;
     private final QueryParser.Plan plan;
-    private Evaluator.Context ctx;
+    private Evaluator.Context ctx = Evaluator.Context.EMPTY;
     private int skipped;
     private int emitted;
     @Nullable private Map<String, Object> last;
@@ -488,7 +488,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       while (skipped < offset) {
         if (input.next() == null) {
           return null;
@@ -535,7 +535,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       if (limit >= 0 && emitted >= limit) {
         return null;
       }
@@ -600,8 +600,7 @@ final class Operators {
     }
 
     /** The sort key: a hidden aggregate value, an ordinal, an output column, or an expression. */
-    @Nullable
-    private static Object key(
+    @Nullable private static Object key(
         List<OrderByElement> orderBy,
         List<String> names,
         Map<String, Object> row,
@@ -628,7 +627,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(sorted);
     }
 
@@ -687,7 +686,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(distinct);
     }
 
@@ -847,7 +846,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(groups);
     }
 
@@ -951,7 +950,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       return pull(out);
     }
 
@@ -973,7 +972,7 @@ final class Operators {
   }
 
   /** A value normalized for set comparisons, so INT 1 and BIGINT 1 are the same member. */
-  static Object normalize(@Nullable Object v) {
+  @Nullable static Object normalize(@Nullable Object v) {
     return v instanceof Number && Evaluator.isFinite(v)
         ? new BigDecimal(v.toString()).stripTrailingZeros()
         : v instanceof Number ? ((Number) v).doubleValue() : v;
@@ -1029,7 +1028,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       if (kind == Kind.UNION) {
         while (!leftDone) {
           Map<String, Object> row = left.next();
@@ -1066,7 +1065,7 @@ final class Operators {
     }
 
     private void openRight() {
-      right.open(execution);
+      right.open(Objects.requireNonNull(execution, "opened before reading"));
       rightOpened = true;
     }
 
@@ -1136,7 +1135,7 @@ final class Operators {
     }
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       Map<String, Object> out = derived.root().next();
       if (out == null) {
         return null;
@@ -1174,7 +1173,7 @@ final class Operators {
     final boolean rightOuter; // unmatched right rows come out last, with null left columns
     private final List<String> leftColumns; // the left side's keys, for that null extension
     final QueryParser.Plan plan;
-    Execution execution;
+    @Nullable private Execution execution;
     Evaluator.Context ctx = Evaluator.Context.EMPTY;
     @Nullable private Map<String, Object> current;
     @Nullable private Iterator<Map<String, Object>> candidates;
@@ -1211,8 +1210,13 @@ final class Operators {
       left.open(execution);
     }
 
+    /** The execution the join was opened with. */
+    Execution execution() {
+      return Objects.requireNonNull(execution, "opened before reading");
+    }
+
     /** The next left row; a subclass may read ahead. */
-    Map<String, Object> nextLeft() {
+    @Nullable Map<String, Object> nextLeft() {
       return left.next();
     }
 
@@ -1223,7 +1227,7 @@ final class Operators {
     abstract List<Map<String, Object>> allRight();
 
     @Override
-    Map<String, Object> fetch() {
+    @Nullable Map<String, Object> fetch() {
       while (true) {
         if (unmatchedRight != null) {
           if (!unmatchedRight.hasNext()) {
@@ -1353,7 +1357,7 @@ final class Operators {
      * stops early (LIMIT) and doubles while the join keeps going.
      */
     @Override
-    Map<String, Object> nextLeft() {
+    @Nullable Map<String, Object> nextLeft() {
       if (pendingLeft.isEmpty() && !leftExhausted) {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < batch; i++) {
@@ -1366,7 +1370,7 @@ final class Operators {
         }
         if (!rows.isEmpty()) {
           List<List<Map<String, Object>>> results =
-              reading(execution, () -> plan.lookupRows(right, rows, ctx, this::run));
+              reading(execution(), () -> plan.lookupRows(right, rows, ctx, this::run));
           pendingLeft.addAll(rows);
           pendingCandidates.addAll(results);
         }
@@ -1384,7 +1388,7 @@ final class Operators {
      * Runs independent reads: {@link #PARALLEL} at a time on the pool when allowed, else in order.
      */
     private void run(List<Runnable> tasks) {
-      if (!execution.reader.concurrent() || tasks.size() == 1) {
+      if (!execution().reader.concurrent() || tasks.size() == 1) {
         tasks.forEach(Runnable::run);
         return;
       }
@@ -1458,7 +1462,7 @@ final class Operators {
 
     private void build() {
       table = new HashMap<>();
-      rightOperator.open(execution);
+      rightOperator.open(execution());
       rightRows = QueryParser.readAll(rightOperator);
       for (Map<String, Object> r : rightRows) {
         List<Object> key = key(hashRight, r);
@@ -1484,12 +1488,12 @@ final class Operators {
       List<Object> key = key(hashLeft, leftRow);
       return key == null
           ? Collections.<Map<String, Object>>emptyList()
-          : table.getOrDefault(key, Collections.<Map<String, Object>>emptyList());
+          : Objects.requireNonNull(table, "built above")
+              .getOrDefault(key, Collections.<Map<String, Object>>emptyList());
     }
 
     /** Join key values, with numbers normalized so INT 1 and BIGINT 1 match; null on any NULL. */
-    @Nullable
-    private List<Object> key(List<Expression> expressions, Map<String, Object> row) {
+    @Nullable private List<Object> key(List<Expression> expressions, Map<String, Object> row) {
       List<Object> key = new ArrayList<>();
       for (Expression e : expressions) {
         Object v = Evaluator.eval(e, Collections.singletonList(row), ctx);
@@ -1532,6 +1536,7 @@ final class Operators {
   /** LATERAL: the right subquery runs once per left row, which it may reference. */
   static final class LateralJoin extends Join {
     private final Map<String, String> rename = new HashMap<>(); // output name -> column name
+    private final QueryParser.Plan derived; // the right side: a subquery, run per left row
 
     LateralJoin(
         Operator left,
@@ -1544,7 +1549,8 @@ final class Operators {
       if (rightOuter) {
         throw new IllegalArgumentException("RIGHT and FULL JOIN LATERAL are not supported");
       }
-      List<String> outputs = right.derived.getOutputColumns();
+      this.derived = Objects.requireNonNull(right.derived, "LATERAL needs a subquery");
+      List<String> outputs = derived.getOutputColumns();
       for (int i = 0; i < outputs.size() && i < right.columns.size(); i++) {
         rename.put(outputs.get(i), right.columns.get(i));
       }
@@ -1553,12 +1559,13 @@ final class Operators {
     @Override
     List<Map<String, Object>> candidatesFor(Map<String, Object> leftRow) {
       Map<String, Object> outer = new LinkedHashMap<>();
-      if (execution.outer != null) {
-        outer.putAll(execution.outer);
+      Map<String, Object> enclosing = execution().outer;
+      if (enclosing != null) {
+        outer.putAll(enclosing);
       }
       outer.putAll(leftRow);
       List<Map<String, Object>> out = new ArrayList<>();
-      for (Map<String, Object> row : right.derived.evaluate(outer)) {
+      for (Map<String, Object> row : derived.evaluate(outer)) {
         Map<String, Object> keyed = new LinkedHashMap<>();
         for (Map.Entry<String, Object> e : row.entrySet()) {
           keyed.put(
@@ -1588,7 +1595,7 @@ final class Operators {
     public List<Operator> children() {
       List<Operator> children = new ArrayList<>();
       children.add(left);
-      children.add(right.derived.root());
+      children.add(derived.root());
       return children;
     }
   }
@@ -1624,7 +1631,7 @@ final class Operators {
     List<Map<String, Object>> candidatesFor(Map<String, Object> leftRow) {
       if (rightRows == null) {
         // ponytail: O(n*m); only for joins without an equality to hash on
-        rightOperator.open(execution);
+        rightOperator.open(execution());
         rightRows = QueryParser.readAll(rightOperator);
       }
       return rightRows;

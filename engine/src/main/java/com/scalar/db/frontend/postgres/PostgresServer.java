@@ -7,6 +7,7 @@ import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
 import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -29,8 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
-import java.util.concurrent.ThreadLocalRandom;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,7 @@ import org.slf4j.LoggerFactory;
  */
 public class PostgresServer implements AutoCloseable {
   private static final Logger logger = LoggerFactory.getLogger(PostgresServer.class);
+  private static final java.security.SecureRandom KEYS = new java.security.SecureRandom();
   private static final int SSL_REQUEST = 80877103;
   private static final int GSS_REQUEST = 80877104;
   private static final int CANCEL_REQUEST = 80877102;
@@ -52,6 +54,9 @@ public class PostgresServer implements AutoCloseable {
   private final DistributedTransactionAdmin admin;
   private final ServerSocket serverSocket;
 
+  @SuppressFBWarnings(
+      value = "UNENCRYPTED_SERVER_SOCKET",
+      justification = "TLS is not implemented yet; see docs/auth-design.md")
   public PostgresServer(
       DistributedTransactionManager manager, DistributedTransactionAdmin admin, int port)
       throws IOException {
@@ -171,8 +176,7 @@ public class PostgresServer implements AutoCloseable {
       }
     }
 
-    @Nullable
-    private QueryProcessor startup() throws IOException {
+    @Nullable private QueryProcessor startup() throws IOException {
       while (true) {
         int length = in.readInt();
         int code = in.readInt();
@@ -215,8 +219,8 @@ public class PostgresServer implements AutoCloseable {
         send(
             'K',
             new Msg()
-                .i32(ThreadLocalRandom.current().nextInt())
-                .i32(ThreadLocalRandom.current().nextInt()));
+                .i32(KEYS.nextInt())
+                .i32(KEYS.nextInt())); // a cancel request must not be guessable
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
         processor.setDdlSettleMillis(ddlSettleMillis);
         for (Map.Entry<String, String> e : defaults.entrySet()) {
@@ -481,7 +485,8 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void sendError(Throwable failure) throws IOException {
-      Throwable e = failure instanceof QueryParser.ReadFailure ? failure.getCause() : failure;
+      Throwable cause = failure.getCause();
+      Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);
       String message = e.getMessage() == null ? e.toString() : e.getMessage();
       if (e instanceof Error) {
@@ -688,8 +693,7 @@ public class PostgresServer implements AutoCloseable {
    * else the text. Numbers and booleans are recognized by the declared type or, for an undeclared
    * one, by the text itself, as a client writing literals in simple-query mode would have sent.
    */
-  @Nullable
-  static Object typed(@Nullable String value, int oid) {
+  @Nullable static Object typed(@Nullable String value, int oid) {
     if (value == null) {
       return null;
     }
@@ -839,7 +843,7 @@ public class PostgresServer implements AutoCloseable {
   }
 
   private static final java.util.regex.Pattern NUMBER =
-      java.util.regex.Pattern.compile("-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?");
+      java.util.regex.Pattern.compile("-?\\d++(\\.\\d++)?([eE][-+]?\\d++)?");
 
   /** True if the parameter stands as it is in SQL: a number or a boolean. */
   private static boolean plain(String value, int oid) {
@@ -951,7 +955,8 @@ public class PostgresServer implements AutoCloseable {
       }
       Object v = e;
       if (v instanceof String && elementOid != 25 && elementOid != 1043 && elementOid != 1042) {
-        v = Evaluator.cast(Catalog.typeName(elementOid), v); // elements parsed from array text
+        // elements parsed from array text; NULL elements were handled above
+        v = Objects.requireNonNull(Evaluator.cast(Catalog.typeName(elementOid), v));
       }
       byte[] bytes = binary(elementOid, v);
       encoded.add(bytes);

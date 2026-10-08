@@ -3,6 +3,7 @@ package com.scalar.db.frontend.postgres.server;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.frontend.postgres.PostgresServer;
 import com.scalar.db.service.TransactionFactory;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.Properties;
@@ -21,6 +22,9 @@ public final class Main {
 
   private Main() {}
 
+  @SuppressFBWarnings(
+      value = "PATH_TRAVERSAL_IN",
+      justification = "The operator names the properties file on the command line")
   public static void main(String[] args) throws Exception {
     if (args.length < 1) {
       System.err.println(

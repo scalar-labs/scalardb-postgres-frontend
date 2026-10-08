@@ -145,7 +145,7 @@ final class Optimizer {
       if (only == null || !only.isTable() || plan.nullable(only)) {
         continue;
       }
-      List<List<ConditionalExpression>> terms = orTerms(c, only.target.metadata);
+      List<List<ConditionalExpression>> terms = orTerms(c, only.table().metadata);
       if (terms != null) {
         only.pushedOr.add(terms);
         it.remove();
@@ -159,7 +159,7 @@ final class Optimizer {
         if (refs.size() != 1 || !refs.contains(right) || !right.isTable()) {
           continue;
         }
-        List<List<ConditionalExpression>> terms = orTerms(c, right.target.metadata);
+        List<List<ConditionalExpression>> terms = orTerms(c, right.table().metadata);
         if (terms != null) {
           right.pushedOr.add(terms);
           it.remove();
@@ -169,8 +169,7 @@ final class Optimizer {
   }
 
   /** The OR's alternatives as ScalarDB conditions, or null if any leaf cannot be pushed down. */
-  @Nullable
-  private static List<List<ConditionalExpression>> orTerms(Expression c, TableMetadata metadata) {
+  @Nullable private static List<List<ConditionalExpression>> orTerms(Expression c, TableMetadata metadata) {
     if (!(c instanceof OrExpression) || !QueryParser.subselects(c).isEmpty()) {
       return null;
     }
@@ -222,9 +221,9 @@ final class Optimizer {
                   && !plan.nullable(only)
                   && QueryParser.subselects(c).isEmpty()
                   && !QueryParser.containsParameter(c) // bound later, see lateConditions
-              ? QueryParser.pushable(c, only.target.metadata)
+              ? QueryParser.pushable(c, only.table().metadata)
               : null;
-      if (p != null) {
+      if (p != null && only != null) {
         only.pushed.add(p);
         it.remove();
       }
@@ -239,7 +238,7 @@ final class Optimizer {
                     && refs.contains(right)
                     && right.isTable()
                     && QueryParser.subselects(c).isEmpty()
-                ? QueryParser.pushable(c, right.target.metadata)
+                ? QueryParser.pushable(c, right.table().metadata)
                 : null;
         if (p != null) {
           right.pushed.add(p);
@@ -275,7 +274,7 @@ final class Optimizer {
           || !only.isTable()
           || plan.nullable(only)
           || (plan.sources.indexOf(only) != 0 && only.lookupParams == null)
-          || QueryParser.pushable(c, only.target.metadata, null, QueryParser.literalContext())
+          || QueryParser.pushable(c, only.table().metadata, null, QueryParser.literalContext())
               == null) {
         continue;
       }
@@ -325,6 +324,7 @@ final class Optimizer {
           other = eq.getLeftExpression();
         }
         if (column == null
+            || other == null
             || params.containsKey(column)
             || !QueryParser.subselects(other).isEmpty()
             || !refersOnlyToEarlier(other, sources, i)) {
@@ -455,7 +455,7 @@ final class Optimizer {
 
   /** True if binding {@code columns} (plus the literal '=' conditions) gives a keyed read. */
   private static boolean keyed(LogicalPlan.Source s, Set<String> columns) {
-    TableMetadata metadata = s.target.metadata;
+    TableMetadata metadata = s.table().metadata;
     Set<String> bound = new HashSet<>(columns);
     for (ConditionalExpression c : s.pushed) {
       if (c.getOperator() == ConditionalExpression.Operator.EQ) {

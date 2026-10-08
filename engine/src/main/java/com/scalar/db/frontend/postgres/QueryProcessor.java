@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
@@ -111,8 +112,7 @@ public class QueryProcessor {
       java.util.regex.Pattern.compile("(?is)^\\s*SHOW\\s+(.+?)\\s*;?\\s*$");
 
   /** The stored key of a setting named as in SHOW, matched without regard to case; null if none. */
-  @Nullable
-  private String settingKey(String name) {
+  @Nullable private String settingKey(String name) {
     String n = name.trim().replaceAll("\\s+", " ");
     if (n.equalsIgnoreCase("transaction isolation level")) {
       n = "transaction_isolation";
@@ -284,7 +284,7 @@ public class QueryProcessor {
       if (!hasNext()) {
         throw new NoSuchElementException();
       }
-      Map<String, Object> row = pending;
+      Map<String, Object> row = Objects.requireNonNull(pending, "fetched by hasNext()");
       pending = null;
       count++;
       return row;
@@ -454,7 +454,9 @@ public class QueryProcessor {
       throws TransactionException, ExecutionException {
     {
       QueryParser.Plan plan =
-          sql.equals(describedSql) && parameters.equals(describedParameters)
+          describedPlan != null
+                  && sql.equals(describedSql)
+                  && parameters.equals(describedParameters)
               ? describedPlan
               : plan(sql, parameters);
       describedSql = null;

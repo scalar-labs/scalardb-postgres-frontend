@@ -14,7 +14,8 @@ connects with psql and JDBC. `tour.sql` then shows what the frontend does, secti
 
 ## Prerequisites
 
-- **JDK 17** to build and run the frontend.
+- **JDK 25** to build the frontend (the build's toolchain, as in ScalarDB Saga) and **Java 17** or
+  later to run it: the jar targets Java 17.
 - **A checkout of [ScalarDB](https://github.com/scalar-labs/scalardb)** (`master`): the frontend
   builds against ScalarDB `4.0.0-SNAPSHOT`, which is not published, so it is installed into your
   local Maven repository first.

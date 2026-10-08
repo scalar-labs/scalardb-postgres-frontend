@@ -88,11 +88,7 @@ final class Json {
    * An operand of a JSON operator: a JSON value, or the text of a json column (TEXT in storage,
    * read as jsonb).
    */
-  @Nullable
-  static Value of(@Nullable Object v) {
-    if (v == null) {
-      return null;
-    }
+  static Value of(Object v) {
     if (v instanceof Value) {
       return (Value) v;
     }
@@ -100,6 +96,11 @@ final class Json {
       return new Value(parse((String) v), true, null);
     }
     throw new IllegalArgumentException("Not a JSON value: " + v);
+  }
+
+  /** {@link #of}, with NULL staying NULL. */
+  @Nullable static Value ofNullable(@Nullable Object v) {
+    return v == null ? null : of(v);
   }
 
   /** {@code to_json(v)}: a SQL value as a JSON tree. */
@@ -143,8 +144,7 @@ final class Json {
   }
 
   /** {@code j -> key}: a member by text key or an element by index (negative from the end). */
-  @Nullable
-  static JsonNode get(JsonNode node, @Nullable Object key) {
+  @Nullable static JsonNode get(JsonNode node, @Nullable Object key) {
     if (key == null) {
       return null;
     }
@@ -162,8 +162,7 @@ final class Json {
   }
 
   /** {@code j #> path}: members and elements in turn; array steps are taken from text. */
-  @Nullable
-  static JsonNode path(JsonNode node, List<?> path) {
+  @Nullable static JsonNode path(JsonNode node, List<?> path) {
     JsonNode cur = node;
     for (Object step : path) {
       if (cur == null || step == null) {
@@ -184,8 +183,7 @@ final class Json {
   }
 
   /** {@code ->>}: a string without its quotes, a JSON null as SQL NULL, anything else as text. */
-  @Nullable
-  static String scalarText(@Nullable JsonNode node, boolean binary) {
+  @Nullable static String scalarText(@Nullable JsonNode node, boolean binary) {
     if (node == null || node.isNull()) {
       return null;
     }

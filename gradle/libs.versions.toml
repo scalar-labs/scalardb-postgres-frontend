@@ -2,19 +2,26 @@
 # Not published: install it from a ScalarDB checkout with ./gradlew :core:publishToMavenLocal
 scalardb = "4.0.0-SNAPSHOT"
 jsqlparser = "5.4"
+# Runtime libraries ScalarDB itself also uses; kept at ScalarDB's versions
 jackson = "2.22.3"
 slf4j = "1.7.36"
 postgresql = "42.7.13"
 junit = "5.14.4"
 assertj = "3.27.7"
-mockito = "4.11.0"
-spotbugs-annotations = "4.8.6"
-errorprone = "2.10.0"
-google-java-format = "1.17.0"
-spotless-plugin = "6.13.0"
-spotbugs-plugin = "5.2.5"
-errorprone-plugin = "4.4.0"
-shadow-plugin = "8.1.1"
+mockito = "5.23.0"
+# Build tools, at ScalarDB Saga's versions
+spotless = "8.9.0"
+google-java-format = "1.35.0"
+spotbugs-plugin = "6.5.10"
+spotbugs-annotations = "4.10.3"
+findsecbugs = "1.14.0"
+errorprone = "2.50.0"
+errorprone-plugin = "5.1.0"
+nullaway = "0.13.8"
+nullaway-plugin = "3.1.0"
+jspecify = "1.0.1"
+jcip = "1.0-1"
+shadow = "9.6.1"
 
 [libraries]
 scalardb = { module = "com.scalar-labs:scalardb", version.ref = "scalardb" }
@@ -29,18 +36,19 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
-mockito-inline = { module = "org.mockito:mockito-inline", version.ref = "mockito" }
 spotbugs-annotations = { module = "com.github.spotbugs:spotbugs-annotations", version.ref = "spotbugs-annotations" }
+findsecbugs-plugin = { module = "com.h3xstream.findsecbugs:findsecbugs-plugin", version.ref = "findsecbugs" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
+jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
+jcip-annotations = { module = "com.github.stephenc.jcip:jcip-annotations", version.ref = "jcip" }
 # Consumed only as a version (spotless's googleJavaFormat(...) takes a version string); the entry
 # exists so Dependabot can map the version to a module and bump it
 google-java-format = { module = "com.google.googlejavaformat:google-java-format", version.ref = "google-java-format" }
 
-# Gradle plugins, as libraries for build-logic's classpath
-spotless-gradle-plugin = { module = "com.diffplug.spotless:spotless-plugin-gradle", version.ref = "spotless-plugin" }
+# Gradle plugins the convention plugins apply: libraries on build-logic's classpath
+spotless-gradle-plugin = { module = "com.diffplug.spotless:spotless-plugin-gradle", version.ref = "spotless" }
 spotbugs-gradle-plugin = { module = "com.github.spotbugs.snom:spotbugs-gradle-plugin", version.ref = "spotbugs-plugin" }
 errorprone-gradle-plugin = { module = "net.ltgt.gradle:gradle-errorprone-plugin", version.ref = "errorprone-plugin" }
-
-[plugins]
-# Applied by the server module only, so it stays off build-logic's classpath
-shadow = { id = "com.github.johnrengelman.shadow", version.ref = "shadow-plugin" }
+nullaway-gradle-plugin = { module = "net.ltgt.gradle:gradle-nullaway-plugin", version.ref = "nullaway-plugin" }
+shadow-gradle-plugin = { module = "com.gradleup.shadow:shadow-gradle-plugin", version.ref = "shadow" }

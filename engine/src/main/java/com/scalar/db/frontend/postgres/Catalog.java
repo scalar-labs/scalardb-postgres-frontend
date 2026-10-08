@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeSet;
 import javax.annotation.Nullable;
 
@@ -368,8 +369,7 @@ final class Catalog {
   }
 
   /** The columns of a catalog table, or null if {@code schema.name} is not one. */
-  @Nullable
-  static List<String> columns(@Nullable String schema, String name) {
+  @Nullable static List<String> columns(@Nullable String schema, String name) {
     if (schema == null || schema.equals("pg_catalog")) {
       List<String> columns = PG_CATALOG.get(name);
       if (columns != null) {
@@ -471,21 +471,19 @@ final class Catalog {
     String n = name.trim().toLowerCase(Locale.ROOT);
     n = n.startsWith("pg_catalog.") ? n.substring("pg_catalog.".length()) : n;
     for (Map.Entry<Long, String> e : INTERNAL_TYPE_NAMES.entrySet()) {
-      if (e.getValue().equals(n) || TYPE_NAMES.get(e.getKey()).equals(n)) {
+      if (e.getValue().equals(n) || n.equals(TYPE_NAMES.get(e.getKey()))) {
         return e.getKey();
       }
     }
     throw new IllegalArgumentException("type \"" + name + "\" does not exist");
   }
 
-  @Nullable
-  String indexDef(long oid) throws ExecutionException {
+  @Nullable String indexDef(long oid) throws ExecutionException {
     load();
     return indexDefs.get(oid);
   }
 
-  @Nullable
-  String constraintDef(long oid) throws ExecutionException {
+  @Nullable String constraintDef(long oid) throws ExecutionException {
     load();
     return constraintDefs.get(oid);
   }
@@ -496,7 +494,8 @@ final class Catalog {
     load();
     List<Map<String, Object>> out = new ArrayList<>();
     for (Map<String, Object> row :
-        tables.getOrDefault(qualifiedName(schema, name), Collections.emptyList())) {
+        Objects.requireNonNull(tables, "loaded above")
+            .getOrDefault(qualifiedName(schema, name), Collections.emptyList())) {
       Map<String, Object> qualified = new LinkedHashMap<>();
       for (Map.Entry<String, Object> e : row.entrySet()) {
         qualified.put(qualifier + "." + e.getKey(), e.getValue());
@@ -787,11 +786,14 @@ final class Catalog {
   }
 
   private static void row(
-      Map<String, List<Map<String, Object>>> t, String table, Object... values) {
+      Map<String, List<Map<String, Object>>> t, String table, @Nullable Object... values) {
     List<String> columns =
         table.startsWith("pg_catalog.")
             ? PG_CATALOG.get(table.substring("pg_catalog.".length()))
             : INFORMATION_SCHEMA.get(table.substring("information_schema.".length()));
+    if (columns == null) {
+      throw new AssertionError("Unknown catalog table: " + table);
+    }
     if (columns.size() != values.length) {
       throw new AssertionError(table + " expects " + columns.size() + " values");
     }
@@ -799,6 +801,6 @@ final class Catalog {
     for (int i = 0; i < values.length; i++) {
       row.put(columns.get(i), values[i]);
     }
-    t.get(table).add(row);
+    t.computeIfAbsent(table, k -> new ArrayList<>()).add(row);
   }
 }

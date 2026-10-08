@@ -3,7 +3,6 @@ package com.scalar.db.frontend.postgres;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -184,16 +183,16 @@ final class Windows {
       partitions.computeIfAbsent(key, k -> new ArrayList<>()).add(i);
     }
     for (List<Integer> partition : partitions.values()) {
-      Map<Integer, Object[]> keys = new HashMap<>(); // the ORDER BY values of each unit
+      Object[][] keys = new Object[units.size()][]; // the ORDER BY values of each unit
       if (!s.orderBy.isEmpty()) {
         for (int i : partition) {
           Object[] k = new Object[s.orderBy.size()];
           for (int j = 0; j < k.length; j++) {
             k[j] = Evaluator.eval(s.orderBy.get(j).getExpression(), units.get(i), ctx);
           }
-          keys.put(i, k);
+          keys[i] = k;
         }
-        partition.sort((x, y) -> compareKeys(s.orderBy, keys.get(x), keys.get(y)));
+        partition.sort((x, y) -> compareKeys(s.orderBy, keys[x], keys[y]));
       }
       int m = partition.size();
       // Peers: the run of rows with the same ORDER BY values (every row, with no ORDER BY)
@@ -203,8 +202,7 @@ final class Windows {
         int k = j + 1;
         while (k < m
             && (s.orderBy.isEmpty()
-                || compareKeys(s.orderBy, keys.get(partition.get(j)), keys.get(partition.get(k)))
-                    == 0)) {
+                || compareKeys(s.orderBy, keys[partition.get(j)], keys[partition.get(k)]) == 0)) {
           k++;
         }
         for (int t = j; t < k; t++) {
@@ -280,8 +278,7 @@ final class Windows {
   }
 
   /** PostgreSQL's ntile: the first {@code m % n} buckets get one row more than the others. */
-  @Nullable
-  private static Object ntile(int j, int m, @Nullable Integer n) {
+  @Nullable private static Object ntile(int j, int m, @Nullable Integer n) {
     if (n == null) {
       return null;
     }
@@ -293,8 +290,7 @@ final class Windows {
     return j < r * (q + 1) ? (long) (j / (q + 1) + 1) : (long) ((j - r * (q + 1)) / q + r + 1);
   }
 
-  @Nullable
-  private static Integer intArg(
+  @Nullable private static Integer intArg(
       @Nullable Expression e,
       List<Map<String, Object>> unit,
       Evaluator.Context ctx,
@@ -382,8 +378,7 @@ final class Windows {
   }
 
   /** first_value, last_value, nth_value, or an aggregate over the frame {@code [lo, hi)}. */
-  @Nullable
-  private static Object overFrame(
+  @Nullable private static Object overFrame(
       Spec s,
       int lo,
       int hi,
