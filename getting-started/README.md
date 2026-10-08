@@ -204,7 +204,9 @@ honor is announced with a `NOTICE`. It does not silently return a different resu
 - **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` other than `"C"`/`POSIX`,
   `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
   data-modifying statement inside `WITH`, an expression index (`CREATE INDEX ... ON t (lower(name))`),
-  and a comparison of a text column with a number (`name = 1`), which PostgreSQL rejects too.
+  a column `DEFAULT` other than `DEFAULT NULL` (an omitted column always reads NULL here, so the
+  default would be lost silently), and a comparison of a text column with a number (`name = 1`),
+  which PostgreSQL rejects too.
   `CREATE UNIQUE INDEX` and a partial index (`... WHERE ...`) are created as plain indexes with a
   `NOTICE`: uniqueness is not enforced and the `WHERE` is not kept.
 - **Session settings.** `SET TIME ZONE` shapes how `timestamptz` values are read and printed, as in

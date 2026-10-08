@@ -23,7 +23,7 @@ Results on 2026-10-08 (frontend after the fixes that this suite prompted; backin
 | Set | Cases | OK | Both error | Frontend error | Differs | Why the rest differ |
 |---|---|---|---|---|---|---|
 | S1 data types | 26 | 6 | 3 | 0 | 17 | `CHAR(n)` padding, `NUMERIC(p,s)` kept as double, `SMALLINT` range: announced by NOTICE, not enforced (5 of the 17 are PostgreSQL-side errors) |
-| S2 constraints | 30 | 5 | 5 | 5 | 15 | constraints and defaults announced by NOTICE, not enforced; no views, no GRANT, a table needs a key (12 are PostgreSQL-side errors) |
+| S2 constraints | 30 | 5 | 5 | 8 | 12 | constraints announced by NOTICE, not enforced; a DEFAULT other than NULL is refused (2026-10-08); no views, no GRANT, a table needs a key (all 12 are PostgreSQL-side errors) |
 | S3 query | 45 | 38 | 7 | 0 | 0 | |
 | S4 predicates | 56 | 54 | 2 | 0 | 0 | |
 | S5 subqueries | 18 | 16 | 2 | 0 | 0 | |

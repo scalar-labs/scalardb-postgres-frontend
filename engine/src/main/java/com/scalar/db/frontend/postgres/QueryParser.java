@@ -2725,8 +2725,13 @@ public class QueryParser {
         out.add(constraint + " on " + col + " is not enforced by ScalarDB");
       }
     }
-    if (specs.contains("DEFAULT")) {
-      out.add("DEFAULT on " + col + " is not kept: the column reads NULL when it is omitted");
+    if (specs.matches(".*GENERATED\\s+(ALWAYS|BY\\s+DEFAULT)\\s+AS\\s+IDENTITY.*")) {
+      out.add(
+          "identity on " + col + " does not generate values here: inserts must supply the column");
+    } else if (specs.contains("DEFAULT") && !specs.matches(".*DEFAULT\\s+NULL(\\s.*|$)")) {
+      // DEFAULT NULL is what an omitted column reads anyway; any other default would be lost
+      throw new IllegalArgumentException(
+          "DEFAULT on " + col + " is not supported: the column would read NULL when it is omitted");
     }
     switch (base) {
       case "char":

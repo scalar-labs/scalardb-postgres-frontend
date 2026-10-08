@@ -14,10 +14,10 @@ s02_11_9_check_null_passes OK
 s02_11_8_references_column PG_ERR
 s02_11_8_foreign_key_table PG_ERR
 s02_11_8_fk_delete_parent PG_ERR
-s02_11_5_default_literal DIFF
+s02_11_5_default_literal FE_ERR
 s02_11_5_default_null_explicit OK
-s02_11_5_default_keyword_in_values DIFF
-s02_11_5_default_user DIFF
+s02_11_5_default_keyword_in_values FE_ERR
+s02_11_5_default_user FE_ERR
 s02_11_6_named_constraint PG_ERR
 s02_11_3_no_primary_key FE_ERR
 s02_11_3_duplicate_column_name BOTH_ERR
