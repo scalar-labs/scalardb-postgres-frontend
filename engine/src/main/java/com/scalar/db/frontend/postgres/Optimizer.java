@@ -98,6 +98,14 @@ final class Optimizer {
           || !keyed(s, Collections.singleton(column))) {
         continue;
       }
+      int position = plan.sources.indexOf(s);
+      boolean extended = false; // a RIGHT/FULL JOIN after the list would null its value
+      for (int j = Math.max(position - 1, 0); j < plan.joins.size(); j++) {
+        extended |= plan.joins.get(j).rightOuter();
+      }
+      if (extended) {
+        continue; // the IN stays a WHERE condition, evaluated after the join
+      }
       Set<Object> values = new LinkedHashSet<>();
       boolean literals = true;
       for (Expression e : (ExpressionList<?>) in.getRightExpression()) {
@@ -125,7 +133,6 @@ final class Optimizer {
       for (Object v : values) {
         list.catalogRows.add(Collections.singletonMap(qualifier + ".v", v));
       }
-      int position = plan.sources.indexOf(s);
       plan.sources.add(position, list);
       plan.joins.add(Math.max(position - 1, 0), new LogicalPlan.Join(LogicalPlan.Join.Kind.INNER));
       Column value = new Column(new Table(qualifier), "v");
@@ -142,7 +149,7 @@ final class Optimizer {
       Expression c = it.next();
       Set<LogicalPlan.Source> refs = localSources(c, plan);
       LogicalPlan.Source only = refs.size() == 1 ? refs.iterator().next() : null;
-      if (only == null || !only.isTable() || plan.nullable(only)) {
+      if (only == null || !only.isTable() || plan.nullable(only) || refersOutside(c, plan)) {
         continue;
       }
       List<List<ConditionalExpression>> terms = orTerms(c, only.table().metadata);
@@ -156,7 +163,11 @@ final class Optimizer {
       for (Iterator<Expression> it = plan.joins.get(i).on.iterator(); it.hasNext(); ) {
         Expression c = it.next();
         Set<LogicalPlan.Source> refs = localSources(c, plan);
-        if (refs.size() != 1 || !refs.contains(right) || !right.isTable()) {
+        if (refs.size() != 1
+            || !refs.contains(right)
+            || !right.isTable()
+            || plan.joins.get(i).rightOuter() // RIGHT/FULL keep this side's unmatched rows
+            || refersOutside(c, plan)) {
           continue;
         }
         List<List<ConditionalExpression>> terms = orTerms(c, right.table().metadata);
@@ -166,6 +177,21 @@ final class Optimizer {
         }
       }
     }
+  }
+
+  /** True if a column of {@code e} belongs to no source of the plan: a correlated reference. */
+  private static boolean refersOutside(Expression e, LogicalPlan plan) {
+    for (Column c : QueryParser.columnRefs(e)) {
+      String qualifier = qualifierOf(c);
+      boolean local = false;
+      for (LogicalPlan.Source s : plan.sources) {
+        local |= s.qualifier.equals(qualifier);
+      }
+      if (!local) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** The OR's alternatives as ScalarDB conditions, or null if any leaf cannot be pushed down. */
@@ -208,7 +234,8 @@ final class Optimizer {
   /**
    * A conjunct of the form {@code column op literal} on one ScalarDB table becomes a condition of
    * that table's read. WHERE conjuncts on the right side of a LEFT JOIN stay where they are, since
-   * they apply after the null extension; ON conjuncts on that side are fine.
+   * they apply after the null extension; ON conjuncts on that side are fine unless the join also
+   * preserves that side (RIGHT, FULL).
    */
   static void pushDownConditions(LogicalPlan plan) {
     for (Iterator<Expression> it = plan.where.iterator(); it.hasNext(); ) {
@@ -237,6 +264,7 @@ final class Optimizer {
             refs.size() == 1
                     && refs.contains(right)
                     && right.isTable()
+                    && !plan.joins.get(i).rightOuter() // RIGHT/FULL keep this side's unmatched rows
                     && QueryParser.subselects(c).isEmpty()
                 ? QueryParser.pushable(c, right.table().metadata)
                 : null;

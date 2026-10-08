@@ -113,6 +113,7 @@ final class Evaluator {
     final Map<Select, QueryParser.Plan> subplans;
     @Nullable final Catalog catalog;
     final List<Object> parameters; // the statement's $n values, 1-based
+    final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
 
     Context(
         @Nullable Map<String, Object> outer,
@@ -126,10 +127,34 @@ final class Evaluator {
         Map<Select, QueryParser.Plan> subplans,
         @Nullable Catalog catalog,
         List<Object> parameters) {
+      this(outer, subplans, catalog, parameters, Collections.emptyMap());
+    }
+
+    Context(
+        @Nullable Map<String, Object> outer,
+        Map<Select, QueryParser.Plan> subplans,
+        @Nullable Catalog catalog,
+        List<Object> parameters,
+        Map<String, com.scalar.db.io.DataType> types) {
       this.outer = outer;
       this.subplans = subplans;
       this.catalog = catalog;
       this.parameters = parameters;
+      this.types = types;
+    }
+
+    /** The declared type of a column of this plan's sources, or null if not known. */
+    @Nullable com.scalar.db.io.DataType columnType(Column c) {
+      String name = QueryParser.unquote(c.getColumnName());
+      if (c.getTable() != null) {
+        return types.get(QueryParser.unquote(c.getTable().getName()) + "." + name);
+      }
+      for (Map.Entry<String, com.scalar.db.io.DataType> e : types.entrySet()) {
+        if (e.getKey().endsWith("." + name)) {
+          return e.getValue();
+        }
+      }
+      return null;
     }
 
     List<Map<String, Object>> subquery(Select select, List<Map<String, Object>> group) {
@@ -521,7 +546,7 @@ final class Evaluator {
         throw new IllegalArgumentException("Unsupported IN expression: " + e);
       }
       if (v == null) {
-        return null;
+        return values.isEmpty() ? Boolean.valueOf(in.isNot()) : null; // NULL IN () is false
       }
       boolean sawNull = false;
       for (Object x : values) {
@@ -1640,10 +1665,104 @@ final class Evaluator {
               ? isTrue(condition)
               : subject != null && condition != null && compare(subject, condition) == 0;
       if (matches) {
-        return eval(when.getThenExpression(), group, ctx);
+        return widened(eval(when.getThenExpression(), group, ctx), branches(c), group, ctx);
       }
     }
-    return c.getElseExpression() == null ? null : eval(c.getElseExpression(), group, ctx);
+    return c.getElseExpression() == null
+        ? null
+        : widened(eval(c.getElseExpression(), group, ctx), branches(c), group, ctx);
+  }
+
+  private static List<Expression> branches(CaseExpression c) {
+    List<Expression> out = new ArrayList<>();
+    for (WhenClause when : c.getWhenClauses()) {
+      out.add(when.getThenExpression());
+    }
+    if (c.getElseExpression() != null) {
+      out.add(c.getElseExpression());
+    }
+    return out;
+  }
+
+  /**
+   * PostgreSQL types CASE, COALESCE, GREATEST, LEAST and NULLIF by all their branches, not by the
+   * one taken: an integer result is widened to double when another branch is a double, so that a
+   * later {@code / 2} divides as PostgreSQL does.
+   */
+  @Nullable private static Object widened(
+      @Nullable Object v,
+      List<? extends Expression> branches,
+      List<Map<String, Object>> group,
+      Context ctx) {
+    if (!(v instanceof Long) && !(v instanceof Integer) && !(v instanceof BigDecimal)) {
+      return v;
+    }
+    boolean integer = !(v instanceof BigDecimal);
+    for (Expression b : branches) {
+      // a numeric literal widens an integer; only a double column or cast widens a numeric
+      if (looksDouble(b, integer, group, ctx)) {
+        return ((Number) v).doubleValue();
+      }
+    }
+    return v;
+  }
+
+  // ponytail: a correlated outer column that is NULL in this row is typed by neither the value
+  // nor this plan's sources, so such a branch cannot widen; a plan-time typer would close that
+  private static boolean looksDouble(
+      Expression e, boolean literals, List<Map<String, Object>> group, Context ctx) {
+    e = QueryParser.unwrap(e);
+    if (e instanceof DoubleValue) {
+      return literals;
+    }
+    if (e instanceof SignedExpression) {
+      return looksDouble(((SignedExpression) e).getExpression(), literals, group, ctx);
+    }
+    if (e instanceof Column) {
+      Object v;
+      try {
+        v = column((Column) e, group, ctx);
+      } catch (IllegalArgumentException unknown) {
+        return false;
+      }
+      if (v != null) {
+        return v instanceof Double || v instanceof Float || v instanceof BigDecimal;
+      }
+      com.scalar.db.io.DataType t = ctx.columnType((Column) e);
+      return t == com.scalar.db.io.DataType.DOUBLE || t == com.scalar.db.io.DataType.FLOAT;
+    }
+    if (e instanceof Addition
+        || e instanceof Subtraction
+        || e instanceof Multiplication
+        || e instanceof Division
+        || e instanceof Modulo) {
+      BinaryExpression b = (BinaryExpression) e;
+      return looksDouble(b.getLeftExpression(), literals, group, ctx)
+          || looksDouble(b.getRightExpression(), literals, group, ctx);
+    }
+    if (e instanceof CastExpression) {
+      String type = ((CastExpression) e).getColDataType().getDataType().toLowerCase(Locale.ROOT);
+      return type.matches("(double|float|real|numeric|decimal).*");
+    }
+    if (e instanceof CaseExpression) {
+      for (Expression b : branches((CaseExpression) e)) {
+        if (looksDouble(b, literals, group, ctx)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (e instanceof Function && ((Function) e).getParameters() != null) {
+      String name = ((Function) e).getName().toUpperCase(Locale.ROOT);
+      if (name.matches("COALESCE|GREATEST|LEAST|NULLIF|ABS")) {
+        for (Expression p : ((Function) e).getParameters()) {
+          if (looksDouble(p, literals, group, ctx)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   @Nullable static Object cast(String type, @Nullable Object v) {
@@ -1843,7 +1962,7 @@ final class Evaluator {
       case "COALESCE":
         for (Object a : args) {
           if (a != null) {
-            return a;
+            return widened(a, f.getParameters(), group, ctx);
           }
         }
         return null;
@@ -1860,7 +1979,7 @@ final class Evaluator {
                 && arg(args, 1) != null
                 && compare(args.get(0), args.get(1)) == 0
             ? null
-            : arg(args, 0);
+            : widened(arg(args, 0), f.getParameters(), group, ctx);
       case "GREATEST":
       case "LEAST":
         {
@@ -1871,7 +1990,7 @@ final class Evaluator {
               best = a;
             }
           }
-          return best;
+          return widened(best, f.getParameters(), group, ctx);
         }
       case "JSON_BUILD_OBJECT":
       case "JSONB_BUILD_OBJECT":
@@ -2239,7 +2358,11 @@ final class Evaluator {
       }
     }
     if (f.isDistinct()) {
-      values = new ArrayList<>(new LinkedHashSet<>(values));
+      Map<Object, Object> unique = new LinkedHashMap<>(); // INT 1000 and BIGINT 1000 are one value
+      for (Object v : values) {
+        unique.putIfAbsent(Operators.normalize(v), v);
+      }
+      values = new ArrayList<>(unique.values());
     }
     Object delimiter =
         name.equals("STRING_AGG") && !group.isEmpty()
@@ -2272,6 +2395,7 @@ final class Evaluator {
         double nonFinite = 0; // NaN and Infinity propagate as in floating-point addition
         boolean integral = true;
         boolean floating = false; // a double or float input makes the result a double
+        boolean negativeZero = true; // floating-point addition gives -0 only from -0 inputs
         for (Object v : values) {
           if (!(v instanceof Number)) {
             throw new IllegalArgumentException(name + " requires numeric values: " + f);
@@ -2283,6 +2407,8 @@ final class Evaluator {
           }
           integral &= isIntegral(v);
           floating |= v instanceof Double || v instanceof Float;
+          double d = ((Number) v).doubleValue();
+          negativeZero &= d == 0 && 1 / d < 0;
         }
         if (nonFinite != 0 || Double.isNaN(nonFinite)) {
           return nonFinite;
@@ -2290,11 +2416,11 @@ final class Evaluator {
         if (name.equals("AVG")) {
           // the average of integers or numerics is numeric, with PostgreSQL's division scale
           return floating
-              ? (Object) (sum.doubleValue() / values.size())
+              ? (Object) (sum.doubleValue() / values.size()) // PostgreSQL accumulates from +0
               : divide(sum, BigDecimal.valueOf(values.size()));
         }
         if (floating) {
-          return sum.doubleValue();
+          return negativeZero ? -0.0 : sum.doubleValue(); // sum starts from the first value
         }
         if (integral) {
           try {

@@ -5,11 +5,14 @@ exits 1 on a change; WRITE_EXPECT=<file> records the statuses of this run as the
 import os, re, subprocess, sys
 FOOT = re.compile(r'^\((\d+) rows?\)$')
 def run(port, db, sql):
-    p = subprocess.run(['psql', '-X', '-A', '-h', 'localhost', '-U', 'postgres', '-p', port, '-d', db,
-                        '-P', 'null=<NULL>', '-v', 'ON_ERROR_STOP=' + os.environ.get('STOP', '1')], input=sql, capture_output=True, text=True, timeout=60, env=dict(os.environ, LANG='C', LC_ALL='C'))
+    try:
+        p = subprocess.run(['psql', '-X', '-A', '-h', 'localhost', '-U', 'postgres', '-p', port, '-d', db,
+                            '-P', 'null=<NULL>', '-v', 'ON_ERROR_STOP=' + os.environ.get('STOP', '1')], input=sql, capture_output=True, text=True, timeout=60, env=dict(os.environ, LANG='C', LC_ALL='C'))
+    except subprocess.TimeoutExpired:
+        return '', 'TIMEOUT after 60s'
     return p.stdout, p.stderr.strip()
 def num(tok):
-    try: return '%.6g' % float(tok)
+    try: return '%.6g' % (float(tok) + 0.0)  # -0 and 0 are the same number
     except ValueError: return tok
 def norm(out, ordered, loose):
     blocks, cur = [], []

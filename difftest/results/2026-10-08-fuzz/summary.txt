@@ -1,0 +1,47 @@
+Random differential testing of 2026-10-08: fuzz.py (typed random read queries over difftest's schema,
+native PostgreSQL 18 with the C locale as the oracle), 20 seeds x 300 queries, after the audit commit 1beb13b.
+
+Wrong results found and fixed (each has a regression case in cases_read.sql, status OK in results/baseline/read.txt):
+  EXCEPT ALL and INTERSECT ALL ran as DISTINCT: the parser never passed the ALL flag for them, and the
+    operator ignored it (except_all_dups, intersect_all_dups)
+  GROUP BY an alias or ordinal of a parenthesized expression, (x + y) AS k ... GROUP BY k, was refused
+    as "must appear in the GROUP BY clause" (group_by_alias_paren, group_by_ordinal_paren)
+  RIGHT and FULL JOIN lost the unmatched rows of the right table when the ON clause had an extra
+    condition on that table: the condition was pushed into the table's read, which is only right for a
+    null-supplying side; the AND and the OR paths both had it (right_join_on_right_filter,
+    full_join_on_right_filter, right_join_on_right_or)
+  RIGHT JOIN lost unmatched rows under WHERE right.key IN (...) or an OR of equalities on the key: the
+    IN list became an in-memory VALUES join placed before the right table, and the outer join nulled
+    its value (right_join_in_list_preserved)
+  NULL IN (empty subquery) was NULL instead of FALSE, so NOT IN against an empty set dropped rows
+    with a NULL operand (not_in_empty_subquery_null, in_empty_subquery_null)
+  An OR inside a subquery that referred to an outer column was pushed into the subquery table's read
+    and failed with "Unknown column", in WHERE, in EXISTS/ANY and inside an ON clause (subquery_or_outer_ref)
+  CASE, COALESCE, GREATEST, LEAST and NULLIF took the Java type of the branch taken, so an integer
+    branch next to a double one gave integer division afterwards; a numeric literal next to a double
+    column printed as numeric. The result is now widened to double when another branch is a double,
+    typed by its value or, when NULL, by the plan's column types (case_mixed_type_division,
+    coalesce_numeric_literal_double)
+  count(DISTINCT x) counted INT 1000 and BIGINT 1000 as two values (count_distinct_int_bigint)
+  A correlated lookup or a literal comparing an int column with a bigint beyond int range failed
+    with "out of range" where PostgreSQL compares (correlated_int_bigint_lookup, int_vs_bigint_literal)
+  sum() of -0 values printed 0; PostgreSQL prints -0 (sum_negative_zero; avg stays +0 as in PostgreSQL)
+
+Not fixed, documented:
+  substr(CASE WHEN x IS [NOT] DISTINCT FROM y THEN ... END, n[, m]) does not parse (JSQLParser);
+    coalesce/length of the same CASE and substr of other expressions are fine
+  An aggregate that would overflow is not evaluated when HAVING is false for the group, so the
+    statement succeeds where PostgreSQL raises "bigint out of range"
+  UPDATE/DELETE WHERE int_col = $1 with a parameter beyond int range is "Unsupported condition"
+    where PostgreSQL affects no rows
+  max(boolean) and GROUP BY a bare constant are accepted (PostgreSQL errors); the generator avoids them
+
+Also changed: tpch_like_q1 averages salary instead of bonus (float summation order made its last
+  digit depend on row order: NUM_FMT or OK by chance); run.py reports a psql timeout as an error and
+  its loose comparison folds -0 into 0; the unit test of current_timestamp(0) compared it with
+  date_trunc of now() and failed whenever the clock's fraction was .5 or more.
+
+Final state: read set 242 OK, 1 NUM_FMT (avg_double), 3 BOTH_ERR, 1 DIFF (string_funcs: C ctype), 1 PG_ERR
+  (abs_round); all other sets on their baselines; fuzz seeds 1-20: 0 DIFF, 3 FE_ERR (the substr parse
+  above), 1 PG_ERR (the HAVING case above), the rest OK, NUM_FMT or BOTH_ERR (fuzz_stats.txt,
+  fuzz_remaining.txt). Unit tests: 126 pass.

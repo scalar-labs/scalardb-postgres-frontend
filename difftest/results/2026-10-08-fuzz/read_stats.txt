@@ -1,0 +1,10 @@
+{'OK': 242, 'NUM_FMT': 1, 'BOTH_ERR': 3, 'DIFF': 1, 'PG_ERR': 1}
+CHANGED right_join_on_right_or: expected None, got OK
+CHANGED case_mixed_type_division: expected None, got OK
+CHANGED correlated_int_bigint_lookup: expected None, got OK
+CHANGED int_vs_bigint_literal: expected None, got OK
+CHANGED right_join_in_list_preserved: expected None, got OK
+CHANGED sum_negative_zero: expected None, got OK
+CHANGED subquery_or_outer_ref: expected None, got OK
+CHANGED coalesce_numeric_literal_double: expected None, got OK
+CHANGED count_distinct_int_bigint: expected None, got OK

@@ -365,6 +365,7 @@ public class QueryParser {
     @Nullable private Reader reader; // set while executing
     private final boolean streaming; // top-level: the first table is read as rows are pulled
     @Nullable private final LogicalPlan logical; // what this plan was made from; null for DML
+    @Nullable private Map<String, DataType> columnTypes; // built on first use from logical
     @Nullable private Operator root; // the operator tree; null for DML
 
     /** A DML plan whose mutations {@code builder} makes from the bound parameters. */
@@ -1120,7 +1121,31 @@ public class QueryParser {
     }
 
     Evaluator.Context context(@Nullable Map<String, Object> outer) {
-      return new Evaluator.Context(outer, subplans, catalog, parameters);
+      return new Evaluator.Context(outer, subplans, catalog, parameters, columnTypes());
+    }
+
+    /** The type of every {@code alias.column} the plan reads, which a NULL value cannot tell. */
+    private Map<String, DataType> columnTypes() {
+      if (columnTypes == null) {
+        Map<String, DataType> types = new java.util.HashMap<>();
+        if (logical != null) {
+          for (LogicalPlan.Source s : logical.sources) {
+            if (s.target != null) {
+              for (String name : s.target.metadata.getColumnNames()) {
+                types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
+              }
+            } else if (s.derived != null) {
+              for (int i = 0; i < s.columns.size() && i < s.derived.outputTypes.size(); i++) {
+                if (s.derived.outputTypes.get(i) != null) {
+                  types.put(s.qualifier + "." + s.columns.get(i), s.derived.outputTypes.get(i));
+                }
+              }
+            }
+          }
+        }
+        columnTypes = types;
+      }
+      return columnTypes;
     }
 
     /** Evaluates the statement for one row of the enclosing query and returns all its rows. */
@@ -1405,18 +1430,73 @@ public class QueryParser {
         if (value == null) {
           return null; // NULL never equals anything
         }
-        Column<?> column = columnFromValue(s.lookup().table().metadata, p.getKey(), value);
+        Column<?> column;
+        try {
+          column = columnFromValue(s.lookup().table().metadata, p.getKey(), value);
+        } catch (IllegalArgumentException e) {
+          if (isOutOfRange(e)) {
+            return null; // an int column never equals a value beyond its range
+          }
+          throw e;
+        }
         conditions.add(
             ConditionBuilder.buildConditionalExpression(column, ConditionalExpression.Operator.EQ));
       }
       for (Expression late : s.lookup().pushedLate) {
-        ConditionalExpression condition = pushable(late, s.lookup().table().metadata, left, ctx);
+        ConditionalExpression condition;
+        try {
+          condition = pushable(late, s.lookup().table().metadata, left, ctx);
+        } catch (IllegalArgumentException e) {
+          Boolean constant = beyondRange(late, e, left, ctx);
+          if (constant == null) {
+            throw e;
+          }
+          if (!constant) {
+            return null;
+          }
+          continue; // true for every row of the table
+        }
         if (condition == null) {
           return null;
         }
         conditions.add(condition);
       }
       return operation(s.lookup(), conditions, s.lookupOrderBy, s.lookupLimit);
+    }
+
+    /**
+     * A comparison of an int column with a number beyond its range, which ScalarDB cannot express:
+     * its truth for every row of the table, or null if {@code failure} is something else.
+     */
+    @Nullable private static Boolean beyondRange(
+        Expression e,
+        IllegalArgumentException failure,
+        Map<String, Object> row,
+        Evaluator.Context ctx) {
+      if (!isOutOfRange(failure) || !(e instanceof ComparisonOperator)) {
+        return null;
+      }
+      ComparisonOperator c = (ComparisonOperator) e;
+      Object v = Evaluator.eval(c.getRightExpression(), Collections.singletonList(row), ctx);
+      ConditionalExpression.Operator op = operator(c);
+      if (!(v instanceof Number) || op == null) {
+        return null;
+      }
+      boolean above = ((Number) v).doubleValue() > 0;
+      switch (op) {
+        case EQ:
+          return false;
+        case NE:
+          return true;
+        case LT:
+        case LTE:
+          return above;
+        case GT:
+        case GTE:
+          return !above;
+        default:
+          return null;
+      }
     }
 
     /** True if the lookup's bindings refer to parameters only, not to an outer row. */
@@ -3049,7 +3129,10 @@ public class QueryParser {
         terms.set(
             i,
             Plan.setOf(
-                Operators.SetOperation.Kind.INTERSECT, false, terms.get(i), terms.remove(i + 1)));
+                Operators.SetOperation.Kind.INTERSECT,
+                operations.get(i).isAll(),
+                terms.get(i),
+                terms.remove(i + 1)));
         operations.remove(i);
       } else {
         i++;
@@ -3059,10 +3142,9 @@ public class QueryParser {
     for (int i = 0; i < operations.size(); i++) {
       SetOperation op = operations.get(i);
       Operators.SetOperation.Kind kind;
-      boolean all = false;
+      boolean all = op.isAll();
       if (op instanceof UnionOp) {
         kind = Operators.SetOperation.Kind.UNION;
-        all = ((UnionOp) op).isAll();
       } else if (op instanceof net.sf.jsqlparser.statement.select.ExceptOp
           || op instanceof net.sf.jsqlparser.statement.select.MinusOp) {
         kind = Operators.SetOperation.Kind.EXCEPT;
@@ -5299,6 +5381,11 @@ public class QueryParser {
           // integer column, so the comparison is evaluated in memory
           return null;
         }
+        if (row == null
+            && failure instanceof IllegalArgumentException
+            && isOutOfRange((IllegalArgumentException) failure)) {
+          return null; // id = 5000000000 is false, not an error, in PostgreSQL: compared in memory
+        }
         throw failure;
       }
       return column == null ? null : ConditionBuilder.buildConditionalExpression(column, op);
@@ -5709,7 +5796,7 @@ public class QueryParser {
     Set<String> grouped = new HashSet<>();
     if (plan.groupBy != null) {
       for (Expression g : plan.groupBy) {
-        grouped.add(g.toString());
+        grouped.add(unwrap(g).toString()); // GROUP BY c1 resolves to the output's (x + y) as written
       }
     }
     for (Expression e : plan.outputExpressions) {
@@ -5918,6 +6005,11 @@ public class QueryParser {
 
   private static boolean isInteger(@Nullable String s) {
     return s != null && s.trim().matches("[+-]?\\d+");
+  }
+
+  /** True for the failure of {@link #columnFromText} on an integer beyond the column's range. */
+  static boolean isOutOfRange(IllegalArgumentException e) {
+    return String.valueOf(e.getMessage()).contains("out of range for type");
   }
 
   private static String pgTypeName(DataType type) {

@@ -1,0 +1,20 @@
+seed 1: {'OK': 296, 'FE_ERR': 2, 'BOTH_ERR': 1, 'NUM_FMT': 1}
+seed 2: {'OK': 299, 'NUM_FMT': 1}
+seed 3: {'OK': 295, 'BOTH_ERR': 3, 'FE_ERR': 1, 'NUM_FMT': 1}
+seed 4: {'OK': 294, 'NUM_FMT': 4, 'BOTH_ERR': 2}
+seed 5: {'OK': 298, 'NUM_FMT': 2}
+seed 6: {'OK': 295, 'NUM_FMT': 3, 'BOTH_ERR': 2}
+seed 7: {'OK': 300}
+seed 8: {'OK': 298, 'NUM_FMT': 2}
+seed 9: {'OK': 297, 'NUM_FMT': 3}
+seed 10: {'OK': 296, 'NUM_FMT': 2, 'BOTH_ERR': 2}
+seed 11: {'OK': 297, 'NUM_FMT': 3}
+seed 12: {'OK': 294, 'NUM_FMT': 4, 'BOTH_ERR': 2}
+seed 13: {'OK': 297, 'NUM_FMT': 2, 'BOTH_ERR': 1}
+seed 14: {'OK': 298, 'BOTH_ERR': 1, 'NUM_FMT': 1}
+seed 15: {'OK': 300}
+seed 16: {'OK': 298, 'NUM_FMT': 2}
+seed 17: {'OK': 296, 'NUM_FMT': 3, 'BOTH_ERR': 1}
+seed 18: {'OK': 299, 'BOTH_ERR': 1}
+seed 19: {'OK': 298, 'NUM_FMT': 2}
+seed 20: {'OK': 295, 'PG_ERR': 1, 'NUM_FMT': 4}

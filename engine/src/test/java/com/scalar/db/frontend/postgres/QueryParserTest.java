@@ -380,7 +380,8 @@ public class QueryParserTest {
 
     when(transaction.get(any())).thenReturn(java.util.Optional.of(row(1, 1, "ab", null, true)));
     assertThat(plan.execute(transaction))
-        .containsExactly(map("u", "AB", "l", 2L, "p", 0L, "c", "y", "s", "1!", "r", null, "m", 1L));
+        .containsExactly( // coalesce(double, 0) is double precision, as in PostgreSQL
+            map("u", "AB", "l", 2L, "p", 0.0, "c", "y", "s", "1!", "r", null, "m", 1L));
   }
 
   @Test
@@ -1613,7 +1614,8 @@ public class QueryParserTest {
                   9L));
       assertThat(
               parser
-                  .parse("SELECT current_timestamp(0) = date_trunc('second', now()) AS whole")
+                  .parse( // (0) rounds half up, so compare against its own truncation, not now()'s
+                      "SELECT current_timestamp(0) = date_trunc('second', current_timestamp(0)) AS whole")
                   .execute(transaction))
           .containsExactly(map("whole", true));
     } finally {

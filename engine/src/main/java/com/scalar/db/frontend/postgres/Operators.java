@@ -1056,8 +1056,12 @@ final class Operators {
       }
       for (Map<String, Object> row = left.next(); row != null; row = left.next()) {
         List<Object> key = key(row);
-        boolean inRight = rightCounts.containsKey(key);
-        if (kind == Kind.INTERSECT ? inRight && seen.add(key) : !inRight && seen.add(key)) {
+        boolean inRight = rightCounts.getOrDefault(key, 0) > 0;
+        if (all && inRight) {
+          rightCounts.merge(key, -1, Integer::sum); // ALL: each right row cancels one left row
+        }
+        boolean keep = kind == Kind.INTERSECT ? inRight : !inRight;
+        if (keep && (all || seen.add(key))) {
           return row;
         }
       }

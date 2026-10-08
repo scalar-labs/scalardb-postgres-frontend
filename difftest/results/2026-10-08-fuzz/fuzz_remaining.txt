@@ -1,0 +1,17 @@
+=== FE_ERR fz1_25
+SELECT substr(CASE WHEN a.active IS DISTINCT FROM TRUE THEN a.note ELSE a.name END, 3, 1) AS c1 FROM emp a WHERE (a.salary IS NOT DISTINCT FROM 40 AND a.bonus IS NULL) ORDER BY c1, a.id LIMIT 1;
+  pg: 
+  fe: ERROR:  Invalid SQL: SELECT substr(CASE WHEN a.active IS DISTINCT FROM TRUE THEN a.note ELSE a.name END, 3, 1) AS c1 FROM emp a WHERE (a.salary IS NOT DISTINCT FROM 40 AND a.bonus IS NULL) ORDER BY c1, a.id LIMIT 1
+--
+=== FE_ERR fz1_299
+SELECT DISTINCT 2000 AS c1, substr(substr(a.note, 2, 2), 2, 1) AS c2, substr(CASE WHEN a.salary IS DISTINCT FROM 7 THEN a.note ELSE a.note END, 1, 10) AS c3 FROM emp a WHERE (a.name > a.note OR NOT (a.note = 'bob1')) ORDER BY c3 NULLS FIRST, c1, c2 LIMIT 5;
+  pg: 
+  fe: ERROR:  Invalid SQL: SELECT DISTINCT 2000 AS c1, substr(substr(a.note, 2, 2), 2, 1) AS c2, substr(CASE WHEN a.salary IS DISTINCT FROM 7 THEN a.note ELSE a.note END, 1, 10) AS c3 FROM emp a WHERE (a.name > a.note OR NOT (a.note = 'bob1')) ORDER BY c3 NULLS FIRST, c1, c2 LIMIT 5
+=== FE_ERR fz3_164
+SELECT DISTINCT substr(CASE WHEN a.proj_id IS NOT DISTINCT FROM 2000 THEN a.title ELSE a.title END, 2, 10) AS c1, 2500.0 AS c2, (a.proj_id * nullif(a.proj_id, 5)) AS c3, a.title AS c4 FROM proj a WHERE a.cost <= ANY (SELECT x.parent_id FROM dept x WHERE x.name < 'north');
+  pg: 
+  fe: ERROR:  Invalid SQL: SELECT DISTINCT substr(CASE WHEN a.proj_id IS NOT DISTINCT FROM 2000 THEN a.title ELSE a.title END, 2, 10) AS c1, 2500.0 AS c2, (a.proj_id * nullif(a.proj_id, 5)) AS c3, a.title AS c4 FROM proj a WHERE a.cost <= ANY (SELECT x.parent_id FROM dept x WHERE x.name < 'north')
+=== PG_ERR fz20_68
+SELECT a.proj_id AS c1, a.dept_id AS c2, sum((a.dept_id % -4)) AS c3, count(DISTINCT (a.cost * a.cost)) AS c4, sum((a.dept_id * a.cost)) AS c5 FROM proj a WHERE a.cost >= coalesce(a.proj_id, 2000) GROUP BY c1, c2 HAVING sum((a.proj_id % -4)) = 40;
+  pg: ERROR:  bigint out of range
+  fe: 

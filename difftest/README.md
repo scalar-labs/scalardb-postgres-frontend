@@ -16,6 +16,7 @@ STOP=0 python3 run.py cases_write.sql                 # DML inside BEGIN ... ROL
 STOP=0 SNAP=1 python3 run.py cases_write_ac.sql       # autocommit DML, compares all tables, reloads after each case
 STOP=0 python3 run.py cases_bind.sql cases_bind2.sql  # extended protocol (psql \bind), plan-cache reuse
 python3 leak.py cases_read.sql                        # reports cases that leave a backend idle in transaction
+python3 fuzz.py 7 300 > fuzz_cases.sql && STOP=0 python3 run.py fuzz_cases.sql   # 300 random read queries, seed 7
 ```
 
 `FEPORT` overrides the frontend port (default 15441) for `run.py` and `leak.py`.
@@ -31,6 +32,15 @@ non-OK statuses are explained in `results/<date>/summary.txt` of the run that se
 
 `sql92-entry/` holds a 317-case SQL-92 Entry conformance suite contributed by the 2026-10-07 verification
 (see its README); it runs through the same `run.py`.
+
+`fuzz.py SEED COUNT` prints random read queries over the same schema (joins of every kind, subqueries,
+aggregates, windows, set operations, CTEs) in `run.py`'s case format. Expressions are typed, so errors are
+rare, and every output column is aliased, so NAMES cannot hide a DIFF; with native PostgreSQL as the
+oracle, every DIFF is a wrong result. The run of 2026-10-08 (20 seeds x 300 queries) found eight
+wrong-result bugs, fixed and covered by cases in `cases_read.sql`; see `results/2026-10-08-fuzz/summary.txt`
+for them and for what remains (a JSQLParser limit: `substr(CASE ... IS DISTINCT FROM ... END, n)` does not
+parse). The loose comparison behind NUM_FMT folds -0 into 0, since set operations and DISTINCT may keep
+either representative.
 
 The cluster must be UTF-8 with a C locale and a UTC time zone, or `string_funcs` (an `e` with an
 accent) and the `types` snapshots (`timestamptz` output) differ for reasons unrelated to the frontend.

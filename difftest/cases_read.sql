@@ -289,7 +289,7 @@ SELECT d.*, e.id FROM dept d JOIN emp e ON e.dept_id = d.id WHERE e.id = 4;
 -- @column_alias_case
 SELECT id AS "Id", name AS nm FROM dept WHERE id = 1;
 -- @tpch_like_q1 ordered
-SELECT active, count(*) AS cnt, sum(salary) AS sum_sal, avg(bonus) AS avg_bonus, min(hired) FROM emp WHERE hired <= DATE '2023-12-31' GROUP BY active ORDER BY active;
+SELECT active, count(*) AS cnt, sum(salary) AS sum_sal, avg(salary) AS avg_sal, min(hired) FROM emp WHERE hired <= DATE '2023-12-31' GROUP BY active ORDER BY active;
 -- @tpch_like_q3 ordered
 SELECT a.proj_id, sum(a.hours) AS h, p.started FROM proj p JOIN assign a ON a.proj_id = p.proj_id JOIN emp e ON e.id = a.emp_id WHERE e.active AND p.started < TIMESTAMP '2023-10-01 00:00:00' GROUP BY a.proj_id, p.started ORDER BY h DESC NULLS LAST, a.proj_id LIMIT 5;
 -- @tpch_like_q13
@@ -463,3 +463,37 @@ SELECT t.id, e.v FROM (VALUES (1, '[1, 2]'::jsonb), (2, '[3]'::jsonb)) AS t(id, 
 -- @json_filter
 SELECT id, note FROM (VALUES (1, '{"status": "open"}'), (2, '{"status": "closed"}'), (3, NULL)) AS t(id, note) WHERE note::jsonb ->> 'status' = 'open';
 
+-- @except_all_dups
+SELECT x FROM (VALUES (1), (1), (1), (2), (NULL::int), (NULL::int)) v(x) EXCEPT ALL SELECT x FROM (VALUES (1), (3), (NULL::int)) w(x);
+-- @intersect_all_dups
+SELECT x FROM (VALUES (1), (1), (1), (2), (NULL::int), (NULL::int)) v(x) INTERSECT ALL SELECT x FROM (VALUES (1), (1), (NULL::int)) w(x);
+-- @group_by_alias_paren
+SELECT (salary / 1000) AS k, count(*) FROM emp GROUP BY k;
+-- @group_by_ordinal_paren
+SELECT (dept_id % 3) AS k, abs(dept_id) AS a, max(id) FROM emp GROUP BY 1, 2 HAVING count(*) > 2;
+-- @right_join_on_right_filter
+SELECT a.id, b.id FROM dept a RIGHT JOIN emp b ON b.dept_id = a.id AND b.hired > DATE '2030-01-01';
+-- @full_join_on_right_filter
+SELECT a.emp_id, b.proj_id FROM assign a FULL JOIN proj b ON b.proj_id = a.proj_id AND b.title = 'zzz';
+-- @not_in_empty_subquery_null
+SELECT id FROM emp WHERE dept_id NOT IN (SELECT cost FROM proj WHERE false) AND dept_id IS NULL;
+-- @in_empty_subquery_null
+SELECT count(*) FROM emp WHERE dept_id IN (SELECT cost FROM proj WHERE false) OR NOT (dept_id IN (SELECT cost FROM proj WHERE false));
+-- @right_join_on_right_or
+SELECT a.id, b.id FROM dept a RIGHT JOIN emp b ON b.dept_id = a.id AND (b.hired = DATE '2020-01-01' OR b.hired > DATE '2030-01-01');
+-- @case_mixed_type_division
+SELECT id, CASE WHEN id < 3 THEN salary ELSE bonus END / 2 AS c, coalesce(salary, 0.5::float8) / 2 AS co, greatest(salary, 1.5::float8) / 2 AS g, nullif(salary, 0.5::float8) / 2 AS n, CASE WHEN id <= 3 THEN salary ELSE bonus END / 2 AS null_branch FROM emp WHERE id <= 5;
+-- @correlated_int_bigint_lookup
+SELECT p.proj_id, p.cost, (SELECT count(*) FROM emp e WHERE e.id = p.cost) AS n, EXISTS (SELECT 1 FROM emp e WHERE e.id = p.cost) AS x FROM proj p WHERE p.cost IS NOT NULL;
+-- @int_vs_bigint_literal
+SELECT count(*) FROM emp WHERE id = 5000000000; SELECT count(*) FROM emp WHERE id < 5000000000; SELECT count(*) FROM emp WHERE id > -5000000000 AND id <> 5000000000;
+-- @right_join_in_list_preserved
+SELECT b.id, a.proj_id FROM assign a RIGHT JOIN emp b ON b.id = a.emp_id WHERE b.id IN (2, 5, 10, NULL) OR b.id = 13;
+-- @sum_negative_zero
+SELECT sum(-budget), sum(budget * -1), avg(-budget) FROM dept WHERE budget = 0;
+-- @subquery_or_outer_ref
+SELECT a.proj_id FROM proj a WHERE a.dept_id NOT IN (SELECT y.emp_id FROM assign y WHERE y.role IS NOT NULL OR a.title <> ''); SELECT count(*) FROM emp a LEFT JOIN assign b ON b.emp_id = a.id AND NOT EXISTS (SELECT 1 FROM dept y WHERE y.id = b.proj_id AND (y.region = 'Remote' OR a.note LIKE '_ve%'));
+-- @coalesce_numeric_literal_double
+SELECT id, coalesce(bonus * 2, 0.0) AS c, coalesce(salary * bonus, 0.0) AS d, coalesce(bonus, 1.5) AS e FROM emp WHERE id <= 6;
+-- @count_distinct_int_bigint
+SELECT count(DISTINCT coalesce(salary, 1000)), count(DISTINCT salary * 1), count(DISTINCT coalesce(salary * 2, 2000)) FROM emp;
