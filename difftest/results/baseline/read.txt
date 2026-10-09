@@ -246,3 +246,4 @@ sum_negative_zero OK
 subquery_or_outer_ref OK
 coalesce_numeric_literal_double OK
 count_distinct_int_bigint OK
+limit_with_set_returning_function OK

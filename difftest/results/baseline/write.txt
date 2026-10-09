@@ -29,6 +29,9 @@ commit_visible OK
 read_own_writes FE_ERR
 error_aborts_tx BOTH_ERR
 savepoint OK
+savepoint_rollback_to_outer_after_write FE_ERR
+savepoint_rollback_to_inner_reads_only OK
+savepoint_unknown BOTH_ERR
 final_state_emp OK
 final_state_dept OK
 final_state_assign OK

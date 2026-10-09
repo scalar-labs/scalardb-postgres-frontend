@@ -65,7 +65,7 @@ Integrate the frontend as an in-node listener (C). Keep the standalone jar as a 
 - Properties, following `scalar.db.graphql.*` and `scalar.db.sql.enabled`: `scalar.db.postgres.enabled` (default false), `scalar.db.postgres.port` (default 5432), `scalar.db.postgres.max_connections`.
 - `ClusterNodeServer` starts `PostgresServer` after the gRPC server, passing the node's decorated `DistributedTransactionManager` and `DistributedTransactionAdmin` from `ClusterNodeManagerForClusterNode`, the same objects the local gRPC services use, and the node's `Metrics`.
 - Stop order on decommissioning: stop accepting, wait up to `scalar.db.cluster.node.decommissioning_duration_secs` for open transactions, roll back the rest, close sockets. GraphQL overrides its own duration to 0 and relies on the node's; do the same.
-- Caches: the parse cache is already shared. The plan cache is per session today (`QueryProcessor.planCache`); make it per node, keyed by namespace and SQL text and cleared on DDL, so it warms once per node rather than once per connection.
+- Caches: there is no shared parse cache. The plan cache is per session today (`QueryProcessor.planCache`), keyed by search_path and SQL text; make it per node, keyed by namespace, search_path and SQL text and cleared on DDL, so it warms once per node rather than once per connection.
 
 ### Sessions and routing
 

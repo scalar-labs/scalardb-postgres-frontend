@@ -627,6 +627,9 @@ public class PostgresServer implements AutoCloseable {
       if (m.startsWith("invalid input syntax")) {
         return "22P02"; // invalid_text_representation
       }
+      if (m.startsWith("savepoint \"") && m.endsWith("does not exist")) {
+        return "3B001"; // invalid_savepoint_specification
+      }
       if (m.startsWith("date/time field value out of range")) {
         return "22008"; // datetime_field_overflow
       }

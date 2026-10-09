@@ -3966,6 +3966,7 @@ public class QueryParser {
             && lp.windows.isEmpty()
             && !lp.distinct
             && !lp.withTies
+            && lp.expanded.isEmpty() // a set-returning function makes more rows than it reads
             && (lp.orderBy.isEmpty() || pushOrder);
     List<OrderByElement> pushedOrder =
         pushOrder ? lp.orderBy : Collections.<OrderByElement>emptyList();

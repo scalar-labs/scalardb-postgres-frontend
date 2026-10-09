@@ -153,6 +153,29 @@ UPDATE emp SET salary = 1 WHERE id = 1;
 SAVEPOINT s;
 ROLLBACK TO SAVEPOINT s;
 COMMIT;
+-- @savepoint_rollback_to_outer_after_write
+BEGIN;
+SAVEPOINT a;
+UPDATE emp SET salary = 1 WHERE id = 1;
+SAVEPOINT b;
+ROLLBACK TO SAVEPOINT a;
+SELECT salary FROM emp WHERE id = 1;
+ROLLBACK;
+-- @savepoint_rollback_to_inner_reads_only
+BEGIN;
+SAVEPOINT a;
+UPDATE emp SET salary = 1 WHERE id = 1;
+SAVEPOINT b;
+SELECT count(*) FROM dept;
+ROLLBACK TO SAVEPOINT b;
+RELEASE SAVEPOINT a;
+SELECT salary FROM emp WHERE id = 1;
+ROLLBACK;
+-- @savepoint_unknown
+BEGIN;
+SAVEPOINT a;
+ROLLBACK TO SAVEPOINT nosuch;
+ROLLBACK;
 -- @final_state_emp
 SELECT * FROM emp;
 -- @final_state_dept

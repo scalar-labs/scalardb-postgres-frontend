@@ -436,4 +436,20 @@ public class QueryProcessorTest {
     processor.execute("ROLLBACK");
     assertThat(processor.inTransaction()).isFalse();
   }
+
+  @Test
+  public void execute_RollbackToOuterSavepointAfterWrite_ShouldBeRefused() throws Exception {
+    processor.execute("BEGIN");
+    processor.execute("SAVEPOINT a");
+    processor.execute("DELETE FROM t WHERE id = 1");
+    processor.execute("SAVEPOINT b");
+    // b saw no writes, a did: only b can be rolled back to
+    processor.execute("ROLLBACK TO SAVEPOINT b");
+    processor.execute("ROLLBACK TO SAVEPOINT b"); // the savepoint stays after a rollback to it
+    assertThatThrownBy(() -> processor.execute("ROLLBACK TO SAVEPOINT a"))
+        .hasMessageContaining("after writes");
+    assertThatThrownBy(() -> processor.execute("ROLLBACK TO SAVEPOINT nosuch"))
+        .hasMessageContaining("does not exist");
+    processor.execute("ROLLBACK");
+  }
 }

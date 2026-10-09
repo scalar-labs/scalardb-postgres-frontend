@@ -82,3 +82,5 @@ CREATE TABLE IF NOT EXISTS probe_ts3 (id INT PRIMARY KEY, at TIMESTAMP(3)); DROP
 CREATE SCHEMA IF NOT EXISTS probe_ne; CREATE TABLE IF NOT EXISTS probe_ne.t (id INT PRIMARY KEY); DROP SCHEMA probe_ne;
 -- @drop_schema_after_its_table
 DROP TABLE probe_ne.t; DROP SCHEMA probe_ne;
+-- @session_search_path_plan_cache
+CREATE SCHEMA sp_other; CREATE TABLE sp_other.emp (id INT, name TEXT, PRIMARY KEY (id)); SELECT count(*) FROM emp; SET search_path TO sp_other; SELECT count(*) FROM emp; RESET search_path; SELECT count(*) FROM emp; DROP TABLE sp_other.emp; DROP SCHEMA sp_other;

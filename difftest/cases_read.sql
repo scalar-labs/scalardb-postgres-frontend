@@ -497,3 +497,5 @@ SELECT a.proj_id FROM proj a WHERE a.dept_id NOT IN (SELECT y.emp_id FROM assign
 SELECT id, coalesce(bonus * 2, 0.0) AS c, coalesce(salary * bonus, 0.0) AS d, coalesce(bonus, 1.5) AS e FROM emp WHERE id <= 6;
 -- @count_distinct_int_bigint
 SELECT count(DISTINCT coalesce(salary, 1000)), count(DISTINCT salary * 1), count(DISTINCT coalesce(salary * 2, 2000)) FROM emp;
+-- @limit_with_set_returning_function ordered
+SELECT id, unnest(ARRAY[1,2,3]) AS g FROM dept LIMIT 4;

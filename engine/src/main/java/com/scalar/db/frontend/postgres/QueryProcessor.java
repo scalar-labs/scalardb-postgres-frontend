@@ -61,13 +61,15 @@ public class QueryProcessor {
   @Nullable private QueryParser.Plan describedPlan;
   // Savepoints: accepted inside a transaction; ROLLBACK TO can only be honored while nothing was
   // written since the savepoint, as ScalarDB has no partial rollback
-  private final java.util.Deque<String> savepoints = new java.util.ArrayDeque<>();
-  private int writesSinceSavepoint;
+  // Each savepoint with the transaction's write count when it was set, innermost first
+  private final java.util.Deque<Map.Entry<String, Integer>> savepoints =
+      new java.util.ArrayDeque<>();
+  private int writes; // write statements run in this transaction, failed ones included
   private static final java.util.Set<String> WRITES =
       new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
   private static final java.util.regex.Pattern SAVEPOINT_NAME =
       java.util.regex.Pattern.compile(
-          "(?is)(?:SAVEPOINT|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");
+          "(?is)(?:SAVEPOINT\\s+|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");
   // Session settings: what SET stored, over the server's defaults; SHOW reads them
   private final Map<String, String> settings = new LinkedHashMap<>();
   private final Map<String, String> defaults = new LinkedHashMap<>();
@@ -522,9 +524,13 @@ public class QueryProcessor {
             throw new IllegalStateException(
                 "ROLLBACK TO SAVEPOINT can only be used in transaction blocks");
           }
-          if (writesSinceSavepoint > 0) {
+          Map.Entry<String, Integer> target = savepoint(sql);
+          if (writes > target.getValue()) {
             throw new IllegalArgumentException(
                 "Cannot roll back to a savepoint after writes: ScalarDB has no partial rollback");
+          }
+          while (savepoints.peek() != target) {
+            savepoints.pop(); // the savepoint itself stays, as in PostgreSQL
           }
           aborted = false;
           lastCommandTag = "ROLLBACK";
@@ -537,8 +543,9 @@ public class QueryProcessor {
           throw new IllegalStateException("SAVEPOINT can only be used in transaction blocks");
         }
         java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
-        savepoints.push(sp.matches() ? sp.group(1) : "");
-        writesSinceSavepoint = 0;
+        savepoints.push(
+            new java.util.AbstractMap.SimpleImmutableEntry<>(
+                sp.matches() ? sp.group(1) : "", writes));
         lastCommandTag = "SAVEPOINT";
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "RELEASE":
@@ -546,8 +553,9 @@ public class QueryProcessor {
           throw new IllegalStateException(
               "RELEASE SAVEPOINT can only be used in transaction blocks");
         }
-        if (!savepoints.isEmpty()) {
-          savepoints.pop();
+        Map.Entry<String, Integer> released = savepoint(sql);
+        while (savepoints.pop() != released) {
+          // releases the savepoints set after it too
         }
         lastCommandTag = "RELEASE";
         return new Rows(null, QueryParser.Cursor.EMPTY);
@@ -583,7 +591,7 @@ public class QueryProcessor {
         }
       default:
         if (inTransaction() && WRITES.contains(word)) {
-          writesSinceSavepoint++;
+          writes++;
         }
         try {
           return statement(sql, parameters);
@@ -592,6 +600,18 @@ public class QueryProcessor {
           throw e;
         }
     }
+  }
+
+  /** The innermost savepoint named in a ROLLBACK TO or RELEASE statement. */
+  private Map.Entry<String, Integer> savepoint(String sql) {
+    java.util.regex.Matcher m = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
+    String name = m.matches() ? m.group(1) : "";
+    for (Map.Entry<String, Integer> s : savepoints) {
+      if (s.getKey().equalsIgnoreCase(name)) {
+        return s;
+      }
+    }
+    throw new IllegalArgumentException("savepoint \"" + name + "\" does not exist");
   }
 
   /** BEGIN or SET TRANSACTION options: ISOLATION LEVEL, READ ONLY, READ WRITE. */
@@ -669,7 +689,7 @@ public class QueryProcessor {
     pending = false;
     pendingReadOnly = false;
     savepoints.clear();
-    writesSinceSavepoint = 0;
+    writes = 0;
     for (Map.Entry<String, String> saved : localSaved.entrySet()) {
       if (saved.getValue() == null) {
         settings.remove(saved.getKey()); // SET LOCAL ends with the transaction
@@ -829,14 +849,17 @@ public class QueryProcessor {
    * The cached plan for the statement, rebound to the values, or a new one (cached if it can be).
    */
   private QueryParser.Plan plan(String sql, List<Object> parameters) throws ExecutionException {
-    QueryParser.Plan plan = planCache.get(sql);
+    // An unqualified table resolves through search_path, so a plan is only valid under the path
+    // it was made with
+    String key = current("search_path") + '\u0000' + sql;
+    QueryParser.Plan plan = planCache.get(key);
     if (plan != null) {
       plan.rebind(parameters);
       return plan;
     }
     plan = parser.parse(sql, parameters);
     if (plan.isCacheable()) {
-      planCache.put(sql, plan);
+      planCache.put(key, plan);
     }
     return plan;
   }

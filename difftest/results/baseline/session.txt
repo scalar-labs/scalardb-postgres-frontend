@@ -39,3 +39,4 @@ notice_timestamp_precision FE_ERR
 accept_timestamp3_without_notice OK
 refuse_drop_schema_not_empty BOTH_ERR
 drop_schema_after_its_table OK
+session_search_path_plan_cache OK
