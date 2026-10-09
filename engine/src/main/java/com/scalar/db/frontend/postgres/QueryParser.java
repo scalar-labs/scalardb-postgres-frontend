@@ -293,6 +293,11 @@ public class QueryParser {
 
     /** True if reads may be issued from several threads at once (auto-commit statements). */
     boolean concurrent();
+
+    /**
+     * The session's identity, which a read from another thread enters; null if not authenticated.
+     */
+    @Nullable Authenticator.Identity identity();
   }
 
   /** A ScalarDB read failed while rows were being pulled; the cause is the original exception. */
@@ -676,6 +681,15 @@ public class QueryParser {
      */
     public <E extends TransactionException> int executeWrite(CrudOperable<E> crud, int cap)
         throws E {
+      return executeWrite(crud, cap, null);
+    }
+
+    /**
+     * As {@link #executeWrite(CrudOperable, int)}, with the session's identity, which reads issued
+     * from other threads enter; the calling thread is inside it already.
+     */
+    public <E extends TransactionException> int executeWrite(
+        CrudOperable<E> crud, int cap, @Nullable Authenticator.Identity identity) throws E {
       if (write == null) {
         throw new IllegalStateException("Not a read-then-write statement");
       }
@@ -685,7 +699,7 @@ public class QueryParser {
       List<Map<String, Object>> left = new ArrayList<>();
       try {
         // The driving rows are read fully first so the mutator's own reads see no open scanner
-        try (Cursor rows = write.read.open(crud)) {
+        try (Cursor rows = write.read.open(crud, identity)) {
           for (Map<String, Object> row = rows.next(); row != null; row = rows.next()) {
             if (cap > 0 && driving.size() >= cap) {
               throw new IllegalArgumentException(
@@ -698,7 +712,7 @@ public class QueryParser {
             driving.add(row);
           }
         }
-        Reader reader = reader(crud);
+        Reader reader = reader(crud, identity);
         for (Map<String, Object> row : driving) {
           Effect effect = write.mutator.apply(row, reader);
           if (effect != null) {
@@ -744,8 +758,14 @@ public class QueryParser {
     }
 
     /** Reads through {@code crud}, wrapping its failures in {@link ReadFailure}. */
-    private static <E extends TransactionException> Reader reader(CrudOperable<E> crud) {
+    private static <E extends TransactionException> Reader reader(
+        CrudOperable<E> crud, @Nullable Authenticator.Identity identity) {
       return new Reader() {
+        @Nullable @Override
+        public Authenticator.Identity identity() {
+          return identity;
+        }
+
         private final java.util.concurrent.atomic.AtomicLong reads =
             new java.util.concurrent.atomic.AtomicLong();
 
@@ -1037,9 +1057,18 @@ public class QueryParser {
      * @return the row stream; empty for DML
      */
     public <E extends TransactionException> Cursor open(CrudOperable<E> crud) throws E {
+      return open(crud, null);
+    }
+
+    /**
+     * As {@link #open(CrudOperable)}, with the session's identity, which reads issued from other
+     * threads enter; the calling thread is inside it already.
+     */
+    public <E extends TransactionException> Cursor open(
+        CrudOperable<E> crud, @Nullable Authenticator.Identity identity) throws E {
       if (analyze != null) {
         started = System.nanoTime();
-        try (Cursor rows = analyze.open(crud)) {
+        try (Cursor rows = analyze.open(crud, identity)) {
           while (rows.next() != null) {
             // only the operators' counters are of interest
           }
@@ -1072,7 +1101,7 @@ public class QueryParser {
         }
         return Cursor.EMPTY;
       }
-      Reader crudReader = reader(crud);
+      Reader crudReader = reader(crud, identity);
       attach(crudReader);
       try {
         Operator tree = root();

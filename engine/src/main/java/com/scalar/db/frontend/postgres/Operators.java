@@ -1396,10 +1396,21 @@ final class Operators {
         tasks.forEach(Runnable::run);
         return;
       }
+      // A pool thread enters the session's identity, which the connection thread is in already
+      Authenticator.Identity identity = execution().reader.identity();
       for (int from = 0; from < tasks.size(); from += PARALLEL) {
         List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
         for (Runnable task : tasks.subList(from, Math.min(from + PARALLEL, tasks.size()))) {
-          futures.add(LOOKUPS.submit(task));
+          futures.add(
+              LOOKUPS.submit(
+                  identity == null
+                      ? task
+                      : () ->
+                          identity.<Void, RuntimeException>run(
+                              () -> {
+                                task.run();
+                                return null;
+                              })));
         }
         for (java.util.concurrent.Future<?> future : futures) {
           try {
