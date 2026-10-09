@@ -9,7 +9,10 @@ joins, aggregates, window functions, subqueries, CTEs (including recursive ones)
 It also emulates enough of `pg_catalog` for psql's meta-commands, and supports DDL, `RETURNING`,
 `ON CONFLICT`, `EXPLAIN [ANALYZE]` and transactions.
 
-**Status: experimental.** There is no authentication or TLS yet; see [Limitations](getting-started/README.md#limitations-to-know).
+**Status: experimental.** No authentication or TLS yet, no `COPY`, type modifiers such as `NUMERIC(10,2)`
+kept only as a `NOTICE`, text comparison following the backing database's collation, and no scan of rows a
+transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the results that
+can differ from PostgreSQL without an error.
 
 ## Quick start
 
@@ -37,6 +40,7 @@ whole setup with sample data, psql and JDBC.
 | `server/` | the standalone server: `main` and the fat jar |
 | `build-logic/`, `gradle/libs.versions.toml` | shared Gradle conventions and the dependency versions |
 | [`getting-started/`](getting-started/README.md) | setup guide, sample schema and data, and a tour of what the frontend does |
+| [`LIMITATIONS.md`](LIMITATIONS.md) | what the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL |
 | [`difftest/`](difftest/README.md) | differential tests against native PostgreSQL, and a concurrency test |
 | [`bench/`](bench/README.md) | benchmarks against native PostgreSQL, including BenchBase TPC-C |
 | [`compat/`](compat/README.md) | small client programs for other languages' PostgreSQL drivers |
