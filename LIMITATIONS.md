@@ -5,8 +5,16 @@ honor is announced with a `NOTICE`. It does not silently return a different resu
 except in the cases gathered under [Results that can differ without an error](#results-that-can-differ-without-an-error)
 at the end of this section.
 
-- **No authentication or TLS yet.** `current_user` returns a fixed name, not the user you
-  connected as.
+- **Authentication only in front of ScalarDB Cluster.** With `scalar.db.postgres.auth=userpass` or
+  `oidc_jwt` (the getting-started guide's [Connect as a user](getting-started/README.md#connect-as-a-user)),
+  clients log in as Cluster users over TLS, every call of the session runs as that user, and Cluster
+  enforces privileges (`42501`). The password crosses the wire in clear text inside TLS, as PostgreSQL
+  itself does for LDAP and RADIUS, because Cluster must see it; libpq's `require_auth=scram-sha-256`
+  refuses that. Without Cluster there is no user store: `auth=none` trusts every connection and
+  `current_user` echoes the name the client gave. Still open with authentication on: the catalog lists
+  every table whatever the user's privileges (reading the data is what fails), an OIDC session outlives
+  its token and ends with `28000` when it expires, `CREATE USER` and `GRANT` are not SQL statements
+  here yet, and `CancelRequest` is ignored.
 - **`COPY` is not supported;** load data with INSERTs.
 - **Window functions and recursive CTEs** work, except `RANGE`/`GROUPS` frames with offsets,
   `DISTINCT` inside a window aggregate, and a recursive CTE whose body is not

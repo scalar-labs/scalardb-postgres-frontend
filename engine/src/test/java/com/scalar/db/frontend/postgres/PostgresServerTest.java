@@ -3,6 +3,8 @@ package com.scalar.db.frontend.postgres;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -18,11 +20,13 @@ import com.scalar.db.api.Result;
 import com.scalar.db.api.TableMetadata;
 import com.scalar.db.common.ResultImpl;
 import com.scalar.db.exception.transaction.CrudConflictException;
+import com.scalar.db.exception.transaction.CrudException;
 import com.scalar.db.io.Column;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.Key;
 import com.scalar.db.io.TextColumn;
+import com.scalar.db.util.ThrowableSupplier;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -32,8 +36,11 @@ import java.sql.Statement;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +56,7 @@ public class PostgresServerTest {
 
   private DistributedTransactionManager manager;
   private DistributedTransaction transaction;
+  private DistributedTransactionAdmin admin;
   private PostgresServer server;
 
   private static Result row(int id, String name) {
@@ -67,7 +75,7 @@ public class PostgresServerTest {
     TestScanners.stub(manager);
     when(manager.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b")));
     when(transaction.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b")));
-    DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
+    admin = mock(DistributedTransactionAdmin.class);
     when(admin.getTableMetadata("ns", "t")).thenReturn(METADATA);
     server = new PostgresServer(manager, admin, 0);
     server.start();
@@ -477,6 +485,254 @@ public class PostgresServerTest {
       assertThat(rs.next()).isTrue();
       assertThat(rs.getLong("count")).isEqualTo(2);
     }
+  }
+
+  // ---- authentication: a stub authenticator, with every ScalarDB call checked for its scope
+
+  /** Set by the stub identity while a call runs inside it, on whichever thread. */
+  private static final ThreadLocal<Boolean> INSIDE = ThreadLocal.withInitial(() -> false);
+
+  private static final class StubIdentity implements Authenticator.Identity {
+    final List<String> threads = new CopyOnWriteArrayList<>();
+    volatile boolean closed;
+
+    @Override
+    public String user() {
+      return "alice";
+    }
+
+    @Override
+    public boolean superuser() {
+      return false;
+    }
+
+    @Override
+    public <R, T extends Throwable> R run(ThrowableSupplier<R, T> call) throws T {
+      if (INSIDE.get()) {
+        throw new IllegalStateException("nested scope on " + Thread.currentThread().getName());
+      }
+      threads.add(Thread.currentThread().getName());
+      INSIDE.set(true);
+      try {
+        return call.get();
+      } finally {
+        INSIDE.set(false);
+      }
+    }
+
+    @Override
+    public void close() {
+      closed = true;
+    }
+  }
+
+  private StubIdentity lastIdentity;
+
+  private void allowPlaintext() {
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.ssl.require", "false");
+    server.configure(properties);
+  }
+
+  private Authenticator.Identity stubAuthenticate(String user, String secret)
+      throws Authenticator.AuthenticationException {
+    if (!user.equals("alice") || !secret.equals("secret")) {
+      throw new Authenticator.AuthenticationException("not alice");
+    }
+    lastIdentity = new StubIdentity();
+    return lastIdentity;
+  }
+
+  private static void insideScope() {
+    if (!INSIDE.get()) {
+      throw new IllegalStateException(
+          "ScalarDB called outside the session's identity on " + Thread.currentThread().getName());
+    }
+  }
+
+  /** Every ScalarDB call fails unless it happens inside the identity, on whichever thread. */
+  private void requireScope() throws Exception {
+    when(manager.scan(any()))
+        .thenAnswer(
+            invocation -> {
+              insideScope();
+              return Arrays.asList(row(1, "a"), row(2, "b"));
+            });
+    when(manager.get(any()))
+        .thenAnswer(
+            invocation -> {
+              insideScope();
+              return Optional.of(row(1, "a"));
+            });
+    when(manager.begin())
+        .thenAnswer(
+            invocation -> {
+              insideScope();
+              return transaction;
+            });
+    doAnswer(
+            invocation -> {
+              insideScope();
+              return null;
+            })
+        .when(admin)
+        .createTable(any(), any(), any(), anyBoolean());
+  }
+
+  private Connection connectAs(String user, String password) throws SQLException {
+    Properties properties = new Properties();
+    properties.setProperty("user", user);
+    properties.setProperty("password", password);
+    return DriverManager.getConnection(
+        "jdbc:postgresql://localhost:" + server.getPort() + "/ns", properties);
+  }
+
+  @Test
+  public void auth_WrongPassword_ShouldBeRefusedWith28P01() {
+    server.loginFailureDelayMillis = 0;
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    assertThatThrownBy(() -> connectAs("alice", "nope"))
+        .isInstanceOfSatisfying(
+            SQLException.class,
+            e -> {
+              assertThat(e.getSQLState()).isEqualTo("28P01");
+              assertThat(e.getMessage()).contains("alice").doesNotContain("nope");
+            });
+  }
+
+  @Test
+  public void auth_EveryScalarDbCall_ShouldRunInsideTheIdentity() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    requireScope();
+    try (Connection connection = connectAs("alice", "secret");
+        Statement statement = connection.createStatement()) {
+      try (ResultSet rs = statement.executeQuery("SELECT current_user")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1)).isEqualTo("alice");
+      }
+      // the startup parameters report the identity
+      org.postgresql.PGConnection pg = connection.unwrap(org.postgresql.PGConnection.class);
+      assertThat(pg.getParameterStatus("is_superuser")).isEqualTo("off");
+      assertThat(pg.getParameterStatus("session_authorization")).isEqualTo("alice");
+      // a one-shot read, a transaction, DDL, and the extended protocol's Parse and Describe
+      try (ResultSet rs = statement.executeQuery("SELECT id FROM t")) {
+        assertThat(rs.next()).isTrue();
+      }
+      statement.execute("BEGIN");
+      statement.executeQuery("SELECT id FROM t WHERE id = 1").close();
+      statement.execute("COMMIT");
+      statement.execute("CREATE TABLE u (id INT, PRIMARY KEY (id))");
+      try (PreparedStatement prepared =
+          connection.prepareStatement("SELECT id FROM t WHERE id >= ?")) {
+        prepared.setInt(1, 1);
+        try (ResultSet rs = prepared.executeQuery()) {
+          assertThat(rs.next()).isTrue();
+        }
+      }
+      // a lookup join reads its inner side from the pool: those threads enter the identity too
+      try (ResultSet rs =
+          statement.executeQuery("SELECT a.id, b.name FROM t a JOIN t b ON b.id = a.id")) {
+        int rows = 0;
+        while (rs.next()) {
+          rows++;
+        }
+        assertThat(rows).isEqualTo(2);
+      }
+      assertSqlState(statement, "SET ROLE bob", "0A000");
+      assertSqlState(statement, "SET SESSION AUTHORIZATION bob", "0A000");
+    }
+    assertThat(lastIdentity.threads)
+        .anyMatch(thread -> thread.startsWith("postgres-frontend-"))
+        .anyMatch(thread -> thread.equals("lookup"));
+    for (int i = 0; i < 100 && !lastIdentity.closed; i++) {
+      Thread.sleep(20); // the server closes the identity after the client has gone
+    }
+    assertThat(lastIdentity.closed).isTrue();
+  }
+
+  @Test
+  public void auth_TokenInvalidMidSession_ShouldReport28000AndCloseTheSession() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    when(manager.scan(any()))
+        .thenThrow(new CrudException("DB-AUTH-10006: Access denied: Invalid auth token", "tx"));
+    try (Connection connection = connectAs("alice", "secret");
+        Statement statement = connection.createStatement()) {
+      assertSqlState(statement, "SELECT id FROM t", "28000");
+      assertThatThrownBy(() -> statement.execute("SELECT 1")).isInstanceOf(SQLException.class);
+    }
+  }
+
+  @Test
+  public void auth_MissingPrivilege_ShouldReport42501AndKeepTheSession() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    when(manager.scan(any()))
+        .thenThrow(
+            new CrudException(
+                "DB-AUTH-10012: Access denied: You need the READ privilege on the table ns.t",
+                "tx"));
+    try (Connection connection = connectAs("alice", "secret");
+        Statement statement = connection.createStatement()) {
+      assertSqlState(statement, "SELECT id FROM t", "42501");
+      try (ResultSet rs = statement.executeQuery("SELECT 1")) {
+        assertThat(rs.next()).isTrue();
+      }
+    }
+  }
+
+  // ---- TLS: the test certificate under src/test/resources/tls
+
+  private static String resource(String name) {
+    return java.util.Objects.requireNonNull(PostgresServerTest.class.getResource(name)).getPath();
+  }
+
+  private static Properties tlsProperties() {
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.ssl.cert", resource("/tls/server.crt"));
+    properties.setProperty("scalar.db.postgres.ssl.key", resource("/tls/server.key"));
+    return properties;
+  }
+
+  @Test
+  public void tls_SslRequest_ShouldUpgradeTheConnection() throws Exception {
+    server.configure(tlsProperties());
+    Properties properties = new Properties();
+    properties.setProperty("user", "test");
+    properties.setProperty("ssl", "true");
+    properties.setProperty("sslmode", "require");
+    properties.setProperty("sslfactory", "org.postgresql.ssl.NonValidatingFactory");
+    try (Connection connection =
+            DriverManager.getConnection(
+                "jdbc:postgresql://localhost:" + server.getPort() + "/ns", properties);
+        Statement statement = connection.createStatement();
+        ResultSet rs = statement.executeQuery("SELECT id FROM t")) {
+      assertThat(rs.next()).isTrue();
+    }
+  }
+
+  @Test
+  public void tls_Required_ShouldRefuseAPlaintextConnection() {
+    Properties properties = tlsProperties();
+    properties.setProperty("scalar.db.postgres.ssl.require", "true");
+    server.configure(properties);
+    assertThatThrownBy(() -> connect("?sslmode=disable"))
+        .isInstanceOfSatisfying(
+            SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("28000"));
+  }
+
+  @Test
+  public void tls_Pkcs1Key_ShouldBeRefusedWithTheConversionHint() throws Exception {
+    java.nio.file.Path key = java.nio.file.Files.createTempFile("key", ".pem");
+    java.nio.file.Files.writeString(
+        key, "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n");
+    Properties properties = tlsProperties();
+    properties.setProperty("scalar.db.postgres.ssl.key", key.toString());
+    assertThatThrownBy(() -> server.configure(properties))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pkcs8");
   }
 
   @Test

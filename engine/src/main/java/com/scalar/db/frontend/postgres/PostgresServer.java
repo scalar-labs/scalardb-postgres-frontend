@@ -7,6 +7,7 @@ import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
 import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
+import com.scalar.db.util.ThrowableRunnable;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -18,6 +19,17 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -25,6 +37,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,14 +47,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import javax.annotation.Nullable;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * A PostgreSQL wire-protocol (version 3) server in front of ScalarDB. It speaks the simple and the
- * extended query protocol with text-format parameters and results, without authentication or TLS.
- * The database name of a connection is used as the default ScalarDB namespace, and each connection
- * is a session with its own transaction state.
+ * extended query protocol with text-format parameters and results. Connections are trusted unless
+ * an {@link Authenticator} is set, which then verifies a password at startup and makes every
+ * ScalarDB call of the session the authenticated user's. TLS is negotiated by SSLRequest once a
+ * certificate is configured, see {@link #configure}. The database name of a connection is used as
+ * the default ScalarDB namespace, and each connection is a session with its own transaction state.
  */
 public class PostgresServer implements AutoCloseable {
   private static final Logger logger = LoggerFactory.getLogger(PostgresServer.class);
@@ -67,14 +86,22 @@ public class PostgresServer implements AutoCloseable {
   private final ServerSocket serverSocket;
   // Open sessions, so that close() ends them too (todo 030)
   private final java.util.Set<Socket> sessions = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  @Nullable private volatile Authenticator authenticator;
+  @Nullable private volatile SSLContext sslContext;
+  @Nullable private Boolean sslRequire; // null: required exactly when an authenticator is set
+
+  private static final int MAX_PASSWORD_LENGTH = 65_536; // room for an OIDC token
+
+  /** Milliseconds a refused login waits before answering, to slow down password guessing. */
+  long loginFailureDelayMillis = 1000;
 
   /** Sessions served at once; one more is refused as PostgreSQL does (53300). */
-  int maxConnections = 100;
+  volatile int maxConnections = 100;
 
   /**
    * Milliseconds a client has for its startup handshake, as PostgreSQL's authentication_timeout.
    */
-  int startupTimeoutMillis = 60_000;
+  volatile int startupTimeoutMillis = 60_000;
 
   /** Named prepared statements or portals one session may keep. */
   static final int MAX_PREPARED = 10_000;
@@ -96,7 +123,7 @@ public class PostgresServer implements AutoCloseable {
    */
   @SuppressFBWarnings(
       value = "UNENCRYPTED_SERVER_SOCKET",
-      justification = "TLS is not implemented yet; see docs/auth-design.md")
+      justification = "TLS is negotiated per connection by SSLRequest, as the protocol requires")
   public PostgresServer(
       DistributedTransactionManager manager,
       DistributedTransactionAdmin admin,
@@ -125,10 +152,27 @@ public class PostgresServer implements AutoCloseable {
    *
    * @param properties the ScalarDB properties of the transaction manager
    */
+  @SuppressFBWarnings(
+      value = "PATH_TRAVERSAL_IN",
+      justification = "The operator names the certificate and key files in the properties")
   public void configure(Properties properties) {
     String max = properties.getProperty("scalar.db.postgres.max_connections");
     if (max != null) {
       maxConnections = Integer.parseInt(max.trim());
+    }
+    // TLS: a certificate chain and an unencrypted PKCS#8 key, both PEM; SSLRequest is then honored
+    String cert = properties.getProperty("scalar.db.postgres.ssl.cert");
+    String key = properties.getProperty("scalar.db.postgres.ssl.key");
+    if (cert != null || key != null) {
+      if (cert == null || key == null) {
+        throw new IllegalArgumentException(
+            "scalar.db.postgres.ssl.cert and scalar.db.postgres.ssl.key go together");
+      }
+      sslContext = sslContext(Paths.get(cert), Paths.get(key));
+    }
+    String require = properties.getProperty("scalar.db.postgres.ssl.require");
+    if (require != null) {
+      sslRequire = Boolean.parseBoolean(require);
     }
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
@@ -146,6 +190,70 @@ public class PostgresServer implements AutoCloseable {
     String level = isolation.equalsIgnoreCase("SERIALIZABLE") ? "serializable" : "read committed";
     defaults.put("transaction_isolation", level);
     defaults.put("default_transaction_isolation", level);
+  }
+
+  /**
+   * Requires every connection to log in with a password that {@code authenticator} verifies, and
+   * runs each session's ScalarDB calls as the identity it returns. Without one, connections are
+   * trusted as the user name they give.
+   *
+   * @param authenticator the authenticator
+   */
+  public void setAuthenticator(Authenticator authenticator) {
+    this.authenticator = authenticator;
+  }
+
+  /** Whether a connection must be TLS: as configured, else exactly when it must log in. */
+  private boolean sslRequired() {
+    Boolean require = sslRequire;
+    return require != null ? require : authenticator != null;
+  }
+
+  /**
+   * An SSL context from a PEM certificate chain and an unencrypted PKCS#8 key (RSA or EC), the
+   * files a PostgreSQL server is configured with.
+   */
+  static SSLContext sslContext(Path certificate, Path key) {
+    try {
+      Collection<? extends Certificate> chain;
+      try (java.io.InputStream in = Files.newInputStream(certificate)) {
+        chain = CertificateFactory.getInstance("X.509").generateCertificates(in);
+      }
+      String pem = Files.readString(key);
+      String begin = "-----BEGIN PRIVATE KEY-----";
+      String end = "-----END PRIVATE KEY-----";
+      if (!pem.contains(begin) || !pem.contains(end)) {
+        throw new IllegalArgumentException(
+            "The TLS key must be an unencrypted PKCS#8 PEM (BEGIN PRIVATE KEY); convert it with:"
+                + " openssl pkcs8 -topk8 -nocrypt -in "
+                + key
+                + " -out "
+                + key
+                + ".pk8");
+      }
+      byte[] der =
+          Base64.getMimeDecoder()
+              .decode(pem.substring(pem.indexOf(begin) + begin.length(), pem.indexOf(end)));
+      PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
+      PrivateKey privateKey;
+      try {
+        privateKey = KeyFactory.getInstance("RSA").generatePrivate(spec);
+      } catch (InvalidKeySpecException notRsa) {
+        privateKey = KeyFactory.getInstance("EC").generatePrivate(spec);
+      }
+      KeyStore keyStore = KeyStore.getInstance("PKCS12");
+      keyStore.load(null, null);
+      char[] none = new char[0]; // the store lives in memory only
+      keyStore.setKeyEntry("server", privateKey, none, chain.toArray(new Certificate[0]));
+      KeyManagerFactory keys =
+          KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+      keys.init(keyStore, none);
+      SSLContext context = SSLContext.getInstance("TLS");
+      context.init(keys.getKeyManagers(), null, null);
+      return context;
+    } catch (IOException | GeneralSecurityException e) {
+      throw new IllegalArgumentException("TLS configuration: " + e.getMessage(), e);
+    }
   }
 
   public int getPort() {
@@ -221,15 +329,19 @@ public class PostgresServer implements AutoCloseable {
 
   /** One client connection: the startup handshake, then the message loop. */
   private final class Connection implements Runnable {
-    private final Socket socket;
-    private final DataInputStream in;
-    private final DataOutputStream out;
+    private Socket socket; // replaced by the TLS socket after SSLRequest
+    private final Socket accepted; // as registered in sessions, whatever wraps it later
+    private DataInputStream in;
+    private DataOutputStream out;
+    private boolean tls;
     private final Map<String, String> statements = new HashMap<>(); // name -> SQL with $n
     private final Map<String, int[]> parameterTypes = new HashMap<>(); // name -> declared OIDs
     private final Map<String, Portal> portals = new HashMap<>();
+    @Nullable private Authenticator.Identity identity; // the authenticated user, if any
 
     Connection(Socket socket) throws IOException {
       this.socket = socket;
+      this.accepted = socket;
       this.in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
       this.out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
     }
@@ -250,13 +362,17 @@ public class PostgresServer implements AutoCloseable {
         logger.warn("Connection failed", e);
       } finally {
         if (processor != null && processor.inTransaction()) {
+          QueryProcessor open = processor;
           try {
-            processor.execute("ROLLBACK");
+            scoped(() -> open.execute("ROLLBACK"));
           } catch (Exception e) {
             logger.warn("Rollback on disconnect failed", e);
           }
         }
-        sessions.remove(socket);
+        sessions.remove(accepted);
+        if (identity != null) {
+          identity.close();
+        }
         try {
           socket.close();
         } catch (IOException e) {
@@ -269,16 +385,39 @@ public class PostgresServer implements AutoCloseable {
       while (true) {
         int length = in.readInt();
         int code = in.readInt();
-        if (code == SSL_REQUEST || code == GSS_REQUEST) {
-          out.writeByte('N'); // neither SSL nor GSS encryption is supported
+        if (code == SSL_REQUEST) {
+          SSLContext context = sslContext;
+          if (context == null) {
+            out.writeByte('N');
+            out.flush();
+            continue;
+          }
+          out.writeByte('S');
+          out.flush();
+          SSLSocket ssl =
+              (SSLSocket)
+                  context
+                      .getSocketFactory()
+                      .createSocket(
+                          socket, socket.getInetAddress().getHostAddress(), socket.getPort(), true);
+          ssl.setUseClientMode(false);
+          ssl.startHandshake();
+          socket = ssl;
+          in = new DataInputStream(new BufferedInputStream(ssl.getInputStream()));
+          out = new DataOutputStream(new BufferedOutputStream(ssl.getOutputStream()));
+          tls = true;
+          continue;
+        }
+        if (code == GSS_REQUEST) {
+          out.writeByte('N'); // GSS encryption is not supported
           out.flush();
           continue;
         }
-        if (code == CANCEL_REQUEST) {
-          return null;
-        }
         if (length < 8 || length > MAX_STARTUP_LENGTH) {
           fatal("08P01", "invalid length of startup packet"); // protocol_violation, as PostgreSQL
+          return null;
+        }
+        if (code == CANCEL_REQUEST) {
           return null;
         }
         byte[] body = new byte[length - 8];
@@ -294,6 +433,46 @@ public class PostgresServer implements AutoCloseable {
         }
         String user = params.getOrDefault("user", "");
         String database = params.getOrDefault("database", user);
+        if (sslRequired() && !tls) {
+          // as PostgreSQL answers a plaintext connection where pg_hba.conf allows only hostssl
+          fatal("28000", "no encryption: this server accepts only SSL connections");
+          return null;
+        }
+        Authenticator authenticator = PostgresServer.this.authenticator;
+        boolean superuser = false;
+        if (authenticator != null) {
+          // Cleartext is the point: the secret is checked by Cluster, which SCRAM would never let
+          // the server see. TLS keeps it off the wire (docs/auth-design.md).
+          send('R', new Msg().i32(3)); // AuthenticationCleartextPassword
+          out.flush();
+          int type = in.read();
+          int responseLength = in.readInt() - 4;
+          if (responseLength < 0 || responseLength > MAX_PASSWORD_LENGTH) {
+            fatal("08P01", "invalid length of password message");
+            return null;
+          }
+          byte[] response = new byte[responseLength];
+          in.readFully(response);
+          if (type != 'p') {
+            fatal("08P01", "expected a password response, got message type " + (char) type);
+            return null;
+          }
+          try {
+            identity = authenticator.authenticate(user, readString(ByteBuffer.wrap(response)));
+          } catch (Authenticator.AuthenticationException e) {
+            logger.info("Login failed for user \"{}\"", user);
+            sleepQuietly(loginFailureDelayMillis);
+            fatal("28P01", "password authentication failed for user \"" + user + "\"");
+            return null;
+          } catch (RuntimeException e) {
+            // the cause stays in the log: the client is not authenticated and learns nothing
+            logger.warn("Authentication of user \"{}\" failed", user, e);
+            fatal("58000", "authentication service failed"); // system_error
+            return null;
+          }
+          user = identity.user();
+          superuser = identity.superuser();
+        }
         send('R', new Msg().i32(0)); // AuthenticationOk
         String[][] status = {
           {"server_version", "16.0"},
@@ -303,7 +482,7 @@ public class PostgresServer implements AutoCloseable {
           {"integer_datetimes", "on"},
           {"standard_conforming_strings", "on"},
           {"TimeZone", "UTC"},
-          {"is_superuser", "off"},
+          {"is_superuser", superuser ? "on" : "off"},
           {"session_authorization", user},
         };
         for (String[] s : status) {
@@ -316,7 +495,9 @@ public class PostgresServer implements AutoCloseable {
                 .i32(KEYS.nextInt())); // a cancel request must not be guessable
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
         processor.setDdlSettleMillis(ddlSettleMillis);
-        if (!user.isEmpty()) {
+        if (identity != null) {
+          processor.setIdentity(identity);
+        } else if (!user.isEmpty()) {
           processor.setUser(user);
         }
         for (Map.Entry<String, String> e : defaults.entrySet()) {
@@ -367,51 +548,16 @@ public class PostgresServer implements AutoCloseable {
           continue;
         }
         try {
-          switch (type) {
-            case 'Q':
-              simpleQuery(processor, readString(msg));
-              break;
-            case 'P':
-              String name = readString(msg);
-              if (statements.size() >= MAX_PREPARED && !statements.containsKey(name)) {
-                throw new PgException.Argument(
-                    "53000",
-                    "too many prepared statements: close some (at most " + MAX_PREPARED + ")");
-              }
-              statements.put(name, readString(msg));
-              int[] oids = new int[count(msg, 4)];
-              for (int i = 0; i < oids.length; i++) {
-                oids[i] = msg.getInt();
-              }
-              parameterTypes.put(name, oids);
-              send('1', new Msg()); // ParseComplete
-              break;
-            case 'B':
-              bind(msg);
-              break;
-            case 'D':
-              describe(processor, msg);
-              break;
-            case 'E':
-              execute(processor, msg);
-              break;
-            case 'C':
-              char kind = (char) msg.get();
-              String closing = readString(msg);
-              (kind == 'S' ? statements : portals).remove(closing);
-              if (kind == 'S') {
-                parameterTypes.remove(closing);
-              }
-              send('3', new Msg()); // CloseComplete
-              break;
-            default:
-              throw new PgException.Argument("0A000", "Unsupported message type: " + (char) type);
-          }
+          scoped(() -> dispatch(processor, type, msg)); // as the session's user, if it has one
         } catch (Exception | Error e) {
           // an Error (a stack overflow on deeply nested SQL, a missing class) is reported like any
           // failure and the connection goes on, instead of dying with no message to the client
-          sendError(e);
+          String code = sendError(e);
           processor.fail(); // any error inside a transaction block aborts it, as in PostgreSQL
+          if (code.equals("28000")) {
+            out.flush();
+            return; // the session's credentials are no longer valid: the client reconnects
+          }
           if (type == 'Q') {
             readyForQuery(processor);
           } else {
@@ -419,6 +565,65 @@ public class PostgresServer implements AutoCloseable {
           }
         }
         out.flush();
+      }
+    }
+
+    private void dispatch(QueryProcessor processor, int type, ByteBuffer msg) throws Exception {
+      switch (type) {
+        case 'Q':
+          simpleQuery(processor, readString(msg));
+          break;
+        case 'P':
+          String name = readString(msg);
+          if (statements.size() >= MAX_PREPARED && !statements.containsKey(name)) {
+            throw new PgException.Argument(
+                "53000", "too many prepared statements: close some (at most " + MAX_PREPARED + ")");
+          }
+          statements.put(name, readString(msg));
+          int[] oids = new int[count(msg, 4)];
+          for (int i = 0; i < oids.length; i++) {
+            oids[i] = msg.getInt();
+          }
+          parameterTypes.put(name, oids);
+          send('1', new Msg()); // ParseComplete
+          break;
+        case 'B':
+          bind(msg);
+          break;
+        case 'D':
+          describe(processor, msg);
+          break;
+        case 'E':
+          execute(processor, msg);
+          break;
+        case 'C':
+          char kind = (char) msg.get();
+          String closing = readString(msg);
+          (kind == 'S' ? statements : portals).remove(closing);
+          if (kind == 'S') {
+            parameterTypes.remove(closing);
+          }
+          send('3', new Msg()); // CloseComplete
+          break;
+        default:
+          throw new PgException.Argument("0A000", "Unsupported message type: " + (char) type);
+      }
+    }
+
+    /**
+     * Runs {@code body} as the session's user, once per message: the one place a connection thread
+     * enters the identity, so no path can run as the service itself. Without an identity, the
+     * connection is trusted and the body simply runs.
+     */
+    private <T extends Throwable> void scoped(ThrowableRunnable<T> body) throws T {
+      if (identity == null) {
+        body.run();
+      } else {
+        identity.<Void, T>run(
+            () -> {
+              body.run();
+              return null;
+            });
       }
     }
 
@@ -669,24 +874,29 @@ public class PostgresServer implements AutoCloseable {
       send('T', m);
     }
 
-    /** A FATAL error, after which the connection closes, as for a malformed message. */
+    /** A FATAL error, after which the connection closes, as at a refused login. */
     private void fatal(String code, String message) throws IOException {
+      error("FATAL", code, message);
+      out.flush();
+    }
+
+    private void error(String severity, String code, String message) throws IOException {
       send(
           'E',
           new Msg()
               .i8('S')
-              .str("FATAL")
+              .str(severity)
               .i8('V')
-              .str("FATAL")
+              .str(severity)
               .i8('C')
               .str(code)
               .i8('M')
               .str(message)
               .i8(0));
-      out.flush();
     }
 
-    private void sendError(Throwable failure) throws IOException {
+    /** Reports a statement's failure to the client and returns its SQLSTATE. */
+    private String sendError(Throwable failure) throws IOException {
       Throwable cause = failure.getCause();
       Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);
@@ -703,18 +913,8 @@ public class PostgresServer implements AutoCloseable {
       } else {
         logger.info("Statement failed: {}", message);
       }
-      send(
-          'E',
-          new Msg()
-              .i8('S')
-              .str("ERROR")
-              .i8('V')
-              .str("ERROR")
-              .i8('C')
-              .str(code)
-              .i8('M')
-              .str(message)
-              .i8(0));
+      error(code.equals("28000") ? "FATAL" : "ERROR", code, message); // 28000 closes the session
+      return code;
     }
 
     /**
@@ -733,11 +933,13 @@ public class PostgresServer implements AutoCloseable {
       if (e instanceof PgException) {
         return ((PgException) e).sqlState();
       }
+      // Cluster's auth module: the credentials at login, a token that died mid-session, and every
+      // other refusal, which is a missing privilege
       if (m.contains("DB-AUTH-10005")) {
         return "28P01"; // invalid_password
       }
       if (m.contains("DB-AUTH-10006")) {
-        return "28000"; // invalid_authorization_specification
+        return "28000"; // invalid_authorization_specification: the session closes
       }
       if (m.contains("DB-AUTH-")) {
         return "42501"; // insufficient_privilege
@@ -852,6 +1054,14 @@ public class PostgresServer implements AutoCloseable {
       throw new PgException.Argument("08P01", SHORT_MESSAGE);
     }
     return n;
+  }
+
+  private static void sleepQuietly(long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private static String readString(ByteBuffer b) {

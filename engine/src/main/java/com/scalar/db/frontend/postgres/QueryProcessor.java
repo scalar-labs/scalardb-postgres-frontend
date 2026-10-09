@@ -88,6 +88,12 @@ public class QueryProcessor {
       java.util.regex.Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
   // The most rows a read-then-write statement may write; 0 means no limit
   private static final String MAX_ROWS_PER_WRITE = "scalardb.max_rows_per_write";
+  // SET ROLE and SET SESSION AUTHORIZATION, in every spelling, including RESET
+  private static final java.util.regex.Pattern SET_IDENTITY =
+      java.util.regex.Pattern.compile(
+          "(?is)^\\s*(?:SET|RESET)\\s+(?:(?:SESSION|LOCAL)\\s+)?(?:ROLE\\b|SESSION\\s+AUTHORIZATION|SESSION_AUTHORIZATION\\b)");
+
+  @Nullable private Authenticator.Identity identity; // the authenticated user, if any
 
   public QueryProcessor(
       DistributedTransactionManager manager,
@@ -122,6 +128,18 @@ public class QueryProcessor {
   /** The user the client connected as, for {@code current_user}. */
   public void setUser(String user) {
     parser.setUser(user);
+  }
+
+  /**
+   * The authenticated identity the session runs as. The caller enters it around every statement;
+   * the processor passes it to plans, whose reads from other threads enter it there.
+   *
+   * @param identity the identity
+   */
+  public void setIdentity(Authenticator.Identity identity) {
+    this.identity = identity;
+    setUser(identity.user());
+    defaults.put("is_superuser", identity.superuser() ? "on" : "off");
   }
 
   /** The session's current value of a setting, from SET or the defaults. */
@@ -172,6 +190,13 @@ public class QueryProcessor {
 
   /** Records SET and RESET in the session settings; returns a warning for the client, if any. */
   @Nullable private String setting(String sql) {
+    if (identity != null && SET_IDENTITY.matcher(sql).find()) {
+      // session_authorization and current_role would lie about who the calls run as
+      throw new PgException.Argument(
+          "0A000",
+          "Unsupported: SET ROLE and SET SESSION AUTHORIZATION, since an authenticated session runs"
+              + " as the user it logged in as");
+    }
     java.util.regex.Matcher set = SET_VALUE.matcher(QueryParser.trimStatement(sql));
     if (set.matches()) {
       boolean local = "LOCAL".equalsIgnoreCase(set.group(1));
@@ -599,7 +624,7 @@ public class QueryProcessor {
       case "SHOW":
         {
           QueryParser.Plan plan = show(sql);
-          return new Rows(plan, plan.open(manager));
+          return new Rows(plan, plan.open(manager, identity));
         }
       default:
         if (inTransaction() && WRITES.contains(word)) {
@@ -761,14 +786,14 @@ public class QueryProcessor {
         // The read and the writes must share one transaction
         int written;
         if (inTransaction()) {
-          written = plan.executeWrite(active(), maxRowsPerWrite());
+          written = plan.executeWrite(active(), maxRowsPerWrite(), identity);
         } else {
           DistributedTransaction own =
               isOn(current("default_transaction_read_only"))
                   ? manager.beginReadOnly()
                   : manager.begin();
           try {
-            written = plan.executeWrite(own, maxRowsPerWrite());
+            written = plan.executeWrite(own, maxRowsPerWrite(), identity);
             own.commit();
           } catch (RuntimeException | TransactionException e) {
             try {
@@ -787,7 +812,8 @@ public class QueryProcessor {
             ? new Rows(null, QueryParser.Cursor.EMPTY)
             : new Rows(plan, plan.returned());
       }
-      QueryParser.Cursor cursor = inTransaction() ? plan.open(active()) : plan.open(manager);
+      QueryParser.Cursor cursor =
+          inTransaction() ? plan.open(active(), identity) : plan.open(manager, identity);
       return new Rows(plan, cursor);
     }
   }
