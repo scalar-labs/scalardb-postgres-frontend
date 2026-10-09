@@ -1,6 +1,6 @@
 # PostgreSQL Frontend: Authentication with ScalarDB Cluster
 
-Status: draft, 2026-10-07. Nothing implemented yet. Based on reading this repository's code and the `scalardb-cluster` client and node code. Points marked **(verify)** need a test against a running Cluster.
+Status: implemented on the `auth` branch, 2026-10-09, following `docs/plans/2026-10-09-001-feat-cluster-authentication-plan.md`. Two decisions differ from the design below, both taken because a Cluster node is to host the frontend before release: the session's identity is thread-scoped on every path, which is the only mechanism a node offers (`AuthExecutionUtils`), carried by the engine across its own lookup pool, instead of the operation attributes proposed under "Statements"; and the engine stays free of the Cluster client SDK behind an `Authenticator` interface, implemented over `UserpassHolder` and `OidcJwtAccessTokenHolder` in the server module (`compileOnly`) and, later, over `AuthService` in the node. With authentication on, no service credentials are configured, so a call outside a session's scope fails instead of running as the configured user. The **(verify)** items below are settled by the integration run described in `difftest/cluster-auth/README.md`. The original draft of 2026-10-07 follows.
 
 ## Problem
 

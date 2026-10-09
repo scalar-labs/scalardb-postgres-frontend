@@ -377,8 +377,9 @@ public class PostgresServer implements AutoCloseable {
             fatal("28P01", "password authentication failed for user \"" + user + "\"");
             return null;
           } catch (RuntimeException e) {
+            // the cause stays in the log: the client is not authenticated and learns nothing
             logger.warn("Authentication of user \"{}\" failed", user, e);
-            fatal("58000", "authentication failed: " + e.getMessage()); // system_error
+            fatal("58000", "authentication service failed"); // system_error
             return null;
           }
           user = identity.user();

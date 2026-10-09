@@ -25,6 +25,8 @@ shadow = "9.6.1"
 
 [libraries]
 scalardb = { module = "com.scalar-labs:scalardb", version.ref = "scalardb" }
+# The Cluster client SDK, for logging clients in as Cluster users; compiled against, not bundled
+scalardb-cluster-client = { module = "com.scalar-labs:scalardb-cluster-java-client-sdk", version.ref = "scalardb" }
 jsqlparser = { module = "com.github.jsqlparser:jsqlparser", version.ref = "jsqlparser" }
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }

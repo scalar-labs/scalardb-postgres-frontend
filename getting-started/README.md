@@ -160,6 +160,53 @@ UPDATE customers SET balance = 1 WHERE id = 5;
 COMMIT;   -- fails: the row changed under A
 ```
 
+## Connect as a user
+
+Against ScalarDB Cluster, the frontend can make clients log in as Cluster users, so that Cluster's
+privileges apply to everything a session runs. Three things in the properties file:
+
+```properties
+scalar.db.transaction_manager=cluster          # only Cluster has users; a Cluster client config follows
+scalar.db.contact_points=indirect:cluster.example.com
+scalar.db.postgres.auth=userpass               # or oidc_jwt: the client sends an access token as the password
+scalar.db.postgres.ssl.cert=server.crt         # PEM certificate chain
+scalar.db.postgres.ssl.key=server.key          # PEM, unencrypted PKCS#8 (openssl pkcs8 -topk8 -nocrypt converts)
+```
+
+Leave `scalar.db.username` and `scalar.db.password` out: every call runs as the session's user, and
+the server refuses to start with a configured user, so that nothing can ever run as anyone else. TLS is
+required with authentication on; `scalar.db.postgres.ssl.require=false` allows plaintext for local
+testing only. The Cluster client SDK is on the classpath rather than inside the jar:
+
+```sh
+java -cp scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:scalardb-cluster-java-client-sdk-4.0.0-SNAPSHOT.jar \
+     com.scalar.db.frontend.postgres.server.Main scalardb.properties 5432
+```
+
+Clients need nothing new. psql and libpq:
+
+```sh
+psql "host=fe.example.com port=5432 dbname=sample user=alice sslmode=verify-full sslrootcert=ca.pem"
+```
+
+The password comes from the prompt, `PGPASSWORD`, `~/.pgpass` or `-W`; do not set
+`require_auth=scram-sha-256`, which refuses the cleartext request (`require_auth=password` matches). For
+OIDC, `PGPASSWORD=$(get-token) psql ...` with `auth=oidc_jwt`. pgjdbc:
+
+```java
+Properties p = new Properties();
+p.setProperty("user", "alice");
+p.setProperty("password", secret);
+DriverManager.getConnection(
+    "jdbc:postgresql://fe.example.com:5432/sample?sslmode=verify-full&sslrootcert=/path/ca.pem", p);
+```
+
+What the session sees: `current_user`, `session_authorization` and `is_superuser` report the Cluster
+user; a wrong password is `28P01` after a one-second delay and the connection closes; a missing
+privilege is `42501` and the session goes on; a token that expires mid-session is `28000` and the
+session ends, which pools handle by reconnecting; `SET ROLE` and `SET SESSION AUTHORIZATION` are
+refused. The design is in [docs/auth-design.md](../docs/auth-design.md).
+
 ## Limitations to know
 
 What the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL is listed
