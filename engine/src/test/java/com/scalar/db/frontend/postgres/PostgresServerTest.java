@@ -478,4 +478,110 @@ public class PostgresServerTest {
       assertThat(rs.getLong("count")).isEqualTo(2);
     }
   }
+
+  @Test
+  public void describe_ShowAfterAnotherStatement_ShouldDescribeTheShow() throws Exception {
+    try (Connection connection = connect("?prepareThreshold=1")) {
+      try (PreparedStatement statement = connection.prepareStatement("SELECT id, name FROM t");
+          ResultSet rs = statement.executeQuery()) {
+        assertThat(rs.next()).isTrue();
+      }
+      // pgjdbc reads the isolation level with SHOW through the extended protocol
+      assertThat(connection.getTransactionIsolation())
+          .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+      try (PreparedStatement statement = connection.prepareStatement("SHOW TimeZone");
+          ResultSet rs = statement.executeQuery()) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1))
+            .isEqualTo(java.util.TimeZone.getDefault().getID()); // pgjdbc sets it
+      }
+    }
+  }
+
+  // ---- malformed sizes over a raw socket
+
+  private static void startup(java.io.DataOutputStream out) throws java.io.IOException {
+    byte[] params =
+        "user\0test\0database\0ns\0\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    out.writeInt(8 + params.length);
+    out.writeInt(196608);
+    out.write(params);
+    out.flush();
+  }
+
+  /** Reads messages until one of type {@code until}; returns the SQLSTATE of an error met first. */
+  private static String readUntil(java.io.DataInputStream in, char until)
+      throws java.io.IOException {
+    while (true) {
+      int type = in.read();
+      if (type < 0) {
+        return "closed";
+      }
+      byte[] body = new byte[in.readInt() - 4];
+      in.readFully(body);
+      if (type == 'E') {
+        String fields = new String(body, java.nio.charset.StandardCharsets.UTF_8);
+        int c = fields.indexOf("\0C");
+        return fields.substring(c + 2, c + 7);
+      }
+      if (type == until) {
+        return "";
+      }
+    }
+  }
+
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void protocol_OversizedLengths_ShouldBeRefusedWithoutAllocating() throws Exception {
+    // a startup packet longer than PostgreSQL allows
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      out.writeInt(Integer.MAX_VALUE);
+      out.writeInt(196608);
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+    }
+    // a message claiming 2 GB, after a good startup: FATAL, and the connection closes
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      out.writeByte('Q');
+      out.writeInt(Integer.MAX_VALUE);
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+      assertThat(in.read()).isEqualTo(-1);
+    }
+    // a Bind whose parameter claims more bytes than the message has: an error, the session goes on
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      byte[] parse = "\0SELECT $1\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      out.writeByte('P');
+      out.writeInt(4 + parse.length + 2);
+      out.write(parse);
+      out.writeShort(0);
+      java.io.ByteArrayOutputStream bind = new java.io.ByteArrayOutputStream();
+      java.io.DataOutputStream b = new java.io.DataOutputStream(bind);
+      b.writeBytes("\0\0"); // unnamed portal and statement
+      b.writeShort(0); // no parameter formats
+      b.writeShort(1); // one parameter
+      b.writeInt(1_000_000_000); // claimed length, far beyond the message
+      b.writeShort(0); // no result formats
+      out.writeByte('B');
+      out.writeInt(4 + bind.size());
+      out.write(bind.toByteArray());
+      out.writeByte('S');
+      out.writeInt(4);
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+      assertThat(readUntil(in, 'Z')).isEmpty(); // ReadyForQuery after Sync: still connected
+    }
+  }
 }

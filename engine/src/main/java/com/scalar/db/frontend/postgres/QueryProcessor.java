@@ -436,6 +436,9 @@ public class QueryProcessor {
     @Override
     public void close() {
       cursor.close();
+      if (plan != null) {
+        plan.release(); // a cached plan must not keep this run's rows and operators (todo 008)
+      }
     }
   }
 
@@ -827,10 +830,17 @@ public class QueryProcessor {
       case "RELEASE":
         return columns;
       case "SHOW":
-        for (String name : show(sql).getOutputColumns()) {
-          columns.put(name, null);
+        {
+          // the labels and OIDs of the RowDescription come from the described plan: without this
+          // they were the previous statement's, and the client rejected the rows (todo 004)
+          QueryParser.Plan plan = show(sql);
+          describedSql = null; // SHOW is answered afresh, never from this plan
+          describedPlan = plan;
+          for (String name : plan.getOutputColumns()) {
+            columns.put(name, null);
+          }
+          return columns;
         }
-        return columns;
       default:
         QueryParser.Plan plan = plan(sql, parameters);
         describedSql = sql;

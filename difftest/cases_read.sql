@@ -499,3 +499,7 @@ SELECT id, coalesce(bonus * 2, 0.0) AS c, coalesce(salary * bonus, 0.0) AS d, co
 SELECT count(DISTINCT coalesce(salary, 1000)), count(DISTINCT salary * 1), count(DISTINCT coalesce(salary * 2, 2000)) FROM emp;
 -- @limit_with_set_returning_function ordered
 SELECT id, unnest(ARRAY[1,2,3]) AS g FROM dept LIMIT 4;
+-- @in_subquery_hashed_mixed_numbers
+SELECT id FROM emp WHERE salary IN (SELECT budget FROM dept WHERE budget IS NOT NULL) ORDER BY id; SELECT id FROM emp WHERE id IN (SELECT id * 1.0 FROM dept) ORDER BY id;
+-- @in_subquery_hashed_nulls
+SELECT id, dept_id IN (SELECT parent_id FROM dept) AS i, dept_id NOT IN (SELECT parent_id FROM dept) AS n FROM emp WHERE id <= 12 ORDER BY id; SELECT count(*) FROM emp WHERE name IN (SELECT name FROM dept);

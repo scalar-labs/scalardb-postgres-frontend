@@ -156,6 +156,23 @@ final class Evaluator {
       return null;
     }
 
+    /**
+     * The rows of an uncorrelated subquery as a hash set for IN, built once per execution; null
+     * when the subquery is correlated, so its rows differ per outer row.
+     */
+    @Nullable InSet inSet(Select select, List<Map<String, Object>> group) {
+      QueryParser.Plan plan = subplans.get(select);
+      if (plan == null || plan.correlated) {
+        return null;
+      }
+      List<Map<String, Object>> rows = subquery(select, group);
+      if (plan.inSetRows != rows) {
+        plan.inSet = InSet.of(rows);
+        plan.inSetRows = rows;
+      }
+      return plan.inSet;
+    }
+
     List<Map<String, Object>> subquery(Select select, List<Map<String, Object>> group) {
       QueryParser.Plan plan = subplans.get(select);
       if (plan == null) {
@@ -330,6 +347,64 @@ final class Evaluator {
               "QUOTE_IDENT",
               "REGEXP_REPLACE",
               "REGEXP_MATCH"));
+
+  /**
+   * The first column of a subquery's rows as a hash set, for IN. Only values whose hash equality
+   * agrees with {@link #compare} are hashed: numbers (normalized, so 1 and 1.0 are one key), text,
+   * booleans and dates and times. Other kinds, or a mix of kinds, leave the set unusable ({@link
+   * #key} returns null) and IN compares one by one as before.
+   */
+  static final class InSet {
+    final Set<Object> keys = new java.util.HashSet<>();
+    boolean sawNull;
+    boolean empty;
+    @Nullable private Class<?> kind; // of every non-null value; null when unusable or all NULL
+
+    static InSet of(List<Map<String, Object>> rows) {
+      InSet set = new InSet();
+      set.empty = rows.isEmpty();
+      boolean usable = true;
+      for (Map<String, Object> row : rows) {
+        Object x = row.values().iterator().next();
+        if (x == null) {
+          set.sawNull = true;
+          continue;
+        }
+        Class<?> k = kindOf(x);
+        if (k == null || (set.kind != null && set.kind != k)) {
+          usable = false;
+          break;
+        }
+        set.kind = k;
+        set.keys.add(Operators.normalize(x));
+      }
+      if (!usable) {
+        set.kind = null;
+        set.keys.clear();
+      }
+      return set;
+    }
+
+    /** The probe key for {@code v}, or null when the set cannot answer for it. */
+    @Nullable Object key(Object v) {
+      return kind != null && kindOf(v) == kind ? Operators.normalize(v) : null;
+    }
+
+    @Nullable private static Class<?> kindOf(Object x) {
+      if (x instanceof Number) {
+        return Number.class;
+      }
+      if (x instanceof String
+          || x instanceof Boolean
+          || x instanceof LocalDate
+          || x instanceof LocalTime
+          || x instanceof LocalDateTime
+          || x instanceof Instant) {
+        return x.getClass();
+      }
+      return null;
+    }
+  }
 
   static boolean isTrue(@Nullable Object value) {
     return Boolean.TRUE.equals(value);
@@ -635,6 +710,21 @@ final class Evaluator {
       Object v = eval(in.getLeftExpression(), group, ctx);
       List<Object> values = new ArrayList<>();
       if (in.getRightExpression() instanceof ParenthesedSelect) {
+        // x IN (uncorrelated subquery): a hash probe instead of a scan per outer row (todo 007)
+        InSet set = ctx.inSet((ParenthesedSelect) in.getRightExpression(), group);
+        if (set != null) {
+          if (v == null) {
+            return set.empty ? Boolean.valueOf(in.isNot()) : null; // NULL IN () is false
+          }
+          Object key = set.key(v);
+          if (key != null) {
+            if (set.keys.contains(key)) {
+              return !in.isNot();
+            }
+            return set.sawNull ? null : Boolean.valueOf(in.isNot());
+          }
+          // a value of another kind than the subquery's: compared one by one below, as before
+        }
         for (Map<String, Object> row :
             ctx.subquery((ParenthesedSelect) in.getRightExpression(), group)) {
           values.add(row.values().iterator().next());

@@ -333,6 +333,9 @@ public class QueryParser {
 
     boolean correlated; // a subquery that reads the enclosing row: evaluated per row, never cached
     @Nullable List<Map<String, Object>> cachedRows; // an uncorrelated subquery's rows, per run
+    // x IN (this subquery): cachedRows as a hash set, built from the rows it was made of
+    @Nullable Evaluator.InSet inSet;
+    @Nullable List<Map<String, Object>> inSetRows;
     private final List<Source> sources;
     private final List<LogicalPlan.Join> joins;
     private final List<String> outputNames;
@@ -442,6 +445,39 @@ public class QueryParser {
       }
       if (write != null) {
         write.read.rebind(parameters);
+      }
+    }
+
+    /**
+     * Drops what one execution left behind (the operator tree, the reader, cached subquery rows),
+     * so that a plan kept in the session's cache does not hold them until it runs again. The mirror
+     * of {@link #rebind}; the next execution rebuilds what it needs.
+     */
+    void release() {
+      if (!rootFixed) {
+        root = null;
+      }
+      reader = null;
+      cachedRows = null;
+      inSet = null;
+      inSetRows = null;
+      returned = Collections.emptyList();
+      for (Source s : sources) {
+        if (s.derived != null) {
+          s.derived.release();
+        }
+      }
+      for (Plan p : subplans.values()) {
+        p.release();
+      }
+      for (Plan member : members) {
+        member.release();
+      }
+      if (write != null) {
+        write.read.release();
+      }
+      if (analyze != null) {
+        analyze.release();
       }
     }
 

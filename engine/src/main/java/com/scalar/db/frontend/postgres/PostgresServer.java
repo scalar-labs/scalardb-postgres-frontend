@@ -50,6 +50,18 @@ public class PostgresServer implements AutoCloseable {
   private static final int CANCEL_REQUEST = 80877102;
   private static final int TEXT_OID = 25;
 
+  /** PostgreSQL's own limit on a startup packet. */
+  private static final int MAX_STARTUP_LENGTH = 10_000;
+
+  /** The largest message accepted: a client cannot make the server allocate what it names. */
+  static final int MAX_MESSAGE_LENGTH = 64 << 20;
+
+  /** The most parameters a statement can have: the protocol counts them in 16 bits. */
+  private static final int MAX_PARAMETERS = 65_535;
+
+  /** PostgreSQL's message for a length or count that runs past the end of the message. */
+  private static final String SHORT_MESSAGE = "insufficient data left in message";
+
   private final DistributedTransactionManager manager;
   private final DistributedTransactionAdmin admin;
   private final ServerSocket serverSocket;
@@ -188,6 +200,10 @@ public class PostgresServer implements AutoCloseable {
         if (code == CANCEL_REQUEST) {
           return null;
         }
+        if (length < 8 || length > MAX_STARTUP_LENGTH) {
+          fatal("08P01", "invalid length of startup packet"); // protocol_violation, as PostgreSQL
+          return null;
+        }
         byte[] body = new byte[length - 8];
         in.readFully(body);
         ByteBuffer msg = ByteBuffer.wrap(body);
@@ -254,6 +270,10 @@ public class PostgresServer implements AutoCloseable {
           return;
         }
         int length = in.readInt();
+        if (length < 4 || length > MAX_MESSAGE_LENGTH) {
+          fatal("08P01", "invalid message length " + length); // the stream cannot be resynchronized
+          return;
+        }
         byte[] body = new byte[length - 4];
         in.readFully(body);
         ByteBuffer msg = ByteBuffer.wrap(body);
@@ -277,7 +297,7 @@ public class PostgresServer implements AutoCloseable {
             case 'P':
               String name = readString(msg);
               statements.put(name, readString(msg));
-              int[] oids = new int[msg.getShort()];
+              int[] oids = new int[count(msg, 4)];
               for (int i = 0; i < oids.length; i++) {
                 oids[i] = msg.getInt();
               }
@@ -425,11 +445,11 @@ public class PostgresServer implements AutoCloseable {
         throw new IllegalArgumentException("Unknown prepared statement");
       }
       int[] oids = parameterTypes.getOrDefault(statement, new int[0]);
-      short[] formats = new short[msg.getShort()];
+      short[] formats = new short[count(msg, 2)];
       for (int i = 0; i < formats.length; i++) {
         formats[i] = msg.getShort();
       }
-      int count = msg.getShort();
+      int count = count(msg, 4);
       List<String> params = new ArrayList<>();
       for (int i = 0; i < count; i++) {
         int length = msg.getInt();
@@ -437,13 +457,16 @@ public class PostgresServer implements AutoCloseable {
           params.add(null);
           continue;
         }
+        if (length > msg.remaining()) {
+          throw new IllegalArgumentException(SHORT_MESSAGE);
+        }
         byte[] value = new byte[length];
         msg.get(value);
         short format = formats.length == 0 ? 0 : formats.length == 1 ? formats[0] : formats[i];
         int oid = i < oids.length ? oids[i] : 0;
         params.add(format == 0 ? new String(value, StandardCharsets.UTF_8) : binary(oid, value));
       }
-      short[] resultFormats = new short[msg.getShort()];
+      short[] resultFormats = new short[count(msg, 2)];
       for (int i = 0; i < resultFormats.length; i++) {
         resultFormats[i] = msg.getShort();
       }
@@ -466,6 +489,9 @@ public class PostgresServer implements AutoCloseable {
           throw new IllegalArgumentException("Unknown prepared statement");
         }
         int n = parameterCount(sql);
+        if (n > MAX_PARAMETERS) {
+          throw new IllegalArgumentException("too many parameters: $" + n); // $99999999 in the SQL
+        }
         int[] oids = parameterTypes.getOrDefault(name, new int[0]);
         Msg m = new Msg().i16(n);
         for (int i = 0; i < n; i++) {
@@ -522,6 +548,23 @@ public class PostgresServer implements AutoCloseable {
             .i16(format(formats, i));
       }
       send('T', m);
+    }
+
+    /** A FATAL error, after which the connection closes, as for a malformed message. */
+    private void fatal(String code, String message) throws IOException {
+      send(
+          'E',
+          new Msg()
+              .i8('S')
+              .str("FATAL")
+              .i8('V')
+              .str("FATAL")
+              .i8('C')
+              .str(code)
+              .i8('M')
+              .str(message)
+              .i8(0));
+      out.flush();
     }
 
     private void sendError(Throwable failure) throws IOException {
@@ -629,6 +672,9 @@ public class PostgresServer implements AutoCloseable {
       }
       if (m.startsWith("savepoint \"") && m.endsWith("does not exist")) {
         return "3B001"; // invalid_savepoint_specification
+      }
+      if (m.equals(SHORT_MESSAGE) || m.startsWith("too many parameters")) {
+        return "08P01"; // protocol_violation
       }
       if (m.startsWith("date/time field value out of range")) {
         return "22008"; // datetime_field_overflow
@@ -755,6 +801,18 @@ public class PostgresServer implements AutoCloseable {
       data.writeByte(0);
       return this;
     }
+  }
+
+  /**
+   * A 16-bit count of items of at least {@code itemBytes} each, as an unsigned value checked
+   * against what is left of the message.
+   */
+  private static int count(ByteBuffer msg, int itemBytes) {
+    int n = msg.getShort() & 0xFFFF;
+    if ((long) n * itemBytes > msg.remaining()) {
+      throw new IllegalArgumentException(SHORT_MESSAGE);
+    }
+    return n;
   }
 
   private static String readString(ByteBuffer b) {
@@ -1127,6 +1185,9 @@ public class PostgresServer implements AutoCloseable {
       if (length < 0) {
         sb.append("NULL");
         continue;
+      }
+      if (length > b.remaining()) {
+        throw new IllegalArgumentException(SHORT_MESSAGE);
       }
       byte[] bytes = new byte[length];
       b.get(bytes);
