@@ -52,9 +52,8 @@ Changes the frontend needs in ScalarDB core itself are described in design notes
 
 ## Development
 
-The build follows ScalarDB Saga's conventions (`build-logic/`, `gradle/libs.versions.toml`): it
-compiles with the JDK 25 toolchain and `--release 17`, because the engine runs inside ScalarDB
-Cluster nodes, whose baseline is Java 17.
+The build compiles with the JDK 25 toolchain and `--release 17`, because the engine runs inside
+ScalarDB Cluster nodes, whose baseline is Java 17.
 
 ```sh
 ./gradlew check        # unit tests, javadoc, Spotless, SpotBugs with FindSecBugs, Error Prone, NullAway
