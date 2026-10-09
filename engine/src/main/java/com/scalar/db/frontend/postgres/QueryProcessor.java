@@ -505,6 +505,7 @@ public class QueryProcessor {
   public Rows open(String sql, List<Object> parameters)
       throws TransactionException, ExecutionException {
     applyZone();
+    Evaluator.startStatement(); // the statement's regex time budget
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();

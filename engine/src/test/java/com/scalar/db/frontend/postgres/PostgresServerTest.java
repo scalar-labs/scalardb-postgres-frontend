@@ -841,6 +841,46 @@ public class PostgresServerTest {
     }
   }
 
+  private static void parse(java.io.DataOutputStream out, String name, String sql)
+      throws java.io.IOException {
+    byte[] body = (name + "\0" + sql + "\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    out.writeByte('P');
+    out.writeInt(4 + body.length + 2);
+    out.write(body);
+    out.writeShort(0);
+    out.writeByte('S');
+    out.writeInt(4);
+    out.flush();
+  }
+
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void protocol_PreparedBytes_ShouldBeCappedPerSession() throws Exception {
+    String big = "SELECT 1" + " ".repeat(40 << 20); // 40 MiB: two of them pass the 64 MiB cap
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out =
+            new java.io.DataOutputStream(
+                new java.io.BufferedOutputStream(socket.getOutputStream()));
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      parse(out, "a", big);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      parse(out, "a", big); // replacing a statement frees what it held
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      parse(out, "b", big);
+      assertThat(readUntil(in, 'Z')).isEqualTo("53000");
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      out.writeByte('C'); // closing one makes room again
+      out.writeInt(4 + 3);
+      out.writeBytes("Sa\0");
+      parse(out, "b", big);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+    }
+  }
+
   @Test
   public void simpleQuery_SeveralWrites_ShouldRunInOneTransaction() throws Exception {
     // one Query message, as psql -c sends it; pgjdbc's default mode splits it into extended ones
@@ -912,6 +952,24 @@ public class PostgresServerTest {
       idle.setSoTimeout(5000);
       assertThat(idle.getInputStream().read()).isEqualTo(-1);
     }
+    // so is one trickling a byte at a time: the timeout covers the whole startup, not each read
+    try (java.net.Socket slow = new java.net.Socket("localhost", server.getPort())) {
+      long start = System.nanoTime();
+      boolean closed = false;
+      for (int i = 0; i < 40 && !closed; i++) {
+        try {
+          slow.getOutputStream().write(0);
+          slow.getOutputStream().flush();
+          Thread.sleep(100);
+        } catch (java.io.IOException e) {
+          closed = true;
+        }
+      }
+      slow.setSoTimeout(5000);
+      assertThat(closed || slow.getInputStream().read() == -1).isTrue();
+      assertThat(System.nanoTime() - start).isLessThan(3_000_000_000L);
+    }
+    Thread.sleep(200);
     // close() ends open sessions, not only the listener
     Connection open = connect("");
     server.close();

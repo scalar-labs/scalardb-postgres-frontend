@@ -430,8 +430,38 @@ final class Evaluator {
    * The text a pattern matches against, failing the match once it has run past the budget. The
    * matcher reads the input through charAt, so the check rides on the backtracking itself.
    */
-  static CharSequence bounded(String s) {
-    long deadline = System.nanoTime() + REGEX_BUDGET_NANOS;
+  // Matching time spent in the current statement on this thread; null outside a statement, where
+  // each match gets the whole budget
+  private static final ThreadLocal<long[]> REGEX_SPENT = new ThreadLocal<>();
+
+  /**
+   * Starts a statement's regex budget on this thread: all its matches together, over however many
+   * rows, get {@link #REGEX_BUDGET_NANOS} (a per-match budget alone multiplies by the row count).
+   */
+  static void startStatement() {
+    REGEX_SPENT.set(new long[1]);
+  }
+
+  /** Runs {@code p} against {@code s} within the statement's remaining regex budget. */
+  static boolean match(Pattern p, String s, boolean whole) {
+    long[] spent = REGEX_SPENT.get();
+    long start = System.nanoTime();
+    try {
+      java.util.regex.Matcher m =
+          p.matcher(bounded(s, start + REGEX_BUDGET_NANOS - (spent == null ? 0 : spent[0])));
+      return whole ? m.matches() : m.find();
+    } finally {
+      if (spent != null) {
+        spent[0] += System.nanoTime() - start;
+      }
+    }
+  }
+
+  static CharSequence bounded(String s, long deadline) {
+    if (System.nanoTime() > deadline) {
+      throw new PgException.Argument(
+          "2201B", "invalid regular expression: matching took longer than the time allowed");
+    }
     return new CharSequence() {
       private int reads;
 
@@ -746,7 +776,7 @@ final class Evaluator {
         throw new PgException.Argument(
             "2201B", "invalid regular expression: " + bad.getDescription(), bad);
       }
-      boolean found = pattern.matcher(bounded(text(v))).find();
+      boolean found = match(pattern, text(v), false);
       return found != negate;
     }
     if (e instanceof ParenthesedSelect) {
@@ -815,8 +845,7 @@ final class Evaluator {
       String escape =
           like.getEscape() == null ? "\\" : String.valueOf(eval(like.getEscape(), group, ctx));
       if (like.getLikeKeyWord() == LikeExpression.KeyWord.SIMILAR_TO) {
-        boolean similar =
-            similarPattern(String.valueOf(p), escape).matcher(bounded(String.valueOf(v))).matches();
+        boolean similar = match(similarPattern(String.valueOf(p), escape), String.valueOf(v), true);
         return similar != like.isNot();
       }
       if (like.getLikeKeyWord() != LikeExpression.KeyWord.LIKE
@@ -830,7 +859,7 @@ final class Evaluator {
                 pattern.pattern(),
                 pattern.flags() | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
       }
-      boolean matches = pattern.matcher(bounded(String.valueOf(v))).matches();
+      boolean matches = match(pattern, String.valueOf(v), true);
       return matches != like.isNot();
     }
     if (e instanceof InExpression) {

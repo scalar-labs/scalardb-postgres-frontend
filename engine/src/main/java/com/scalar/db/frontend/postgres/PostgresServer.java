@@ -106,6 +106,18 @@ public class PostgresServer implements AutoCloseable {
   /** Named prepared statements or portals one session may keep. */
   static final int MAX_PREPARED = 10_000;
 
+  /** Bytes of SQL and bound values one session's prepared statements and portals may hold. */
+  static final long MAX_PREPARED_BYTES = 64L << 20;
+
+  // Closes a connection that has not finished its startup in time, however it trickles its bytes
+  private static final java.util.concurrent.ScheduledExecutorService STARTUP_GUARD =
+      java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+          runnable -> {
+            Thread t = new Thread(runnable, "postgres-frontend-startup-guard");
+            t.setDaemon(true);
+            return t;
+          });
+
   public PostgresServer(
       DistributedTransactionManager manager, DistributedTransactionAdmin admin, int port)
       throws IOException {
@@ -337,6 +349,34 @@ public class PostgresServer implements AutoCloseable {
     private final Map<String, String> statements = new HashMap<>(); // name -> SQL with $n
     private final Map<String, int[]> parameterTypes = new HashMap<>(); // name -> declared OIDs
     private final Map<String, Portal> portals = new HashMap<>();
+    // Bytes held per prepared statement and portal, and their total, against MAX_PREPARED_BYTES
+    private final Map<String, Long> statementBytes = new HashMap<>();
+    private final Map<String, Long> portalBytes = new HashMap<>();
+    private long preparedBytes;
+
+    /**
+     * Accounts for {@code bytes} under {@code name}, replacing what it held, or refuses (53000).
+     */
+    private void reserve(Map<String, Long> sizes, String name, long bytes) {
+      long next = preparedBytes - sizes.getOrDefault(name, 0L) + bytes;
+      if (next > MAX_PREPARED_BYTES) {
+        throw new PgException.Argument(
+            "53000",
+            "prepared statements and portals would hold more than "
+                + (MAX_PREPARED_BYTES >> 20)
+                + " MiB: close some");
+      }
+      sizes.put(name, bytes);
+      preparedBytes = next;
+    }
+
+    private void release(Map<String, Long> sizes, String name) {
+      Long bytes = sizes.remove(name);
+      if (bytes != null) {
+        preparedBytes -= bytes;
+      }
+    }
+
     @Nullable private Authenticator.Identity identity; // the authenticated user, if any
 
     Connection(Socket socket) throws IOException {
@@ -350,9 +390,24 @@ public class PostgresServer implements AutoCloseable {
     public void run() {
       QueryProcessor processor = null;
       try {
-        socket.setSoTimeout(startupTimeoutMillis); // a client that never finishes its startup
-        processor = startup();
-        socket.setSoTimeout(0); // an idle session may wait as long as it likes, as in PostgreSQL
+        // The whole startup, TLS and password included, must finish in time: a read timeout alone
+        // restarts with every byte, so a client trickling one a minute would hold its slot forever
+        java.util.concurrent.ScheduledFuture<?> guard =
+            STARTUP_GUARD.schedule(
+                () -> {
+                  try {
+                    accepted.close();
+                  } catch (IOException e) {
+                    logger.debug("Close failed: {}", e.toString());
+                  }
+                },
+                startupTimeoutMillis,
+                java.util.concurrent.TimeUnit.MILLISECONDS);
+        try {
+          processor = startup();
+        } finally {
+          guard.cancel(false);
+        }
         if (processor != null) {
           serve(processor);
         }
@@ -579,7 +634,9 @@ public class PostgresServer implements AutoCloseable {
             throw new PgException.Argument(
                 "53000", "too many prepared statements: close some (at most " + MAX_PREPARED + ")");
           }
-          statements.put(name, readString(msg));
+          String text = readString(msg);
+          reserve(statementBytes, name, text.length());
+          statements.put(name, text);
           int[] oids = new int[count(msg, 4)];
           for (int i = 0; i < oids.length; i++) {
             oids[i] = msg.getInt();
@@ -600,6 +657,7 @@ public class PostgresServer implements AutoCloseable {
           char kind = (char) msg.get();
           String closing = readString(msg);
           (kind == 'S' ? statements : portals).remove(closing);
+          release(kind == 'S' ? statementBytes : portalBytes, closing);
           if (kind == 'S') {
             parameterTypes.remove(closing);
           }
@@ -797,6 +855,11 @@ public class PostgresServer implements AutoCloseable {
         throw new PgException.Argument(
             "53000", "too many portals: close some (at most " + MAX_PREPARED + ")");
       }
+      long size = sql.length();
+      for (Object v : values) {
+        size += v instanceof ByteBuffer ? ((ByteBuffer) v).remaining() : String.valueOf(v).length();
+      }
+      reserve(portalBytes, portal, size);
       portals.put(portal, new Portal(sql, values, resultFormats));
       send('2', new Msg()); // BindComplete
     }

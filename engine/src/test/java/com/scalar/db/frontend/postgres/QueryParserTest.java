@@ -2818,4 +2818,32 @@ public class QueryParserTest {
     assertThat(QueryParser.instant("2024-01-01 00:00:00Z"))
         .isEqualTo(java.time.Instant.parse("2024-01-01T00:00:00Z"));
   }
+
+  @Test
+  public void regex_Budget_ShouldCoverTheWholeStatement() throws Exception {
+    // each match well under the budget, but a statement's matches together run out of it; on a
+    // thread of its own, so the spent budget does not follow other tests
+    java.util.regex.Pattern slow = java.util.regex.Pattern.compile("(a+)+b");
+    String text = "a".repeat(24);
+    java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    Thread statement =
+        new Thread(
+            () -> {
+              Evaluator.startStatement();
+              long start = System.nanoTime();
+              try {
+                while (System.nanoTime() - start < 3 * Evaluator.REGEX_BUDGET_NANOS) {
+                  Evaluator.match(slow, text, false);
+                }
+              } catch (RuntimeException e) {
+                thrown.set(e);
+              }
+            });
+    statement.start();
+    statement.join();
+    assertThat(thrown.get())
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("2201B"));
+  }
 }
