@@ -40,8 +40,14 @@ public final class Main {
     properties.putIfAbsent(DatabaseConfig.METADATA_CACHE_EXPIRATION_TIME_SECS, "1");
     TransactionFactory factory = TransactionFactory.create(properties);
     int port = args.length > 1 ? Integer.parseInt(args[1]) : 5432;
+    // scalar.db.postgres.listen_address: one interface, such as 127.0.0.1; all of them when unset
+    String listen = properties.getProperty("scalar.db.postgres.listen_address");
     PostgresServer server =
-        new PostgresServer(factory.getTransactionManager(), factory.getTransactionAdmin(), port);
+        new PostgresServer(
+            factory.getTransactionManager(),
+            factory.getTransactionAdmin(),
+            port,
+            listen == null ? null : java.net.InetAddress.getByName(listen.trim()));
     server.configure(properties);
     logger.info("Listening on port {}", server.getPort());
     server.serve();

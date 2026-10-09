@@ -523,3 +523,15 @@ SELECT 12345::numeric(3,0);
 SELECT 40000::smallint;
 -- @numeric_edge_negate
 SELECT -(-2147483647 - 1);
+-- @recursive_cte_infinite_with_limit ordered
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT i FROM n LIMIT 5;
+-- @string_functions_postgres_edges
+SELECT substring('hello' from 0 for 3) AS a, substring('hello', -1, 3) AS b, left('abc', -1) AS c, right('abc', -1) AS d, strpos('😀a', 'a') AS e, left('😀ab', 1) AS f;
+-- @string_substring_negative_length
+SELECT substring('hello', 2, -1);
+-- @regex_posix_classes
+SELECT name ~ '^[[:alpha:]]+$' AS a, name ~* '\\ya' AS b FROM emp WHERE id <= 5 ORDER BY id;
+-- @outer_join_bare_date_not_pushed
+SELECT count(*) FROM dept d LEFT JOIN proj p ON p.dept_id = d.id WHERE p.started >= '2023-07-21' OR d.id = -1;
+-- @json_timestamp_formatting
+SET TIME ZONE 'Asia/Tokyo'; SELECT to_json(timestamp '2024-01-01 00:00:00') AS a, to_json(timestamp '2024-01-01 00:00:00.5') AS b, to_json(timestamptz '2024-01-01 00:00:00.123+00') AS c, json_build_object('t', timestamp '2024-06-01 12:00:00') AS d;

@@ -65,16 +65,47 @@ public class PostgresServer implements AutoCloseable {
   private final DistributedTransactionManager manager;
   private final DistributedTransactionAdmin admin;
   private final ServerSocket serverSocket;
+  // Open sessions, so that close() ends them too (todo 030)
+  private final java.util.Set<Socket> sessions = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+  /** Sessions served at once; one more is refused as PostgreSQL does (53300). */
+  int maxConnections = 100;
+
+  /**
+   * Milliseconds a client has for its startup handshake, as PostgreSQL's authentication_timeout.
+   */
+  int startupTimeoutMillis = 60_000;
+
+  /** Named prepared statements or portals one session may keep. */
+  static final int MAX_PREPARED = 10_000;
+
+  public PostgresServer(
+      DistributedTransactionManager manager, DistributedTransactionAdmin admin, int port)
+      throws IOException {
+    this(manager, admin, port, null);
+  }
+
+  /**
+   * A server listening on {@code port} of {@code address}, or of every interface when it is null.
+   *
+   * @param manager the transaction manager sessions run on
+   * @param admin the admin for metadata and DDL
+   * @param port the port; 0 for any free one
+   * @param address the address to listen on; null for all
+   * @throws IOException if the port cannot be bound
+   */
   @SuppressFBWarnings(
       value = "UNENCRYPTED_SERVER_SOCKET",
       justification = "TLS is not implemented yet; see docs/auth-design.md")
   public PostgresServer(
-      DistributedTransactionManager manager, DistributedTransactionAdmin admin, int port)
+      DistributedTransactionManager manager,
+      DistributedTransactionAdmin admin,
+      int port,
+      @Nullable java.net.InetAddress address)
       throws IOException {
     this.manager = manager;
     this.admin = admin;
-    this.serverSocket = new ServerSocket(port);
+    this.serverSocket = new ServerSocket(port, 50, address);
   }
 
   /** Session defaults every connection starts with, such as the transaction isolation level. */
@@ -95,6 +126,10 @@ public class PostgresServer implements AutoCloseable {
    * @param properties the ScalarDB properties of the transaction manager
    */
   public void configure(Properties properties) {
+    String max = properties.getProperty("scalar.db.postgres.max_connections");
+    if (max != null) {
+      maxConnections = Integer.parseInt(max.trim());
+    }
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -127,6 +162,13 @@ public class PostgresServer implements AutoCloseable {
   @Override
   public void close() throws IOException {
     serverSocket.close();
+    for (Socket s : sessions) {
+      try {
+        s.close(); // ends the session; its open transaction is rolled back on the way out
+      } catch (IOException e) {
+        logger.debug("Close failed: {}", e.toString());
+      }
+    }
   }
 
   /** Accepts connections on the calling thread until {@link #close} is called. */
@@ -134,14 +176,46 @@ public class PostgresServer implements AutoCloseable {
     while (!serverSocket.isClosed()) {
       try {
         Socket socket = serverSocket.accept();
+        if (sessions.size() >= maxConnections) {
+          refuse(socket);
+          continue;
+        }
+        sessions.add(socket);
         Thread thread = new Thread(new Connection(socket), "postgres-frontend-" + socket.getPort());
         thread.setDaemon(true);
         thread.start();
-      } catch (IOException e) {
+      } catch (IOException | RuntimeException e) {
+        // the acceptor keeps going: one failed accept must not stop the server
         if (!serverSocket.isClosed()) {
           logger.warn("Accept failed", e);
         }
       }
+    }
+  }
+
+  /** Refuses a connection over the cap with PostgreSQL's FATAL 53300 and closes it. */
+  private static void refuse(Socket socket) {
+    try (Socket s = socket) {
+      s.setSoTimeout(1000);
+      DataOutputStream out = new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
+      Msg m =
+          new Msg()
+              .i8('S')
+              .str("FATAL")
+              .i8('V')
+              .str("FATAL")
+              .i8('C')
+              .str("53300")
+              .i8('M')
+              .str("sorry, too many clients already")
+              .i8(0);
+      byte[] body = m.bytes.toByteArray();
+      out.writeByte('E');
+      out.writeInt(body.length + 4);
+      out.write(body);
+      out.flush();
+    } catch (IOException e) {
+      logger.debug("Refusing a connection failed: {}", e.toString());
     }
   }
 
@@ -164,7 +238,9 @@ public class PostgresServer implements AutoCloseable {
     public void run() {
       QueryProcessor processor = null;
       try {
+        socket.setSoTimeout(startupTimeoutMillis); // a client that never finishes its startup
         processor = startup();
+        socket.setSoTimeout(0); // an idle session may wait as long as it likes, as in PostgreSQL
         if (processor != null) {
           serve(processor);
         }
@@ -180,6 +256,7 @@ public class PostgresServer implements AutoCloseable {
             logger.warn("Rollback on disconnect failed", e);
           }
         }
+        sessions.remove(socket);
         try {
           socket.close();
         } catch (IOException e) {
@@ -296,6 +373,10 @@ public class PostgresServer implements AutoCloseable {
               break;
             case 'P':
               String name = readString(msg);
+              if (statements.size() >= MAX_PREPARED && !statements.containsKey(name)) {
+                throw new IllegalArgumentException(
+                    "too many prepared statements: close some (at most " + MAX_PREPARED + ")");
+              }
               statements.put(name, readString(msg));
               int[] oids = new int[count(msg, 4)];
               for (int i = 0; i < oids.length; i++) {
@@ -506,6 +587,10 @@ public class PostgresServer implements AutoCloseable {
       for (int i = 0; i < params.size(); i++) {
         values.add(typed(params.get(i), i < oids.length ? oids[i] : 0));
       }
+      if (portals.size() >= MAX_PREPARED && !portals.containsKey(portal)) {
+        throw new IllegalArgumentException(
+            "too many portals: close some (at most " + MAX_PREPARED + ")");
+      }
       portals.put(portal, new Portal(sql, values, resultFormats));
       send('2', new Msg()); // BindComplete
     }
@@ -705,6 +790,18 @@ public class PostgresServer implements AutoCloseable {
       if (m.startsWith("savepoint \"") && m.endsWith("does not exist")) {
         return "3B001"; // invalid_savepoint_specification
       }
+      if (m.startsWith("index \"") && m.endsWith("does not exist")) {
+        return "42704"; // undefined_object
+      }
+      if (m.startsWith("invalid regular expression")) {
+        return "2201B"; // invalid_regular_expression
+      }
+      if (m.startsWith("too many prepared statements") || m.startsWith("too many portals")) {
+        return "53000"; // insufficient_resources
+      }
+      if (m.startsWith("negative substring length")) {
+        return "22011"; // substring_error
+      }
       if (m.startsWith("cannot take square root")
           || m.startsWith("zero raised to a negative power")
           || m.startsWith("a negative number raised to a non-integer power")) {
@@ -865,28 +962,33 @@ public class PostgresServer implements AutoCloseable {
   static List<String> split(String sql) {
     List<String> out = new ArrayList<>();
     StringBuilder current = new StringBuilder();
-    boolean inString = false;
-    boolean inIdentifier = false;
-    for (int i = 0; i < sql.length(); i++) {
-      char c = sql.charAt(i);
-      if (c == '\'' && !inIdentifier) {
-        inString = !inString;
-      } else if (c == '"' && !inString) {
-        inIdentifier = !inIdentifier;
+    boolean content = false; // the current statement has more than whitespace and comments
+    int i = 0;
+    while (i < sql.length()) {
+      int after = QueryParser.skipQuoted(sql, i);
+      if (after != i) {
+        boolean comment = sql.startsWith("--", i) || sql.startsWith("/*", i);
+        content |= !comment;
+        current.append(sql, i, after);
+        i = after;
+        continue;
       }
-      if (c == ';' && !inString && !inIdentifier) {
-        if (current.toString().trim().length() > 0) {
+      char c = sql.charAt(i++);
+      if (c == ';') {
+        if (content) {
           out.add(current.toString().trim());
         }
         current.setLength(0);
+        content = false;
       } else {
         current.append(c);
+        content |= !Character.isWhitespace(c);
       }
     }
-    if (current.toString().trim().length() > 0) {
+    if (content) {
       out.add(current.toString().trim());
     }
-    return out;
+    return out; // a Query of comments alone is empty, as in PostgreSQL
   }
 
   /** Replaces {@code $n} placeholders outside quotes with quoted literals (or NULL). */
@@ -1008,22 +1110,20 @@ public class PostgresServer implements AutoCloseable {
             value instanceof java.math.BigDecimal
                 ? (java.math.BigDecimal) value
                 : new java.math.BigDecimal(number(value).toString()));
-      case 1000:
-      case 1001:
-      case 1005:
-      case 1007:
-      case 1016:
-      case 1021:
-      case 1022:
-      case 1009:
-      case 1014:
-      case 1015:
-      case 1182:
-      case 1183:
-      case 1115:
-      case 1185:
-      case 1231:
-        return arrayBinary((int) Catalog.elementOid(oid), Evaluator.elements(value));
+      case 26: // oid, and the reg* aliases of it
+      case 2205:
+      case 2206:
+      case 4089:
+        return ByteBuffer.allocate(4).putInt(number(value).intValue()).array();
+      case 1186: // interval: microseconds, days, months
+        {
+          Interval iv = value instanceof Interval ? (Interval) value : Interval.parse(text(value));
+          return ByteBuffer.allocate(16)
+              .putLong(iv.micros)
+              .putInt(iv.days)
+              .putInt(iv.months)
+              .array();
+        }
       case 17:
         if (value instanceof ByteBuffer) {
           ByteBuffer b = ((ByteBuffer) value).duplicate();
@@ -1052,6 +1152,10 @@ public class PostgresServer implements AutoCloseable {
                     PG_EPOCH.toInstant(ZoneOffset.UTC), (Instant) value))
             .array();
       default:
+        if (Catalog.elementOid(oid) != 0) {
+          // every array type the catalog knows, not a hand-kept list of them (todo 019)
+          return arrayBinary((int) Catalog.elementOid(oid), Evaluator.elements(value));
+        }
         return text(value).getBytes(StandardCharsets.UTF_8); // text types: the same bytes
     }
   }
@@ -1178,7 +1282,11 @@ public class PostgresServer implements AutoCloseable {
         continue;
       }
       Object v = e;
-      if (v instanceof String && elementOid != 25 && elementOid != 1043 && elementOid != 1042) {
+      if (v instanceof String
+          && elementOid != 25
+          && elementOid != 1043
+          && elementOid != 1042
+          && elementOid != 19) { // name is text too
         // elements parsed from array text; NULL elements were handled above
         v = Objects.requireNonNull(Evaluator.cast(Catalog.typeName(elementOid), v));
       }

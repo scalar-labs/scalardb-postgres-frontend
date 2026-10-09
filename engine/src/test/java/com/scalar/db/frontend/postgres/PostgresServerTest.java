@@ -609,4 +609,57 @@ public class PostgresServerTest {
     verify(transaction).rollback();
     verify(transaction, org.mockito.Mockito.never()).commit();
   }
+
+  @Test
+  public void split_ShouldKnowCommentsQuotesAndDollarQuotes() {
+    assertThat(PostgresServer.split("SELECT 1; -- don't\nSELECT 2;"))
+        .containsExactly("SELECT 1", "-- don't\nSELECT 2");
+    assertThat(PostgresServer.split("SELECT 1 -- a; b")).containsExactly("SELECT 1 -- a; b");
+    assertThat(PostgresServer.split("SELECT 1 /* a; /* nested; */ b; */ ; SELECT 2"))
+        .containsExactly("SELECT 1 /* a; /* nested; */ b; */", "SELECT 2");
+    assertThat(PostgresServer.split("SELECT $f$ a; b $f$; SELECT E'it\\'s; ok'"))
+        .containsExactly("SELECT $f$ a; b $f$", "SELECT E'it\\'s; ok'");
+    assertThat(PostgresServer.split("-- nothing\n/* at all */")).isEmpty();
+    assertThat(QueryParser.parameterCount("SELECT $1 -- isn't $2\n, '$3', $$ $4 $$, $2"))
+        .isEqualTo(2);
+  }
+
+  @Test
+  public void binary_ShouldEncodeIntervalOidAndEveryKnownArray() {
+    byte[] interval = PostgresServer.binary(1186, Interval.parse("1 mon 2 days 00:00:03"));
+    java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(interval);
+    assertThat(b.getLong()).isEqualTo(3_000_000L); // microseconds, days, months
+    assertThat(b.getInt()).isEqualTo(2);
+    assertThat(b.getInt()).isEqualTo(1);
+    assertThat(PostgresServer.binary(26, 1259L)).containsExactly(0, 0, 4, (byte) 0xEB);
+    // name[]: an array header then the element bytes, not the text {a,b}
+    assertThat(PostgresServer.binary(1003, Arrays.asList("a", "b")).length).isEqualTo(20 + 2 * 5);
+  }
+
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void lifecycle_CapTimeoutAndClose_ShouldBound() throws Exception {
+    server.maxConnections = 1;
+    server.startupTimeoutMillis = 300;
+    try (Connection first = connect("")) {
+      // over the cap: PostgreSQL's 53300
+      assertThatThrownBy(() -> connect(""))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("53300"));
+      first.createStatement().execute("SELECT 1");
+    }
+    Thread.sleep(200); // the first session's slot is free once its thread has ended
+    // a client that never sends its startup packet is dropped after the timeout
+    try (java.net.Socket idle = new java.net.Socket("localhost", server.getPort())) {
+      idle.setSoTimeout(5000);
+      assertThat(idle.getInputStream().read()).isEqualTo(-1);
+    }
+    // close() ends open sessions, not only the listener
+    Connection open = connect("");
+    server.close();
+    assertThatThrownBy(() -> open.createStatement().execute("SELECT 1"))
+        .isInstanceOf(SQLException.class);
+  }
 }

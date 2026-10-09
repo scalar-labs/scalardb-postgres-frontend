@@ -887,7 +887,12 @@ final class Operators {
     private final List<Map<String, Object>> working;
     private final List<String> names;
     private final boolean all;
+    // Iteration by iteration, as rows are pulled: a LIMIT above stops the recursion (todo 012)
+    @Nullable private Execution execution;
+    private Set<List<Object>> seen = new HashSet<>();
+    private List<Map<String, Object>> current = Collections.emptyList(); // the latest iteration
     private Iterator<Map<String, Object>> out = NONE;
+    private long produced;
 
     RecursiveUnion(
         QueryParser.Plan anchor,
@@ -904,30 +909,22 @@ final class Operators {
 
     @Override
     void start(Execution execution) {
-      List<Map<String, Object>> result = new ArrayList<>();
-      Set<List<Object>> seen = new HashSet<>();
-      List<Map<String, Object>> rows = run(anchor, execution);
-      while (true) {
-        List<Map<String, Object>> fresh = new ArrayList<>();
-        for (Map<String, Object> row : rows) {
-          if (all || seen.add(key(row))) {
-            fresh.add(row);
-          }
+      this.execution = execution;
+      seen = new HashSet<>();
+      produced = 0;
+      current = fresh(run(anchor, execution));
+      out = current.iterator();
+    }
+
+    /** The rows not seen before (all of them under UNION ALL). */
+    private List<Map<String, Object>> fresh(List<Map<String, Object>> rows) {
+      List<Map<String, Object>> fresh = new ArrayList<>();
+      for (Map<String, Object> row : rows) {
+        if (all || seen.add(key(row))) {
+          fresh.add(row);
         }
-        result.addAll(fresh);
-        if (fresh.isEmpty()) {
-          break;
-        }
-        if (result.size() > MAX_ROWS) {
-          throw new IllegalArgumentException(
-              "Recursive query produced more than " + MAX_ROWS + " rows");
-        }
-        working.clear();
-        working.addAll(fresh);
-        rows = run(step, execution);
       }
-      working.clear();
-      out = result.iterator();
+      return fresh;
     }
 
     /** Runs a member plan to completion and renames its rows to the CTE's columns. */
@@ -956,12 +953,30 @@ final class Operators {
 
     @Override
     @Nullable Map<String, Object> fetch() {
-      return pull(out);
+      while (!out.hasNext()) {
+        if (current.isEmpty() || execution == null) {
+          working.clear();
+          return null; // an iteration added nothing: the recursion is complete
+        }
+        // the next iteration reads the previous one through the working table
+        working.clear();
+        working.addAll(current);
+        current = fresh(run(step, execution));
+        out = current.iterator();
+      }
+      if (++produced > MAX_ROWS) {
+        throw new IllegalArgumentException(
+            "Recursive query produced more than " + MAX_ROWS + " rows");
+      }
+      return out.next();
     }
 
     @Override
     public void close() {
       out = NONE;
+      current = Collections.emptyList();
+      seen = new HashSet<>();
+      execution = null;
       working.clear();
     }
 

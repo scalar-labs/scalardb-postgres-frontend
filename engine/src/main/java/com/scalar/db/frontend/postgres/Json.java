@@ -130,12 +130,17 @@ final class Json {
       }
       return array;
     }
+    // ISO 8601 as PostgreSQL writes it: seconds always, the fraction trimmed, and a timestamptz in
+    // the session's zone with its offset as +HH:MM (todo 022)
     if (v instanceof LocalDateTime) {
-      return NODES.textNode(((LocalDateTime) v).toString());
+      return NODES.textNode(Evaluator.text(v).replace(' ', 'T'));
     }
     if (v instanceof Instant) {
+      ZoneOffset offset = Evaluator.zone().getRules().getOffset((Instant) v);
+      LocalDateTime local = LocalDateTime.ofInstant((Instant) v, offset);
       return NODES.textNode(
-          LocalDateTime.ofInstant((Instant) v, ZoneOffset.UTC).toString() + "+00:00");
+          Evaluator.text(local).replace(' ', 'T')
+              + (offset.getTotalSeconds() == 0 ? "+00:00" : offset.getId()));
     }
     if (v instanceof LocalDate || v instanceof LocalTime || v instanceof ByteBuffer) {
       return NODES.textNode(Evaluator.text(v));

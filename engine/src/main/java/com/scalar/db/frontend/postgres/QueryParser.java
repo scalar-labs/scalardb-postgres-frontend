@@ -2057,21 +2057,15 @@ public class QueryParser {
   /** The highest {@code $n} placeholder number in the statement, outside quotes. */
   static int parameterCount(String sql) {
     int max = 0;
-    boolean inString = false;
-    boolean inIdentifier = false;
     int i = 0;
     while (i < sql.length()) {
-      char c = sql.charAt(i);
-      if (c == '\'' && !inIdentifier) {
-        inString = !inString;
-      } else if (c == '"' && !inString) {
-        inIdentifier = !inIdentifier;
+      int after = skipQuoted(sql, i);
+      if (after != i) {
+        i = after; // a string, quoted name, comment or dollar-quoted body: no placeholders
+        continue;
       }
-      if (c == '$'
-          && !inString
-          && !inIdentifier
-          && i + 1 < sql.length()
-          && Character.isDigit(sql.charAt(i + 1))) {
+      char c = sql.charAt(i);
+      if (c == '$' && i + 1 < sql.length() && Character.isDigit(sql.charAt(i + 1))) {
         int j = i + 1;
         while (j < sql.length() && Character.isDigit(sql.charAt(j))) {
           j++;
@@ -2083,6 +2077,78 @@ public class QueryParser {
       i++;
     }
     return max;
+  }
+
+  /**
+   * If a string literal, quoted identifier, comment or dollar-quoted string starts at {@code i},
+   * the index just past it (or the end of the text when it is not closed); else {@code i}. The one
+   * lexer behind statement splitting and placeholder counting (todo 020): '' and "" double their
+   * quote, E'' strings escape with a backslash, -- runs to the end of the line, comments nest, and
+   * $tag$ ... $tag$ quotes anything ($1 is a placeholder, not a tag).
+   */
+  static int skipQuoted(String sql, int i) {
+    int n = sql.length();
+    char c = sql.charAt(i);
+    if (c == '\'' || c == '"') {
+      boolean escapes =
+          c == '\''
+              && i > 0
+              && (sql.charAt(i - 1) == 'E' || sql.charAt(i - 1) == 'e')
+              && (i < 2
+                  || !Character.isLetterOrDigit(sql.charAt(i - 2)) && sql.charAt(i - 2) != '_');
+      int j = i + 1;
+      while (j < n) {
+        char d = sql.charAt(j);
+        if (escapes && d == '\\') {
+          j += 2;
+          continue;
+        }
+        if (d == c) {
+          if (j + 1 < n && sql.charAt(j + 1) == c) {
+            j += 2; // a doubled quote inside
+            continue;
+          }
+          return j + 1;
+        }
+        j++;
+      }
+      return n;
+    }
+    if (c == '-' && i + 1 < n && sql.charAt(i + 1) == '-') {
+      int end = sql.indexOf('\n', i);
+      return end < 0 ? n : end + 1;
+    }
+    if (c == '/' && i + 1 < n && sql.charAt(i + 1) == '*') {
+      int depth = 1;
+      int j = i + 2;
+      while (j < n && depth > 0) {
+        if (sql.startsWith("/*", j)) {
+          depth++;
+          j += 2;
+        } else if (sql.startsWith("*/", j)) {
+          depth--;
+          j += 2;
+        } else {
+          j++;
+        }
+      }
+      return j;
+    }
+    if (c == '$' && (i == 0 || !Character.isLetterOrDigit(sql.charAt(i - 1)))) {
+      int j = i + 1;
+      while (j < n
+          && (Character.isLetter(sql.charAt(j))
+              || sql.charAt(j) == '_'
+              || (j > i + 1 && Character.isDigit(sql.charAt(j))))) {
+        j++;
+      }
+      if (j < n && sql.charAt(j) == '$') {
+        String tag = sql.substring(i, j + 1);
+        int end = sql.indexOf(tag, j + 1);
+        return end < 0 ? n : end + tag.length();
+      }
+    }
+    return i;
   }
 
   /** Records that {@code e} is evaluated while planning, so a placeholder in it is embedded. */
@@ -2890,6 +2956,10 @@ public class QueryParser {
     return dataType(declared);
   }
 
+  // Index names given at CREATE INDEX, namespace.name -> {table, column}, for this process's life
+  private static final Map<String, String[]> INDEX_NAMES =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
   private Plan createIndex(CreateIndex create) {
     String namespace = namespaceOf(create.getTable());
     String name = unquote(create.getTable().getName());
@@ -2901,7 +2971,32 @@ public class QueryParser {
       throw new IllegalArgumentException("Expression indexes are not supported: " + columns.get(0));
     }
     String column = unquote(columns.get(0));
-    Plan plan = Plan.ddl(() -> admin.createIndex(namespace, name, column, false), "CREATE INDEX");
+    String generated = name + "_" + column + "_idx";
+    String given =
+        create.getIndex().getName() == null ? null : unquote(create.getIndex().getName());
+    Plan plan =
+        Plan.ddl(
+            () -> {
+              admin.createIndex(namespace, name, column, false);
+              if (given != null && !given.equals(generated)) {
+                INDEX_NAMES.put(namespace + "." + given, new String[] {name, column});
+              }
+            },
+            "CREATE INDEX");
+    if (given != null && !given.equals(generated)) {
+      // ScalarDB has no index names (core-todo item 6): DROP INDEX by this name works only until
+      // the frontend restarts (todo 015)
+      plan.notices.add(
+          "index \""
+              + given
+              + "\" is named "
+              + generated
+              + " in ScalarDB: DROP INDEX "
+              + given
+              + " works until the frontend restarts, DROP INDEX "
+              + generated
+              + " always");
+    }
     if ("UNIQUE".equalsIgnoreCase(create.getIndex().getType())) {
       plan.notices.add(
           "UNIQUE on index "
@@ -2958,6 +3053,11 @@ public class QueryParser {
           String indexName = unquote(target.getName());
           return Plan.ddl(
               () -> {
+                String[] named = INDEX_NAMES.remove(namespace + "." + indexName);
+                if (named != null && admin.indexExists(namespace, named[0], named[1])) {
+                  admin.dropIndex(namespace, named[0], named[1]); // the name given at CREATE INDEX
+                  return;
+                }
                 for (String table : admin.getNamespaceTableNames(namespace)) {
                   TableMetadata metadata = admin.getTableMetadata(namespace, table);
                   if (metadata == null) {
@@ -2971,7 +3071,7 @@ public class QueryParser {
                   }
                 }
                 if (!ifExists) {
-                  throw new IllegalArgumentException("Index not found: " + indexName);
+                  throw new IllegalArgumentException("index \"" + indexName + "\" does not exist");
                 }
               },
               "DROP INDEX");

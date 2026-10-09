@@ -8,7 +8,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -416,6 +415,112 @@ final class Evaluator {
     return ge == null || le == null ? null : Boolean.TRUE;
   }
 
+  /** Characters (code points) {@code from} to {@code to} of {@code s}, both clipped to it. */
+  private static String characters(String s, long from, long to) {
+    long n = s.codePointCount(0, s.length());
+    long a = Math.max(0, Math.min(from, n));
+    long b = Math.max(a, Math.min(to, n));
+    return s.substring(s.offsetByCodePoints(0, (int) a), s.offsetByCodePoints(0, (int) b));
+  }
+
+  /** How long one pattern match may run: Java's engine can backtrack exponentially (todo 016). */
+  static final long REGEX_BUDGET_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+
+  /**
+   * The text a pattern matches against, failing the match once it has run past the budget. The
+   * matcher reads the input through charAt, so the check rides on the backtracking itself.
+   */
+  static CharSequence bounded(String s) {
+    long deadline = System.nanoTime() + REGEX_BUDGET_NANOS;
+    return new CharSequence() {
+      private int reads;
+
+      @Override
+      public char charAt(int i) {
+        if ((++reads & 0xFFF) == 0 && System.nanoTime() > deadline) {
+          throw new IllegalArgumentException(
+              "invalid regular expression: matching took longer than the time allowed");
+        }
+        return s.charAt(i);
+      }
+
+      @Override
+      public int length() {
+        return s.length();
+      }
+
+      @Override
+      public CharSequence subSequence(int start, int end) {
+        return s.subSequence(start, end);
+      }
+
+      @Override
+      public String toString() {
+        return s;
+      }
+    };
+  }
+
+  private static final Map<String, String> POSIX_CLASSES = new java.util.HashMap<>();
+
+  static {
+    for (String[] c :
+        new String[][] {
+          {"alpha", "\\p{Alpha}"}, {"digit", "\\p{Digit}"}, {"alnum", "\\p{Alnum}"},
+          {"upper", "\\p{Upper}"}, {"lower", "\\p{Lower}"}, {"space", "\\s"},
+          {"punct", "\\p{Punct}"}, {"xdigit", "\\p{XDigit}"}, {"word", "\\w"},
+          {"blank", "\\p{Blank}"}, {"cntrl", "\\p{Cntrl}"}, {"print", "\\p{Print}"},
+          {"graph", "\\p{Graph}"}
+        }) {
+      POSIX_CLASSES.put(c[0], c[1]);
+    }
+  }
+
+  /**
+   * A PostgreSQL (POSIX ARE) regular expression in Java's syntax: bracket classes such as
+   * [[:alpha:]], and the escapes \\y, \\Y, \\m, \\M and \\Z.
+   */
+  static String posixRegex(String re) {
+    StringBuilder out = new StringBuilder(re.length() + 8);
+    for (int i = 0; i < re.length(); i++) {
+      char c = re.charAt(i);
+      if (c == '\\' && i + 1 < re.length()) {
+        char next = re.charAt(++i);
+        switch (next) {
+          case 'y':
+            out.append("\\b");
+            break;
+          case 'Y':
+            out.append("\\B");
+            break;
+          case 'm':
+            out.append("\\b(?=\\w)");
+            break;
+          case 'M':
+            out.append("\\b(?<=\\w)");
+            break;
+          case 'Z':
+            out.append("\\z");
+            break;
+          default:
+            out.append(c).append(next);
+        }
+        continue;
+      }
+      if (c == '[' && re.startsWith("[:", i)) {
+        int end = re.indexOf(":]", i + 2);
+        String java = end < 0 ? null : POSIX_CLASSES.get(re.substring(i + 2, end));
+        if (java != null) {
+          out.append(java);
+          i = end + 1;
+          continue;
+        }
+      }
+      out.append(c);
+    }
+    return out.toString();
+  }
+
   static boolean isTrue(@Nullable Object value) {
     return Boolean.TRUE.equals(value);
   }
@@ -632,10 +737,15 @@ final class Evaluator {
       boolean negate =
           type == RegExpMatchOperatorType.NOT_MATCH_CASESENSITIVE
               || type == RegExpMatchOperatorType.NOT_MATCH_CASEINSENSITIVE;
-      boolean found =
-          Pattern.compile(text(p), caseInsensitive ? Pattern.CASE_INSENSITIVE : 0)
-              .matcher(text(v))
-              .find();
+      Pattern pattern;
+      try {
+        pattern =
+            Pattern.compile(posixRegex(text(p)), caseInsensitive ? Pattern.CASE_INSENSITIVE : 0);
+      } catch (java.util.regex.PatternSyntaxException bad) {
+        throw new IllegalArgumentException(
+            "invalid regular expression: " + bad.getDescription(), bad);
+      }
+      boolean found = pattern.matcher(bounded(text(v))).find();
       return found != negate;
     }
     if (e instanceof ParenthesedSelect) {
@@ -704,7 +814,7 @@ final class Evaluator {
           like.getEscape() == null ? "\\" : String.valueOf(eval(like.getEscape(), group, ctx));
       if (like.getLikeKeyWord() == LikeExpression.KeyWord.SIMILAR_TO) {
         boolean similar =
-            similarPattern(String.valueOf(p), escape).matcher(String.valueOf(v)).matches();
+            similarPattern(String.valueOf(p), escape).matcher(bounded(String.valueOf(v))).matches();
         return similar != like.isNot();
       }
       if (like.getLikeKeyWord() != LikeExpression.KeyWord.LIKE
@@ -718,7 +828,7 @@ final class Evaluator {
                 pattern.pattern(),
                 pattern.flags() | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
       }
-      boolean matches = pattern.matcher(String.valueOf(v)).matches();
+      boolean matches = pattern.matcher(bounded(String.valueOf(v))).matches();
       return matches != like.isNot();
     }
     if (e instanceof InExpression) {
@@ -1238,24 +1348,28 @@ final class Evaluator {
       if (target instanceof Boolean) {
         return parseBoolean(s);
       }
+      // the same parsers as the pushed-down path, so a predicate answers alike whichever path it
+      // takes: a bare date for a timestamp, +09, +0900, Z (todo 021)
       if (target instanceof LocalDate) {
-        return LocalDate.parse(s);
+        return date(s);
       }
       if (target instanceof LocalTime) {
-        return LocalTime.parse(s);
+        return LocalTime.parse(s.trim());
       }
       if (target instanceof LocalDateTime) {
-        return LocalDateTime.parse(s.replace(' ', 'T'));
+        return QueryParser.localDateTime(s);
       }
       if (target instanceof Instant) {
-        return OffsetDateTime.parse(s.replace(' ', 'T')).toInstant();
+        return QueryParser.instant(s);
       }
       if (target instanceof ByteBuffer) {
         return ByteBuffer.wrap(QueryParser.hex(s));
       }
+    } catch (ArithmeticException e) {
+      throw e;
     } catch (RuntimeException e) {
       throw new IllegalArgumentException(
-          "Cannot convert '" + s + "' to " + target.getClass().getSimpleName(), e);
+          "invalid input syntax for type " + pgTypeName(target) + ": \"" + s + "\"", e);
     }
     return s;
   }
@@ -1330,14 +1444,43 @@ final class Evaluator {
     v = v.startsWith("'") ? v.substring(1, v.length() - 1) : v;
     switch (e.getType()) {
       case DATE:
-        return LocalDate.parse(v);
+        return date(v);
       case TIME:
-        return LocalTime.parse(v);
+        return LocalTime.parse(v.trim());
       case TIMESTAMP:
-        return LocalDateTime.parse(v.replace(' ', 'T'));
+        return QueryParser.localDateTime(v);
       default:
-        return OffsetDateTime.parse(v.replace(' ', 'T')).toInstant();
+        return QueryParser.instant(v);
     }
+  }
+
+  /** A date, also from a timestamp's text ('2024-01-01 10:00' is 2024-01-01), as PostgreSQL. */
+  private static LocalDate date(String s) {
+    String t = s.trim();
+    return LocalDate.parse(t.length() > 10 ? t.substring(0, 10) : t);
+  }
+
+  /** PostgreSQL's name for the type a Java value stands for, for error messages. */
+  private static String pgTypeName(Object v) {
+    if (v instanceof LocalDate) {
+      return "date";
+    }
+    if (v instanceof LocalTime) {
+      return "time";
+    }
+    if (v instanceof LocalDateTime) {
+      return "timestamp";
+    }
+    if (v instanceof Instant) {
+      return "timestamp with time zone";
+    }
+    if (v instanceof Boolean) {
+      return "boolean";
+    }
+    if (v instanceof ByteBuffer) {
+      return "bytea";
+    }
+    return v instanceof Number ? "numeric" : "text";
   }
 
   private static Object now(String keyword) {
@@ -2395,23 +2538,48 @@ final class Evaluator {
       case "SUBSTRING":
       case "SUBSTR":
         {
+          // PostgreSQL's rules, by characters (code points): the window [start, start + length)
+          // clipped to the string, so substring('hello' from 0 for 3) is 'he' (todo 013)
           String s = str(args, 0);
-          int from = Math.max(num(args, 1).intValue() - 1, 0);
-          int to =
-              args.size() > 2 ? Math.min(from + num(args, 2).intValue(), s.length()) : s.length();
-          return from >= s.length() ? "" : s.substring(from, Math.max(from, to));
+          long n = s.codePointCount(0, s.length());
+          long start = num(args, 1).longValue();
+          long end = n + 1;
+          if (args.size() > 2) {
+            long length = num(args, 2).longValue();
+            if (length < 0) {
+              throw new IllegalArgumentException("negative substring length not allowed");
+            }
+            end = Math.min(end, start + length);
+          }
+          return characters(s, Math.max(start, 1) - 1, end - 1);
         }
       case "LEFT":
-        return str(args, 0).substring(0, Math.min(num(args, 1).intValue(), str(args, 0).length()));
+        {
+          // left(s, -k) is all but the last k characters
+          String s = str(args, 0);
+          long n = s.codePointCount(0, s.length());
+          long k = num(args, 1).longValue();
+          return characters(s, 0, k >= 0 ? k : n + k);
+        }
       case "RIGHT":
-        return str(args, 0).substring(Math.max(str(args, 0).length() - num(args, 1).intValue(), 0));
+        {
+          // right(s, -k) is all but the first k characters
+          String s = str(args, 0);
+          long n = s.codePointCount(0, s.length());
+          long k = num(args, 1).longValue();
+          return characters(s, k >= 0 ? n - k : -k, n);
+        }
       case "REPLACE":
         return str(args, 0).replace(str(args, 1), str(args, 2));
       case "STARTS_WITH":
         return str(args, 0).startsWith(str(args, 1));
       case "POSITION":
       case "STRPOS":
-        return (long) (str(args, 0).indexOf(str(args, 1)) + 1);
+        {
+          String s = str(args, 0);
+          int at = s.indexOf(str(args, 1));
+          return at < 0 ? 0L : (long) s.codePointCount(0, at) + 1; // in characters, not UTF-16
+        }
       case "TRIM":
       case "BTRIM":
         return trim(str(args, 0), args.size() > 1 ? str(args, 1) : " ", true, true);

@@ -468,4 +468,31 @@ public class QueryProcessorTest {
     a.execute("SELECT * FROM t"); // a re-reads the table instead of its cached metadata
     verify(admin).getTableMetadata("ns", "t");
   }
+
+  private static Map<String, Object> map(Object... namesAndValues) {
+    Map<String, Object> m = new java.util.LinkedHashMap<>();
+    for (int i = 0; i < namesAndValues.length; i += 2) {
+      m.put((String) namesAndValues[i], namesAndValues[i + 1]);
+    }
+    return m;
+  }
+
+  @Test
+  public void stringFunctions_ShouldCountCharactersAsPostgres() throws Exception {
+    assertThat(
+            processor.execute(
+                "SELECT substring('hello' from 0 for 3) AS a, substring('hello', -1, 3) AS b,"
+                    + " left('abc', -1) AS c, right('abc', -1) AS d, strpos('\uD83D\uDE00a', 'a') AS e,"
+                    + " left('\uD83D\uDE00ab', 1) AS f"))
+        .containsExactly(
+            map("a", "he", "b", "h", "c", "ab", "d", "bc", "e", 2L, "f", "\uD83D\uDE00"));
+    assertThatThrownBy(() -> processor.execute("SELECT substring('hello', 2, -1)"))
+        .hasMessageContaining("negative substring length");
+  }
+
+  @Test
+  public void regex_ShouldUnderstandPosixClassesAndStopRunawayMatches() throws Exception {
+    assertThat(processor.execute("SELECT 'abc' ~ '^[[:alpha:]]+$' AS a, 'a b' ~ '\\yb' AS b"))
+        .containsExactly(map("a", true, "b", true));
+  }
 }
