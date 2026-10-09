@@ -186,10 +186,15 @@ honor is announced with a `NOTICE`. It does not silently return a different resu
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
 - **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
-  `'ab   '` differ; `VARCHAR(n)` lengths are not enforced; `NUMERIC(p,s)` and `DECIMAL` are stored
-  as `double precision`, so money arithmetic is approximate; `SMALLINT` is an `integer` without a
-  range check. Each is reported with a `NOTICE` at `CREATE TABLE`. A modifier PostgreSQL itself
-  rejects (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
+  `'ab   '` differ and `code = 'ab   '` does not match a stored `'ab'`; `VARCHAR(n)` lengths are not
+  enforced; `NUMERIC(p,s)` and `DECIMAL` are stored as `double precision`, so a value is neither
+  rounded to its scale nor checked against its precision on write (`1.005` stays `1.005`,
+  `123456789.995` fits in `NUMERIC(10,2)`), prints as `19.9` rather than `19.90`, and arithmetic
+  carries floating-point noise (`19.90 * 3` is `59.699999999999996`); `SMALLINT` is an `integer`
+  without a range check. Each is reported with a `NOTICE` at `CREATE TABLE`. The declaration has
+  nowhere to live outside ScalarDB's own metadata, so enforcing it waits for type modifiers there
+  (`core-todo.md` item 11 in the ScalarDB repository). A modifier PostgreSQL itself rejects
+  (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
 - **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
   precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
   the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.
@@ -199,6 +204,15 @@ honor is announced with a `NOTICE`. It does not silently return a different resu
   name and reads columns back by it, and stores a `before_` copy of each column, so a truncated
   name would leave a table that cannot be read. A table has at most 1600 columns as in PostgreSQL,
   and on a PostgreSQL backend the `before_` copies halve what fits.
+- **Keys, and the MySQL backend.** ScalarDB refuses an empty string as a partition key value
+  (`22023`). On MySQL, ScalarDB creates key and indexed `TEXT` columns as `varchar(128)`
+  (`scalar.db.jdbc.mysql.variable_key_column_size`), so a longer value fails at commit (`22001`),
+  `CREATE INDEX` on a column already holding longer values fails, and a composite `TEXT` key can
+  exceed MySQL's 3072-byte index limit; `NaN`, `Infinity` and `-0` cannot be stored in `DOUBLE`
+  columns there.
+- **While a backing database is unreachable, `COMMIT` waits** 60 to 150 seconds before it fails,
+  with `40003` when the outcome is unknown. Data stays consistent, but a client timeout shorter than
+  that must be treated as an unknown outcome, not a failure.
 - **Isolation levels.** ScalarDB's `SNAPSHOT` reads each record's committed version without a
   snapshot across records, which `SHOW transaction_isolation` reports as `read committed`;
   `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
