@@ -9,55 +9,60 @@ design marked **(verify)**: `getCurrentUser` under `UserpassHolder` as the login
 
 ## Setup
 
-1. **A core snapshot the Cluster build accepts.** The frontend builds against the ScalarDB checkout's
-   `4.0.0-SNAPSHOT`; Cluster's `main` may expect an older or newer core. If `:node:installDist` fails to compile
-   against the local snapshot, publish a core of Cluster main's date from an export of the ScalarDB checkout
-   (`git archive <commit> | tar -x -C <dir>`, then `./gradlew :core:publishToMavenLocal -x test` there), build the
-   node, and republish the branch's core from the checkout afterwards. Cluster builds need JDK 21.
-2. **The client SDK**, published from the same Cluster export: `./gradlew :client:publishToMavenLocal -x test`.
-   The frontend's server module compiles against it (`compileOnly`, non-transitive); nothing else of the
-   frontend needs it.
-3. **The node.** From the Cluster export: `./gradlew :node:installDist -x test`, then
-   `node/build/install/scalardb-cluster-node/bin/scalardb-cluster-node --config node.properties` from this
-   directory, with the database `clusterdb` created on the PostgreSQL at 15440 (`createdb -p 15440 clusterdb`).
-   The auth tables and the default superuser `admin` / `admin` are created at startup.
-4. **Users and data.** `Setup.java`, as the superuser, creates `authdemo.items` with two rows, `alice` with READ
-   and WRITE on the namespace and `bob` with nothing:
+1. **The Cluster client SDK and its dependencies.** The SDK jar alone is not runnable: it needs
+   `scalardb-cluster-common`, `scalardb-cluster-rpc`, gRPC and the rest. `sdk-classpath/` is a two-file Gradle
+   project that copies the whole runtime classpath into `sdk-classpath/lib/`:
    ```sh
-   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:$SDK Setup.java admin.properties
+   ./gradlew -p difftest/cluster-auth/sdk-classpath lib      # from the repository root
    ```
-   where `$SDK` is `~/.m2/repository/com/scalar-labs/scalardb-cluster-java-client-sdk/4.0.0-SNAPSHOT/scalardb-cluster-java-client-sdk-4.0.0-SNAPSHOT.jar`.
-5. **The frontend**, with TLS from the engine's test certificate and no service user:
+   The SDK and its two Cluster siblings come from a Cluster checkout, or an export of it
+   (`git archive origin/main | tar -x -C <dir>`), built with JDK 21:
+   `./gradlew :common:publishToMavenLocal :rpc:publishToMavenLocal :client:publishToMavenLocal -x test`.
+2. **The node.** `./gradlew :node:installDist -x test` in the same export, then from this directory:
    ```sh
-   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:$SDK \
+   node/build/install/node/bin/scalardb-cluster-node --config node.properties
+   ```
+   with the database `clusterdb` created on the PostgreSQL at 15440 (`createdb -p 15440 clusterdb`). The auth
+   tables and the default superuser `admin` / `admin` are created at startup. On 2026-10-09 the node build
+   needed, in the export only: `mavenLocal()` first in the root `build.gradle`'s repositories, the snapshots of
+   `scalardb-sql` and `scalardb-graphql` published from clones of their `main`, and one call in
+   `replication-repository` adapted to a core constructor changed on 2026-09-29.
+3. **Users and data.** `Setup.java`, as the superuser, creates `authdemo.items` with two rows, `alice` with READ,
+   WRITE and DELETE on the namespace (DELETE is its own privilege) and `bob` with nothing:
+   ```sh
+   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' Setup.java admin.properties
+   ```
+4. **The frontend**, with TLS from the engine's test certificate and no service user. Note
+   `scalar.db.cluster.auth.enabled=true` in `frontend.properties`: without it the SDK never logs in, and every
+   call fails with `DB-AUTH-10006`.
+   ```sh
+   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' \
         com.scalar.db.frontend.postgres.server.Main frontend.properties 15445
    ```
-6. **The scenario:** `./run.sh` (`PORT` overrides 15445). Each check prints `PASS` or `FAIL`.
+5. **The scenario:** `./run.sh` (`PORT` overrides 15445). Each check prints `PASS` or `FAIL`.
 
 ## What run.sh checks
 
 alice reads, writes, deletes, runs a transaction, a lookup join (its inner reads come from the pool) and DDL;
 `current_user` is alice; bob gets `42501` on SELECT, INSERT and CREATE TABLE and his session goes on; `SET ROLE`
-is `0A000`; a wrong password and an unknown user are `28P01` after about a second; a plaintext connection is
-`28000`; `\conninfo` shows the TLS connection.
+is `0A000`; a wrong password and an unknown user are refused after about a second; a plaintext connection is
+refused; `\conninfo` shows TLS. Connection-time refusals are matched on their message, since psql prints no
+SQLSTATE before a session exists; the engine's unit tests assert the SQLSTATEs through pgjdbc.
 
 ## Results, 2026-10-09
 
-Not run yet: the node could not be built on this machine. What was done and where it stopped, so the next
-attempt starts there:
+All 17 checks pass (`results-20261009.txt`): node built from Cluster `main` 6e2cb011 (2026-09-28), frontend from
+this branch, both on the difftest PostgreSQL. The design's **(verify)** items are settled:
 
-- The client SDK built and published from an export of Cluster `main` (2026-09-28) with JDK 21, after a clean
-  of stale generated protobuf sources; the frontend's server module compiles and tests against it.
-- The node did not build. Cluster `main` predates a core constructor change of 2026-09-29
-  (`RollbackMutationComposer`, called once in `replication-repository`); a core of 2026-09-28 did not help,
-  and patching that one call did. The node then needs `scalardb-graphql` and `scalardb-sql-direct-mode` at
-  `4.0.0-SNAPSHOT`, which are published nowhere reachable from here, and the local checkouts of those
-  repositories are from 2023 and mid-2026. Publishing them at matching snapshots is a build of the whole
-  ScalarDB ecosystem, not of this branch.
-- Two ways forward: a Cluster node image with a license key (`scalar.db.cluster.node.licensing.*`), which
-  needs only `node.properties` and this directory; or a developer with the Cluster build set up, who runs
-  steps 3 to 6 above as they are.
+- `admin.getCurrentUser()` under `UserpassHolder` is the login check: a valid pair logs in and returns the user, a
+  wrong one fails with `DB-AUTH-10006` (the SDK's token request is what fails, not a password comparison), which
+  the frontend reports as `28P01`.
+- The holder is honored on `begin` and on every one-shot call, the lookup join's pool reads included: the join
+  returned the right count as alice, where a read outside the scope would have failed with `DB-AUTH-10006`
+  rather than returned rows, and bob's reads were refused with `DB-AUTH-10008`.
+- Errors arrive as `ExecutionException` (admin) and `CrudException` (CRUD) whose message starts with the gRPC
+  status and carries the code, for example `PERMISSION_DENIED: DB-AUTH-10008: Access denied: You need the READ
+  privilege on the table authdemo.items`; keying on the code works.
 
-Until then the frontend side rests on the engine tests, which drive the server through pgjdbc with a stub
-identity and fail any ScalarDB call made outside the session's scope on any thread, and on the server module's
-test of the startup checks. The design's three **(verify)** items stay open.
+Not exercised: a token expiring mid-session (`28000`), since tokens live a day, and OIDC, for want of an
+identity provider.

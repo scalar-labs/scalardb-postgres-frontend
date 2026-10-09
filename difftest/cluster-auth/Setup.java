@@ -13,7 +13,7 @@ import java.util.Properties;
 
 /**
  * Prepares the authentication run as the default superuser: the namespace and table, two rows,
- * the users alice (READ and WRITE on the namespace) and bob (nothing). Run with the frontend's fat
+ * the users alice (READ, WRITE and DELETE on the namespace) and bob (nothing). Run with the frontend's fat
  * jar (ScalarDB core) and the Cluster client SDK on the classpath:
  *
  * <pre>java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:<sdk.jar> Setup.java admin.properties</pre>
@@ -42,7 +42,12 @@ public class Setup {
         admin.createUser(user[0], user[1]);
       }
     }
-    admin.grant("alice", "authdemo", AuthAdmin.Privilege.READ, AuthAdmin.Privilege.WRITE);
+    admin.grant(
+        "alice",
+        "authdemo",
+        AuthAdmin.Privilege.READ,
+        AuthAdmin.Privilege.WRITE,
+        AuthAdmin.Privilege.DELETE); // DELETE is its own privilege in ScalarDB
     DistributedTransactionManager manager = factory.getTransactionManager();
     DistributedTransaction tx = manager.start();
     for (String[] row : new String[][] {{"1", "a"}, {"2", "b"}}) {
@@ -57,6 +62,6 @@ public class Setup {
     tx.commit();
     manager.close();
     admin.close();
-    System.out.println("ready: authdemo.items with 2 rows; users alice (READ, WRITE) and bob (nothing)");
+    System.out.println("ready: authdemo.items with 2 rows; users alice (READ, WRITE, DELETE) and bob (nothing)");
   }
 }

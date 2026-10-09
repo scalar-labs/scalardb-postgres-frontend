@@ -18,11 +18,11 @@ import org.slf4j.LoggerFactory;
  * <p>Usage: {@code java -jar scalardb-postgres-frontend-<version>.jar <scalardb.properties>
  * [port]}; the port defaults to 5432. With {@code scalar.db.postgres.auth} set to {@code userpass}
  * or {@code oidc_jwt}, clients log in as ScalarDB Cluster users: the transaction manager must be
- * {@code cluster}, the Cluster client SDK must be on the classpath ({@code java -cp
- * frontend.jar:scalardb-cluster-java-client-sdk.jar ...Main}), TLS must be configured with {@code
- * scalar.db.postgres.ssl.cert} and {@code .key} unless {@code scalar.db.postgres.ssl.require=false}
- * allows plaintext for local testing, and no {@code scalar.db.username} may be configured, so that
- * nothing can run as anyone but the session's user.
+ * {@code cluster}, the Cluster client SDK and its dependencies must be on the classpath ({@code
+ * java -cp frontend.jar:'sdk-classpath/lib/*' ...Main}, see difftest/cluster-auth), TLS must be
+ * configured with {@code scalar.db.postgres.ssl.cert} and {@code .key} unless {@code
+ * scalar.db.postgres.ssl.require=false} allows plaintext for local testing, and no {@code
+ * scalar.db.username} may be configured, so that nothing can run as anyone but the session's user.
  */
 public final class Main {
   private static final Logger logger = LoggerFactory.getLogger(Main.class);

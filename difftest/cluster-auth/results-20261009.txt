@@ -1,0 +1,22 @@
+# run.sh against a standalone ScalarDB Cluster node, 2026-10-09
+# node: Cluster main 6e2cb011 (2026-09-28) built locally, auth enabled, on PostgreSQL 15440/clusterdb
+# frontend: branch auth 18d4ff6 + kit fixes, cluster mode, userpass, TLS from the engine's test certificate
+
+PASS alice reads
+PASS alice writes
+PASS alice deletes
+PASS current_user is alice
+PASS a lookup join (pool reads)
+PASS a transaction
+PASS DDL as alice
+PASS bob cannot read
+PASS bob cannot write
+PASS bob cannot create
+PASS bob's session goes on after 42501
+PASS SET ROLE is refused
+PASS a wrong password is refused
+PASS a wrong password waited about a second
+PASS an unknown user is refused the same way
+PASS plaintext is refused
+PASS TLS is in use
+17 passed, 0 failed

@@ -168,6 +168,7 @@ privileges apply to everything a session runs. Three things in the properties fi
 ```properties
 scalar.db.transaction_manager=cluster          # only Cluster has users; a Cluster client config follows
 scalar.db.contact_points=indirect:cluster.example.com
+scalar.db.cluster.auth.enabled=true            # without it the SDK never logs in
 scalar.db.postgres.auth=userpass               # or oidc_jwt: the client sends an access token as the password
 scalar.db.postgres.ssl.cert=server.crt         # PEM certificate chain
 scalar.db.postgres.ssl.key=server.key          # PEM, unencrypted PKCS#8 (openssl pkcs8 -topk8 -nocrypt converts)
@@ -176,10 +177,11 @@ scalar.db.postgres.ssl.key=server.key          # PEM, unencrypted PKCS#8 (openss
 Leave `scalar.db.username` and `scalar.db.password` out: every call runs as the session's user, and
 the server refuses to start with a configured user, so that nothing can ever run as anyone else. TLS is
 required with authentication on; `scalar.db.postgres.ssl.require=false` allows plaintext for local
-testing only. The Cluster client SDK is on the classpath rather than inside the jar:
+testing only. The Cluster client SDK and its dependencies are on the classpath rather than inside the
+jar; `difftest/cluster-auth/sdk-classpath/` copies them into one directory:
 
 ```sh
-java -cp scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:scalardb-cluster-java-client-sdk-4.0.0-SNAPSHOT.jar \
+java -cp scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' \
      com.scalar.db.frontend.postgres.server.Main scalardb.properties 5432
 ```
 
