@@ -374,7 +374,8 @@ public class PostgresServer implements AutoCloseable {
             case 'P':
               String name = readString(msg);
               if (statements.size() >= MAX_PREPARED && !statements.containsKey(name)) {
-                throw new IllegalArgumentException(
+                throw new PgException.Argument(
+                    "53000",
                     "too many prepared statements: close some (at most " + MAX_PREPARED + ")");
               }
               statements.put(name, readString(msg));
@@ -404,7 +405,7 @@ public class PostgresServer implements AutoCloseable {
               send('3', new Msg()); // CloseComplete
               break;
             default:
-              throw new IllegalArgumentException("Unsupported message type: " + (char) type);
+              throw new PgException.Argument("0A000", "Unsupported message type: " + (char) type);
           }
         } catch (Exception | Error e) {
           // an Error (a stack overflow on deeply nested SQL, a missing class) is reported like any
@@ -571,7 +572,7 @@ public class PostgresServer implements AutoCloseable {
           continue;
         }
         if (length > msg.remaining()) {
-          throw new IllegalArgumentException(SHORT_MESSAGE);
+          throw new PgException.Argument("08P01", SHORT_MESSAGE);
         }
         byte[] value = new byte[length];
         msg.get(value);
@@ -588,8 +589,8 @@ public class PostgresServer implements AutoCloseable {
         values.add(typed(params.get(i), i < oids.length ? oids[i] : 0));
       }
       if (portals.size() >= MAX_PREPARED && !portals.containsKey(portal)) {
-        throw new IllegalArgumentException(
-            "too many portals: close some (at most " + MAX_PREPARED + ")");
+        throw new PgException.Argument(
+            "53000", "too many portals: close some (at most " + MAX_PREPARED + ")");
       }
       portals.put(portal, new Portal(sql, values, resultFormats));
       send('2', new Msg()); // BindComplete
@@ -607,7 +608,8 @@ public class PostgresServer implements AutoCloseable {
         }
         int n = parameterCount(sql);
         if (n > MAX_PARAMETERS) {
-          throw new IllegalArgumentException("too many parameters: $" + n); // $99999999 in the SQL
+          throw new PgException.Argument(
+              "08P01", "too many parameters: $" + n); // $99999999 in the SQL
         }
         int[] oids = parameterTypes.getOrDefault(name, new int[0]);
         Msg m = new Msg().i16(n);
@@ -726,6 +728,20 @@ public class PostgresServer implements AutoCloseable {
       if (e instanceof Error) {
         return "XX000"; // internal_error
       }
+      // The frontend's own errors carry their code; the rules below are for what comes from
+      // ScalarDB (by error code) and the JDK (by type), whose messages are not ours (todo 026)
+      if (e instanceof PgException) {
+        return ((PgException) e).sqlState();
+      }
+      if (m.contains("DB-AUTH-10005")) {
+        return "28P01"; // invalid_password
+      }
+      if (m.contains("DB-AUTH-10006")) {
+        return "28000"; // invalid_authorization_specification
+      }
+      if (m.contains("DB-AUTH-")) {
+        return "42501"; // insufficient_privilege
+      }
       if (m.contains("DB-CORE-10026")) {
         return "22025"; // invalid_escape_sequence
       }
@@ -756,121 +772,8 @@ public class PostgresServer implements AutoCloseable {
       if (e instanceof DateTimeException) {
         return "22007"; // invalid_datetime_format
       }
-      if (e instanceof NumberFormatException || m.startsWith("Cannot cast")) {
+      if (e instanceof NumberFormatException) {
         return "22P02"; // invalid_text_representation
-      }
-      if (m.startsWith("isolation level ")
-          || m.startsWith("TABLESAMPLE")
-          || m.startsWith("SELECT INTO")
-          || m.startsWith("Temporary tables")
-          || m.startsWith("Data-modifying")
-          || m.startsWith("Expression indexes")
-          || m.startsWith("collation ")) {
-        return "0A000"; // feature_not_supported
-      }
-      if (m.startsWith("for SELECT DISTINCT")) {
-        return "42P10"; // invalid_column_reference
-      }
-      if (m.startsWith("invalid value for parameter")) {
-        return "22023"; // invalid_parameter_value
-      }
-      if (m.startsWith("SET TRANSACTION must be called before any query")) {
-        return "25001"; // active_sql_transaction
-      }
-      if (e instanceof IllegalStateException) {
-        return "25000"; // invalid_transaction_state
-      }
-      if (m.startsWith("invalid input syntax for type date")
-          || m.startsWith("invalid input syntax for type time")) {
-        return "22007"; // invalid_datetime_format
-      }
-      if (m.startsWith("invalid input syntax")) {
-        return "22P02"; // invalid_text_representation
-      }
-      if (m.startsWith("savepoint \"") && m.endsWith("does not exist")) {
-        return "3B001"; // invalid_savepoint_specification
-      }
-      if (m.startsWith("index \"") && m.endsWith("does not exist")) {
-        return "42704"; // undefined_object
-      }
-      if (m.startsWith("invalid regular expression")) {
-        return "2201B"; // invalid_regular_expression
-      }
-      if (m.startsWith("too many prepared statements") || m.startsWith("too many portals")) {
-        return "53000"; // insufficient_resources
-      }
-      if (m.startsWith("negative substring length")) {
-        return "22011"; // substring_error
-      }
-      if (m.startsWith("cannot take square root")
-          || m.startsWith("zero raised to a negative power")
-          || m.startsWith("a negative number raised to a non-integer power")) {
-        return "2201F"; // invalid_argument_for_power_function
-      }
-      if (m.equals(SHORT_MESSAGE) || m.startsWith("too many parameters")) {
-        return "08P01"; // protocol_violation
-      }
-      if (m.startsWith("date/time field value out of range")) {
-        return "22008"; // datetime_field_overflow
-      }
-      if (m.startsWith("LIMIT must not be negative")) {
-        return "2201W"; // invalid_row_count_in_limit_clause
-      }
-      if (m.startsWith("OFFSET must not be negative")) {
-        return "2201X"; // invalid_row_count_in_result_offset_clause
-      }
-      if (m.startsWith("invalid byte sequence")) {
-        return "22021"; // character_not_in_repertoire: a NUL in a string
-      }
-      if (m.startsWith("tables can have at most")) {
-        return "54011"; // too_many_columns
-      }
-      if (m.startsWith("length for type ")
-          || m.startsWith("NUMERIC precision ")
-          || m.startsWith("NUMERIC scale ")) {
-        return "22023"; // invalid_parameter_value: a type modifier PostgreSQL rejects too
-      }
-      if (m.startsWith("identifier \"") && m.contains("is too long")) {
-        return "42622"; // name_too_long
-      }
-      if (m.startsWith("value \"") && m.contains("is out of range")) {
-        return "22003"; // numeric_value_out_of_range
-      }
-      if (m.startsWith("The statement would write more than")) {
-        return "54000"; // program_limit_exceeded: the write cap
-      }
-      if (m.startsWith("invalid value for parameter")) {
-        return "22023"; // invalid_parameter_value
-      }
-      if (m.startsWith("unrecognized configuration parameter")) {
-        return "42704"; // undefined_object
-      }
-      if (m.startsWith("null value in column")) {
-        return "23502"; // not_null_violation
-      }
-      if (m.startsWith("division by zero")) {
-        return "22012";
-      }
-      if (m.startsWith("Unknown column")) {
-        return "42703"; // undefined_column
-      }
-      if (m.startsWith("Ambiguous column")) {
-        return "42702"; // ambiguous_column
-      }
-      if (m.startsWith("Table not found")) {
-        return "42P01"; // undefined_table
-      }
-      if (m.startsWith("operator does not exist")) {
-        return "42883"; // undefined_function
-      }
-      if (m.startsWith("Unsupported") || m.contains("are not supported")) {
-        return "0A000"; // feature_not_supported
-      }
-      if (m.startsWith("Subquery must return")) {
-        return "21000"; // cardinality_violation
-      }
-      if (m.contains("DB-CORE-10020")) {
-        return "23502"; // not_null_violation: a NULL key column
       }
       // A failure in the backing database (a CREATE TABLE it refused, a value it rejected) carries
       // its own SQLSTATE, which says more than internal_error; HY000 is a vendor's "other"
@@ -881,6 +784,8 @@ public class PostgresServer implements AutoCloseable {
           return state;
         }
       }
+      // a statement the engine could not make sense of is a syntax error; anything else, such as a
+      // failed metadata read, is internal
       return e instanceof IllegalArgumentException ? "42601" : "XX000";
     }
 
@@ -944,7 +849,7 @@ public class PostgresServer implements AutoCloseable {
   private static int count(ByteBuffer msg, int itemBytes) {
     int n = msg.getShort() & 0xFFFF;
     if ((long) n * itemBytes > msg.remaining()) {
-      throw new IllegalArgumentException(SHORT_MESSAGE);
+      throw new PgException.Argument("08P01", SHORT_MESSAGE);
     }
     return n;
   }
@@ -1264,8 +1169,8 @@ public class PostgresServer implements AutoCloseable {
       case 1231: // numeric[]
         return arrayText(b);
       default:
-        throw new IllegalArgumentException(
-            "Binary parameters of type " + oid + " are not supported");
+        throw new PgException.Argument(
+            "0A000", "Binary parameters of type " + oid + " are not supported");
     }
   }
 
@@ -1315,7 +1220,7 @@ public class PostgresServer implements AutoCloseable {
     b.getInt(); // has nulls
     int elementOid = b.getInt();
     if (dims > 1) {
-      throw new IllegalArgumentException("Multidimensional arrays are not supported");
+      throw new PgException.Argument("0A000", "Multidimensional arrays are not supported");
     }
     int count = dims == 0 ? 0 : b.getInt();
     if (dims == 1) {
@@ -1332,7 +1237,7 @@ public class PostgresServer implements AutoCloseable {
         continue;
       }
       if (length > b.remaining()) {
-        throw new IllegalArgumentException(SHORT_MESSAGE);
+        throw new PgException.Argument("08P01", SHORT_MESSAGE);
       }
       byte[] bytes = new byte[length];
       b.get(bytes);

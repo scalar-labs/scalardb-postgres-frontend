@@ -70,12 +70,12 @@ final class Json {
     try {
       JsonNode node = MAPPER.readTree(text);
       if (node == null || node.isMissingNode()) {
-        throw new IllegalArgumentException("invalid input syntax for type json");
+        throw new PgException.Argument("22P02", "invalid input syntax for type json");
       }
       return node;
     } catch (JsonProcessingException e) {
-      throw new IllegalArgumentException(
-          "invalid input syntax for type json: " + e.getOriginalMessage());
+      throw new PgException.Argument(
+          "22P02", "invalid input syntax for type json: " + e.getOriginalMessage());
     }
   }
 
@@ -355,8 +355,8 @@ final class Json {
 
   static long arrayLength(JsonNode node) {
     if (!node.isArray()) {
-      throw new IllegalArgumentException(
-          "cannot get array length of a " + (node.isObject() ? "non-array" : "scalar"));
+      throw new PgException.Argument(
+          "22023", "cannot get array length of a " + (node.isObject() ? "non-array" : "scalar"));
     }
     return node.size();
   }
@@ -364,8 +364,8 @@ final class Json {
   /** {@code json_build_object(k1, v1, ...)}: keys as text, in the order given. */
   static ObjectNode buildObject(List<Object> args) {
     if (args.size() % 2 != 0) {
-      throw new IllegalArgumentException(
-          "argument list must have even number of elements (key, value pairs)");
+      throw new PgException.Argument(
+          "22023", "argument list must have even number of elements (key, value pairs)");
     }
     ObjectNode out = NODES.objectNode();
     for (int i = 0; i < args.size(); i += 2) {
@@ -388,8 +388,8 @@ final class Json {
   /** The elements of an array, as values of the given type. */
   static List<Object> elements(JsonNode node, boolean binary, boolean asText) {
     if (!node.isArray()) {
-      throw new IllegalArgumentException(
-          "cannot extract elements from " + (node.isObject() ? "an object" : "a scalar"));
+      throw new PgException.Argument(
+          "22023", "cannot extract elements from " + (node.isObject() ? "an object" : "a scalar"));
     }
     List<Object> out = new ArrayList<>();
     for (JsonNode item : node) {

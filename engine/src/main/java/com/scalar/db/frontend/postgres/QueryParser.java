@@ -579,7 +579,8 @@ public class QueryParser {
             target = oid;
             targetCategory = category;
           } else if (!category.equals(targetCategory)) {
-            throw new IllegalArgumentException(
+            throw new PgException.Argument(
+                "42804", // datatype_mismatch
                 "UNION types "
                     + Catalog.typeName(target)
                     + " and "
@@ -743,7 +744,8 @@ public class QueryParser {
         try (Cursor rows = write.read.open(crud)) {
           for (Map<String, Object> row = rows.next(); row != null; row = rows.next()) {
             if (cap > 0 && driving.size() >= cap) {
-              throw new IllegalArgumentException(
+              throw new PgException.Argument(
+                  "54000",
                   "The statement would write more than "
                       + cap
                       + " rows, so nothing was written. Narrow the WHERE clause, raise the cap"
@@ -2295,7 +2297,7 @@ public class QueryParser {
         quoted = true;
         wasQuoted = true;
       } else if (c == '{') {
-        throw new IllegalArgumentException("Nested arrays are not supported: " + text);
+        throw new PgException.Argument("0A000", "Nested arrays are not supported: " + text);
       } else if (c == ',') {
         out.add(
             wasQuoted || !cur.toString().trim().equalsIgnoreCase("NULL")
@@ -2556,7 +2558,7 @@ public class QueryParser {
     if (explain.matches()) {
       Plan inner = plan(explain.group(2));
       if (inner.ddl != null) {
-        throw new IllegalArgumentException("EXPLAIN is not supported for DDL: " + sql);
+        throw new PgException.Argument("0A000", "EXPLAIN is not supported for DDL: " + sql);
       }
       if (explain.group(1) != null) {
         return Plan.analyze(inner);
@@ -2669,7 +2671,7 @@ public class QueryParser {
     if (statement instanceof net.sf.jsqlparser.statement.analyze.Analyze) {
       return Plan.ddl(() -> {}, "ANALYZE"); // no planner statistics to collect
     }
-    throw new IllegalArgumentException("Unsupported statement: " + sql);
+    throw new PgException.Argument("0A000", "Unsupported statement: " + sql);
   }
 
   // ---- SELECT planning ----
@@ -2744,18 +2746,19 @@ public class QueryParser {
         && String.join(" ", create.getCreateOptionsStrings())
             .toUpperCase(Locale.ROOT)
             .matches(".*\\bTEMP(ORARY)?\\b.*")) {
-      throw new IllegalArgumentException(
-          "Temporary tables are not supported: a table created here would be permanent");
+      throw new PgException.Argument(
+          "0A000", "Temporary tables are not supported: a table created here would be permanent");
     }
     String namespace = namespaceOf(create.getTable());
     String name = checkedName(unquote(create.getTable().getName()), false);
     if (create.getColumnDefinitions() == null) {
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "0A000",
           "Unsupported CREATE TABLE form (a ScalarDB table needs explicit columns and a primary key): "
               + create);
     }
     if (create.getColumnDefinitions().size() > 1600) {
-      throw new IllegalArgumentException("tables can have at most 1600 columns");
+      throw new PgException.Argument("54011", "tables can have at most 1600 columns");
     }
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
@@ -2775,7 +2778,8 @@ public class QueryParser {
           throw new IllegalArgumentException("column \"" + column + "\" specified more than once");
         }
         if (earlier.equalsIgnoreCase(column)) {
-          throw new IllegalArgumentException(
+          throw new PgException.Argument(
+              "0A000",
               "Columns differing only in case are not supported: \""
                   + earlier
                   + "\" and \""
@@ -2879,7 +2883,8 @@ public class QueryParser {
           "identity on " + col + " does not generate values here: inserts must supply the column");
     } else if (specs.contains("DEFAULT") && !specs.matches(".*DEFAULT\\s+NULL(\\s.*|$)")) {
       // DEFAULT NULL is what an omitted column reads anyway; any other default would be lost
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "0A000",
           "DEFAULT on " + col + " is not supported: the column would read NULL when it is omitted");
     }
     switch (base) {
@@ -2904,12 +2909,12 @@ public class QueryParser {
       case "decimal":
       case "dec":
         if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
-          throw new IllegalArgumentException(
-              "NUMERIC precision " + args[0] + " must be between 1 and 1000");
+          throw new PgException.Argument(
+              "22023", "NUMERIC precision " + args[0] + " must be between 1 and 1000");
         }
         if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
-          throw new IllegalArgumentException(
-              "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
+          throw new PgException.Argument(
+              "22023", "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
         }
         out.add(
             "NUMERIC on "
@@ -2968,7 +2973,8 @@ public class QueryParser {
       throw new IllegalArgumentException("ScalarDB indexes cover one column: " + create);
     }
     if (!columns.get(0).matches("\"?[\\w$ ]+\"?")) {
-      throw new IllegalArgumentException("Expression indexes are not supported: " + columns.get(0));
+      throw new PgException.Argument(
+          "0A000", "Expression indexes are not supported: " + columns.get(0));
     }
     String column = unquote(columns.get(0));
     String generated = name + "_" + column + "_idx";
@@ -3071,13 +3077,14 @@ public class QueryParser {
                   }
                 }
                 if (!ifExists) {
-                  throw new IllegalArgumentException("index \"" + indexName + "\" does not exist");
+                  throw new PgException.Argument(
+                      "42704", "index \"" + indexName + "\" does not exist");
                 }
               },
               "DROP INDEX");
         }
       default:
-        throw new IllegalArgumentException("Unsupported statement: " + drop);
+        throw new PgException.Argument("0A000", "Unsupported statement: " + drop);
     }
   }
 
@@ -3107,7 +3114,8 @@ public class QueryParser {
         String newName = checkedName(unquote(expression.getColumnName()), true);
         steps.add(() -> admin.renameColumn(namespace, name, oldName, newName));
       } else {
-        throw new IllegalArgumentException(
+        throw new PgException.Argument(
+            "0A000",
             "Unsupported ALTER TABLE (ScalarDB supports ADD COLUMN and RENAME COLUMN): " + alter);
       }
     }
@@ -3139,10 +3147,11 @@ public class QueryParser {
   /** The length PostgreSQL accepts for CHAR(n) and VARCHAR(n), with its messages. */
   private static void checkLength(String type, long[] args) {
     if (args.length > 0 && args[0] < 1) {
-      throw new IllegalArgumentException("length for type " + type + " must be at least 1");
+      throw new PgException.Argument("22023", "length for type " + type + " must be at least 1");
     }
     if (args.length > 0 && args[0] > 10485760) {
-      throw new IllegalArgumentException("length for type " + type + " cannot exceed 10485760");
+      throw new PgException.Argument(
+          "22023", "length for type " + type + " cannot exceed 10485760");
     }
   }
 
@@ -3155,7 +3164,8 @@ public class QueryParser {
   static String checkedName(String name, boolean column) {
     int max = column ? 63 - "before_".length() : 63;
     if (name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > max) {
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "42622",
           "identifier \""
               + name
               + "\" is too long: at most "
@@ -3223,7 +3233,7 @@ public class QueryParser {
       case "timestamp with time zone":
         return DataType.TIMESTAMPTZ;
       default:
-        throw new IllegalArgumentException("Unsupported column type: " + type);
+        throw new PgException.Argument("0A000", "Unsupported column type: " + type);
     }
   }
 
@@ -3260,7 +3270,7 @@ public class QueryParser {
         for (LogicalPlan.Source s : sources) {
           if (s.qualifier.equals(qualifier)) {
             if (!s.columns.contains(name)) {
-              throw new IllegalArgumentException("Unknown column: " + qualifier + "." + name);
+              throw new PgException.Argument("42703", "Unknown column: " + qualifier + "." + name);
             }
             found = s;
           }
@@ -3270,7 +3280,7 @@ public class QueryParser {
           // a USING column binds to the left side; the right side's copy is merged into it
           if (s.columns.contains(name) && !s.merged.containsKey(name)) {
             if (found != null) {
-              throw new IllegalArgumentException("Ambiguous column: " + name);
+              throw new PgException.Argument("42702", "Ambiguous column: " + name);
             }
             found = s;
           }
@@ -3281,7 +3291,7 @@ public class QueryParser {
           correlated = true;
           return outer.resolve(c);
         }
-        throw new IllegalArgumentException("Unknown column: " + c);
+        throw new PgException.Argument("42703", "Unknown column: " + c);
       }
       c.setTable(new Table(quoteIfNeeded(found.qualifier)));
       found.projections.add(name);
@@ -3305,7 +3315,7 @@ public class QueryParser {
       if (select instanceof Values) {
         return values((Values) select);
       }
-      throw new IllegalArgumentException("Unsupported query: " + select);
+      throw new PgException.Argument("0A000", "Unsupported query: " + select);
     } finally {
       ctes = saved;
     }
@@ -3339,7 +3349,8 @@ public class QueryParser {
       for (WithItem<?> item : items) {
         recursive |= item.isRecursive();
         if (!(item.getParenthesedStatement() instanceof Select)) {
-          throw new IllegalArgumentException(
+          throw new PgException.Argument(
+              "0A000",
               "Data-modifying statements in WITH are not supported: " + item.getAliasName());
         }
       }
@@ -3366,8 +3377,8 @@ public class QueryParser {
 
   private Plan block(PlainSelect select, @Nullable Scope outer) throws ExecutionException {
     if (select.getIntoTables() != null && !select.getIntoTables().isEmpty()) {
-      throw new IllegalArgumentException(
-          "SELECT INTO is not supported: use CREATE TABLE and INSERT ... SELECT");
+      throw new PgException.Argument(
+          "0A000", "SELECT INTO is not supported: use CREATE TABLE and INSERT ... SELECT");
     }
     LogicalPlan logical = bind(select, outer);
     Optimizer.optimize(logical);
@@ -3415,7 +3426,7 @@ public class QueryParser {
           || op instanceof net.sf.jsqlparser.statement.select.MinusOp) {
         kind = Operators.SetOperation.Kind.EXCEPT;
       } else {
-        throw new IllegalArgumentException("Unsupported set operation: " + op);
+        throw new PgException.Argument("0A000", "Unsupported set operation: " + op);
       }
       result = Plan.setOf(kind, all, result, terms.get(i + 1));
     }
@@ -3448,7 +3459,7 @@ public class QueryParser {
       if (row instanceof ParenthesedExpressionList) {
         tuples.add(new ArrayList<Expression>((ParenthesedExpressionList<?>) row));
       } else {
-        throw new IllegalArgumentException("Unsupported VALUES row: " + row);
+        throw new PgException.Argument("0A000", "Unsupported VALUES row: " + row);
       }
     }
     return tuples;
@@ -3654,8 +3665,8 @@ public class QueryParser {
       plan.outputOids.add(inferOid(e, plan.sources));
       if (isSetReturning(e)) {
         if (plan.aggregated) {
-          throw new IllegalArgumentException(
-              "Set-returning functions are not supported with aggregates: " + e);
+          throw new PgException.Argument(
+              "0A000", "Set-returning functions are not supported with aggregates: " + e);
         }
         plan.expanded.add(plan.outputNames.get(i));
       }
@@ -3674,8 +3685,8 @@ public class QueryParser {
                     && ((net.sf.jsqlparser.schema.Column) e).getTable() == null
                     && plan.outputNames.contains(columnName(e)));
         if (!inList) {
-          throw new IllegalArgumentException(
-              "for SELECT DISTINCT, ORDER BY expressions must appear in select list");
+          throw new PgException.Argument(
+              "42P10", "for SELECT DISTINCT, ORDER BY expressions must appear in select list");
         }
       }
     }
@@ -4376,7 +4387,7 @@ public class QueryParser {
     if (item instanceof Table) {
       Table table = (Table) item;
       if (table.getSampleClause() != null) {
-        throw new IllegalArgumentException("TABLESAMPLE is not supported");
+        throw new PgException.Argument("0A000", "TABLESAMPLE is not supported");
       }
       String schema = table.getSchemaName() == null ? null : unquote(table.getSchemaName());
       String name = unquote(table.getName());
@@ -4428,7 +4439,7 @@ public class QueryParser {
       net.sf.jsqlparser.statement.select.ParenthesedFromItem wrapper =
           (net.sf.jsqlparser.statement.select.ParenthesedFromItem) item;
       if (wrapper.getJoins() != null && !wrapper.getJoins().isEmpty()) {
-        throw new IllegalArgumentException("Unsupported FROM item: " + item);
+        throw new PgException.Argument("0A000", "Unsupported FROM item: " + item);
       }
       FromItem inner = wrapper.getFromItem();
       if (inner.getAlias() == null && wrapper.getAlias() != null) {
@@ -4510,7 +4521,7 @@ public class QueryParser {
       }
       if (!name.endsWith("generate_series")) {
         if (!name.startsWith("pg_catalog.")) {
-          throw new IllegalArgumentException("Unsupported table function: " + function);
+          throw new PgException.Argument("0A000", "Unsupported table function: " + function);
         }
         // psql's describe queries join pg_catalog functions such as unnest(); for the tables
         // involved the answer is always "nothing", so the function yields no rows
@@ -4561,7 +4572,7 @@ public class QueryParser {
     if (item instanceof Values) {
       return derived(values((Values) item), item);
     }
-    throw new IllegalArgumentException("Unsupported FROM item: " + item);
+    throw new PgException.Argument("0A000", "Unsupported FROM item: " + item);
   }
 
   /** The body of a recursive CTE when it has the shape {@code anchor UNION [ALL] step}. */
@@ -4733,7 +4744,8 @@ public class QueryParser {
             }
             DataType type = typeOf.apply(c);
             if (type == DataType.TEXT) {
-              throw new IllegalArgumentException(
+              throw new PgException.Argument(
+                  "42883",
                   "operator does not exist: text "
                       + op
                       + (literal instanceof LongValue ? " integer" : " numeric"));
@@ -5516,7 +5528,8 @@ public class QueryParser {
         return new Target(namespace, name, metadata);
       }
     }
-    throw new IllegalArgumentException(
+    throw new PgException.Argument(
+        "42P01",
         "Table not found: "
             + (table.getSchemaName() == null ? String.join(", ", candidates) : candidates.get(0))
             + "."
@@ -5567,7 +5580,7 @@ public class QueryParser {
     for (Expression c : conjuncts(where)) {
       ConditionalExpression p = pushable(c, metadata, null, ctx);
       if (p == null) {
-        throw new IllegalArgumentException("Unsupported condition " + c + " in: " + statement);
+        throw new PgException.Argument("0A000", "Unsupported condition " + c + " in: " + statement);
       }
       out.add(p);
     }
@@ -5796,8 +5809,8 @@ public class QueryParser {
 
   /** A key column without a value: PostgreSQL's not-null violation (SQLSTATE 23502). */
   private static IllegalArgumentException notNullViolation(String column) {
-    return new IllegalArgumentException(
-        "null value in column \"" + column + "\" violates not-null constraint");
+    return new PgException.Argument(
+        "23502", "null value in column \"" + column + "\" violates not-null constraint");
   }
 
   private static Key key(List<Column<?>> prefix, Column<?>... rest) {
@@ -5859,7 +5872,7 @@ public class QueryParser {
           public <S> Void visit(Select select, S context) {
             // JSQLParser dispatches every subquery here; a bare SELECT appears in ARRAY(SELECT ...)
             if (!(select instanceof ParenthesedSelect || select instanceof PlainSelect)) {
-              throw new IllegalArgumentException("Unsupported subquery: " + select);
+              throw new PgException.Argument("0A000", "Unsupported subquery: " + select);
             }
             out.add(select);
             return null;
@@ -6266,7 +6279,7 @@ public class QueryParser {
 
   private static String existing(TableMetadata metadata, String name) {
     if (metadata.getColumnDataType(name) == null) {
-      throw new IllegalArgumentException("Unknown column: " + name);
+      throw new PgException.Argument("42703", "Unknown column: " + name);
     }
     return name;
   }
@@ -6284,7 +6297,7 @@ public class QueryParser {
     DataType type = metadata.getColumnDataType(existing(metadata, name));
     if (type == DataType.TEXT && s != null && s.indexOf('\0') >= 0) {
       // PostgreSQL has no NUL in text, and some backing databases would store it
-      throw new IllegalArgumentException("invalid byte sequence for encoding \"UTF8\": 0x00");
+      throw new PgException.Argument("22021", "invalid byte sequence for encoding \"UTF8\": 0x00");
     }
     try {
       return parseColumn(type, name, s);
@@ -6309,12 +6322,13 @@ public class QueryParser {
                     + bounds.group(2)
                     + ")"
                 : "";
-        throw new IllegalArgumentException(
-            "date/time field value out of range: \"" + s + "\"" + range, e);
+        throw new PgException.Argument(
+            "22008", "date/time field value out of range: \"" + s + "\"" + range, e);
       }
       if (temporal && failure.contains("Invalid")) {
         // parsed, but no such day or time, e.g. 2023-02-30
-        throw new IllegalArgumentException("date/time field value out of range: \"" + s + "\"", e);
+        throw new PgException.Argument(
+            "22008", "date/time field value out of range: \"" + s + "\"", e);
       }
       if (e instanceof ArithmeticException
           && (isInteger(s) || type == DataType.FLOAT || type == DataType.DOUBLE)) {
@@ -6324,11 +6338,13 @@ public class QueryParser {
             isInteger(s) && type != DataType.FLOAT && type != DataType.DOUBLE
                 ? s
                 : new BigDecimal(String.valueOf(s).trim()).stripTrailingZeros().toString();
-        throw new IllegalArgumentException(
-            "value \"" + shown + "\" is out of range for type " + pgType, e);
+        throw new PgException.Argument(
+            "22003", "value \"" + shown + "\" is out of range for type " + pgType, e);
       }
-      throw new IllegalArgumentException(
-          "invalid input syntax for type " + pgType + ": \"" + s + "\"", e);
+      throw new PgException.Argument(
+          temporal ? "22007" : "22P02",
+          "invalid input syntax for type " + pgType + ": \"" + s + "\"",
+          e);
     }
   }
 
@@ -6467,7 +6483,7 @@ public class QueryParser {
     if (isColumn(e) && isBooleanLiteral(columnName(e))) {
       return columnName(e).toLowerCase(Locale.ROOT);
     }
-    throw new IllegalArgumentException("Unsupported literal: " + e);
+    throw new PgException.Argument("0A000", "Unsupported literal: " + e);
   }
 
   /** A string literal's value: doubled quotes undone, and C-style escapes in an {@code E'...'}. */
@@ -6563,7 +6579,8 @@ public class QueryParser {
     }
     int v = new BigDecimal(s).intValueExact();
     if (v < 0) {
-      throw new IllegalArgumentException(clause + " must not be negative");
+      throw new PgException.Argument(
+          clause.equals("LIMIT") ? "2201W" : "2201X", clause + " must not be negative");
     }
     return v;
   }

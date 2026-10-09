@@ -175,7 +175,7 @@ final class Evaluator {
     List<Map<String, Object>> subquery(Select select, List<Map<String, Object>> group) {
       QueryParser.Plan plan = subplans.get(select);
       if (plan == null) {
-        throw new IllegalArgumentException("Unsupported subquery: " + select);
+        throw new PgException.Argument("0A000", "Unsupported subquery: " + select);
       }
       if (!plan.correlated) {
         // the same rows for every outer row: read once per execution of the statement
@@ -438,8 +438,8 @@ final class Evaluator {
       @Override
       public char charAt(int i) {
         if ((++reads & 0xFFF) == 0 && System.nanoTime() > deadline) {
-          throw new IllegalArgumentException(
-              "invalid regular expression: matching took longer than the time allowed");
+          throw new PgException.Argument(
+              "2201B", "invalid regular expression: matching took longer than the time allowed");
         }
         return s.charAt(i);
       }
@@ -567,7 +567,8 @@ final class Evaluator {
         && !collation.equals("posix")
         && !collation.equals("ucs_basic")
         && !collation.equals("default")) {
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "0A000",
           "collation \""
               + name.replace("\"", "")
               + "\" is not supported: only \"C\" (byte order) is available");
@@ -660,8 +661,8 @@ final class Evaluator {
       Map<String, Object> row = group.isEmpty() ? Collections.emptyMap() : group.get(0);
       String key = Windows.KEY + e; // ponytail: deparsed per row; cache per call if it shows up
       if (!row.containsKey(key)) {
-        throw new IllegalArgumentException(
-            "Window functions are allowed only in the select list and ORDER BY: " + e);
+        throw new PgException.Argument(
+            "42P20", "Window functions are allowed only in the select list and ORDER BY: " + e);
       }
       return row.get(key);
     }
@@ -742,8 +743,8 @@ final class Evaluator {
         pattern =
             Pattern.compile(posixRegex(text(p)), caseInsensitive ? Pattern.CASE_INSENSITIVE : 0);
       } catch (java.util.regex.PatternSyntaxException bad) {
-        throw new IllegalArgumentException(
-            "invalid regular expression: " + bad.getDescription(), bad);
+        throw new PgException.Argument(
+            "2201B", "invalid regular expression: " + bad.getDescription(), bad);
       }
       boolean found = pattern.matcher(bounded(text(v))).find();
       return found != negate;
@@ -754,14 +755,15 @@ final class Evaluator {
         return null;
       }
       if (rows.size() > 1 || rows.get(0).size() != 1) {
-        throw new IllegalArgumentException("Subquery must return one row and one column: " + e);
+        throw new PgException.Argument(
+            "21000", "Subquery must return one row and one column: " + e);
       }
       return rows.get(0).values().iterator().next();
     }
     if (e instanceof ExistsExpression) {
       ExistsExpression exists = (ExistsExpression) e;
       if (!(exists.getRightExpression() instanceof ParenthesedSelect)) {
-        throw new IllegalArgumentException("Unsupported EXISTS expression: " + e);
+        throw new PgException.Argument("0A000", "Unsupported EXISTS expression: " + e);
       }
       boolean empty =
           ctx.subquery((ParenthesedSelect) exists.getRightExpression(), group).isEmpty();
@@ -819,7 +821,7 @@ final class Evaluator {
       }
       if (like.getLikeKeyWord() != LikeExpression.KeyWord.LIKE
           && like.getLikeKeyWord() != LikeExpression.KeyWord.ILIKE) {
-        throw new IllegalArgumentException("Unsupported expression: " + e);
+        throw new PgException.Argument("0A000", "Unsupported expression: " + e);
       }
       Pattern pattern = likePattern(String.valueOf(p), escape);
       if (like.getLikeKeyWord() == LikeExpression.KeyWord.ILIKE) {
@@ -860,7 +862,7 @@ final class Evaluator {
           values.add(eval(item, group, ctx));
         }
       } else {
-        throw new IllegalArgumentException("Unsupported IN expression: " + e);
+        throw new PgException.Argument("0A000", "Unsupported IN expression: " + e);
       }
       if (v == null) {
         return values.isEmpty() ? Boolean.valueOf(in.isNot()) : null; // NULL IN () is false
@@ -985,7 +987,7 @@ final class Evaluator {
             return all;
           }
         default:
-          throw new IllegalArgumentException("Unsupported JSON operator: " + e);
+          throw new PgException.Argument("0A000", "Unsupported JSON operator: " + e);
       }
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.relational.IsDistinctExpression) {
@@ -1067,7 +1069,7 @@ final class Evaluator {
       }
       return row;
     }
-    throw new IllegalArgumentException("Unsupported expression: " + e);
+    throw new PgException.Argument("0A000", "Unsupported expression: " + e);
   }
 
   /**
@@ -1097,7 +1099,7 @@ final class Evaluator {
           node = key == null ? null : Json.path(v.node, elements(key));
           break;
         default:
-          throw new IllegalArgumentException("Unsupported JSON operator: " + step.getValue());
+          throw new PgException.Argument("0A000", "Unsupported JSON operator: " + step.getValue());
       }
       boolean asText = step.getValue().endsWith(">>");
       cur =
@@ -1221,7 +1223,7 @@ final class Evaluator {
   /** Numeric division with PostgreSQL's result scale: at least 16 significant digits. */
   static BigDecimal divide(BigDecimal a, BigDecimal b) {
     if (b.signum() == 0) {
-      throw new IllegalArgumentException("division by zero");
+      throw new PgException.Argument("22012", "division by zero");
     }
     return a.divide(b, divScale(a, b), RoundingMode.HALF_UP);
   }
@@ -1368,8 +1370,15 @@ final class Evaluator {
     } catch (ArithmeticException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw new IllegalArgumentException(
-          "invalid input syntax for type " + pgTypeName(target) + ": \"" + s + "\"", e);
+      boolean temporal =
+          target instanceof LocalDate
+              || target instanceof LocalTime
+              || target instanceof LocalDateTime
+              || target instanceof Instant;
+      throw new PgException.Argument(
+          temporal ? "22007" : "22P02",
+          "invalid input syntax for type " + pgTypeName(target) + ": \"" + s + "\"",
+          e);
     }
     return s;
   }
@@ -1436,7 +1445,7 @@ final class Evaluator {
           break;
       }
     }
-    throw new IllegalArgumentException("Unknown column: " + c);
+    throw new PgException.Argument("42703", "Unknown column: " + c);
   }
 
   private static Object temporal(DateTimeLiteralExpression e) {
@@ -1496,7 +1505,7 @@ final class Evaluator {
       case "LOCALTIMESTAMP":
         return LocalDateTime.now(zone());
       default:
-        throw new IllegalArgumentException("Unsupported expression: " + keyword);
+        throw new PgException.Argument("0A000", "Unsupported expression: " + keyword);
     }
   }
 
@@ -1716,7 +1725,7 @@ final class Evaluator {
     }
     boolean division = e instanceof Division || e instanceof Modulo;
     if (division && ((Number) r).doubleValue() == 0) {
-      throw new IllegalArgumentException("division by zero");
+      throw new PgException.Argument("22012", "division by zero");
     }
     if (isIntegral(l) && isIntegral(r)) {
       long a = ((Number) l).longValue();
@@ -1815,7 +1824,7 @@ final class Evaluator {
         && (e instanceof Multiplication || e instanceof Division)) {
       double f = ((Number) r).doubleValue();
       if (e instanceof Division && f == 0) {
-        throw new IllegalArgumentException("division by zero");
+        throw new PgException.Argument("22012", "division by zero");
       }
       return ((Interval) l).times(e instanceof Division ? 1 / f : f);
     }
@@ -1964,7 +1973,7 @@ final class Evaluator {
       }
       Boolean result = compared(op, compare(left, right));
       if (result == null) {
-        throw new IllegalArgumentException("Unsupported expression: " + op);
+        throw new PgException.Argument("0A000", "Unsupported expression: " + op);
       }
       if (result != all) {
         return result;
@@ -1984,7 +1993,7 @@ final class Evaluator {
     String unit = field.toUpperCase(Locale.ROOT);
     if (v instanceof LocalTime
         && !Arrays.asList("HOUR", "MINUTE", "SECOND", "EPOCH").contains(unit)) {
-      throw new IllegalArgumentException("Unit \"" + field + "\" not supported for type time");
+      throw new PgException.Argument("0A000", "Unit \"" + field + "\" not supported for type time");
     }
     LocalDateTime t =
         v instanceof LocalDateTime
@@ -2024,7 +2033,7 @@ final class Evaluator {
         return BigDecimal.valueOf(t.toEpochSecond(ZoneOffset.UTC))
             .add(BigDecimal.valueOf(t.getNano() / 1000, 6));
       default:
-        throw new IllegalArgumentException("Unsupported EXTRACT field: " + field);
+        throw new PgException.Argument("0A000", "Unsupported EXTRACT field: " + field);
     }
   }
 
@@ -2062,7 +2071,7 @@ final class Evaluator {
       case "second":
         return t.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
       default:
-        throw new IllegalArgumentException("Unsupported date_trunc unit: " + unit);
+        throw new PgException.Argument("0A000", "Unsupported date_trunc unit: " + unit);
     }
   }
 
@@ -2328,9 +2337,9 @@ final class Evaluator {
     } catch (ArithmeticException e) {
       throw e; // out of range: 22003, not invalid text
     } catch (RuntimeException e) {
-      throw new IllegalArgumentException("Cannot cast '" + s + "' to " + type, e);
+      throw new PgException.Argument("22P02", "Cannot cast '" + s + "' to " + type, e);
     }
-    throw new IllegalArgumentException("Unsupported cast type: " + type);
+    throw new PgException.Argument("0A000", "Unsupported cast type: " + type);
   }
 
   /**
@@ -2547,7 +2556,7 @@ final class Evaluator {
           if (args.size() > 2) {
             long length = num(args, 2).longValue();
             if (length < 0) {
-              throw new IllegalArgumentException("negative substring length not allowed");
+              throw new PgException.Argument("22011", "negative substring length not allowed");
             }
             end = Math.min(end, start + length);
           }
@@ -2640,17 +2649,17 @@ final class Evaluator {
           double base = num(args, 0).doubleValue();
           double exponent = num(args, 1).doubleValue();
           if (base == 0 && exponent < 0) {
-            throw new IllegalArgumentException("zero raised to a negative power is undefined");
+            throw new PgException.Argument("2201F", "zero raised to a negative power is undefined");
           }
           if (base < 0 && exponent != Math.rint(exponent)) {
-            throw new IllegalArgumentException(
-                "a negative number raised to a non-integer power yields a complex result");
+            throw new PgException.Argument(
+                "2201F", "a negative number raised to a non-integer power yields a complex result");
           }
           return Math.pow(base, exponent);
         }
       case "SQRT":
         if (num(args, 0).doubleValue() < 0) {
-          throw new IllegalArgumentException("cannot take square root of a negative number");
+          throw new PgException.Argument("2201F", "cannot take square root of a negative number");
         }
         return Math.sqrt(num(args, 0).doubleValue());
       case "SIGN":
@@ -2700,7 +2709,7 @@ final class Evaluator {
       case "DATE_TRUNC":
         return dateTrunc(str(args, 0), arg(args, 1));
       default:
-        throw new IllegalArgumentException("Unsupported function: " + f);
+        throw new PgException.Argument("0A000", "Unsupported function: " + f);
     }
   }
 

@@ -205,7 +205,8 @@ public class QueryProcessor {
         checkIsolation(value);
       }
       if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
-        throw new IllegalArgumentException(
+        throw new PgException.Argument(
+            "22023",
             "invalid value for parameter \"" + MAX_ROWS_PER_WRITE + "\": \"" + value + "\"");
       }
       settings.put(key == null ? name : key, value);
@@ -265,8 +266,8 @@ public class QueryProcessor {
       try {
         return java.time.ZoneId.of(name.toUpperCase(Locale.ROOT), java.time.ZoneId.SHORT_IDS);
       } catch (java.time.DateTimeException again) {
-        throw new IllegalArgumentException(
-            "invalid value for parameter \"TimeZone\": \"" + name + "\"");
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"TimeZone\": \"" + name + "\"");
       }
     }
   }
@@ -275,8 +276,8 @@ public class QueryProcessor {
   private static java.time.ZoneOffset offset(String text, boolean posix) {
     java.util.regex.Matcher m = Pattern.compile("^([+-]?)(\\d{1,2})(?::(\\d{2}))?$").matcher(text);
     if (!m.matches()) {
-      throw new IllegalArgumentException(
-          "invalid value for parameter \"TimeZone\": \"" + text + "\"");
+      throw new PgException.Argument(
+          "22023", "invalid value for parameter \"TimeZone\": \"" + text + "\"");
     }
     int sign = (m.group(1).equals("-") ? -1 : 1) * (posix ? -1 : 1);
     int minutes = m.group(3) == null ? 0 : Integer.parseInt(m.group(3));
@@ -321,8 +322,8 @@ public class QueryProcessor {
     }
     String key = settingKey(m.group(1));
     if (key == null) {
-      throw new IllegalArgumentException(
-          "unrecognized configuration parameter \"" + m.group(1).trim() + "\"");
+      throw new PgException.Argument(
+          "42704", "unrecognized configuration parameter \"" + m.group(1).trim() + "\"");
     }
     return QueryParser.Plan.constant(
         Collections.singletonList(key),
@@ -526,12 +527,13 @@ public class QueryProcessor {
           // ROLLBACK TO SAVEPOINT: fine while the savepoint saw only reads, which also clears an
           // error since the failed statement wrote nothing
           if (!inTransaction()) {
-            throw new IllegalStateException(
-                "ROLLBACK TO SAVEPOINT can only be used in transaction blocks");
+            throw new PgException.State(
+                "25P01", "ROLLBACK TO SAVEPOINT can only be used in transaction blocks");
           }
           Map.Entry<String, Integer> target = savepoint(sql);
           if (writes > target.getValue()) {
-            throw new IllegalArgumentException(
+            throw new PgException.Argument(
+                "0A000",
                 "Cannot roll back to a savepoint after writes: ScalarDB has no partial rollback");
           }
           while (savepoints.peek() != target) {
@@ -548,7 +550,7 @@ public class QueryProcessor {
             : warning("there is no transaction in progress");
       case "SAVEPOINT":
         if (!inTransaction()) {
-          throw new IllegalStateException("SAVEPOINT can only be used in transaction blocks");
+          throw new PgException.State("25P01", "SAVEPOINT can only be used in transaction blocks");
         }
         java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
         savepoints.push(
@@ -558,8 +560,8 @@ public class QueryProcessor {
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "RELEASE":
         if (!inTransaction()) {
-          throw new IllegalStateException(
-              "RELEASE SAVEPOINT can only be used in transaction blocks");
+          throw new PgException.State(
+              "25P01", "RELEASE SAVEPOINT can only be used in transaction blocks");
         }
         Map.Entry<String, Integer> released = savepoint(sql);
         while (savepoints.pop() != released) {
@@ -578,7 +580,8 @@ public class QueryProcessor {
               lastCommandTag = "SET";
               return warning("SET TRANSACTION can only be used in transaction blocks");
             } else if (transaction != null) {
-              throw new IllegalStateException("SET TRANSACTION must be called before any query");
+              throw new PgException.State(
+                  "25001", "SET TRANSACTION must be called before any query");
             } else {
               transactionCharacteristics(tx.group(2));
             }
@@ -620,7 +623,7 @@ public class QueryProcessor {
         return s;
       }
     }
-    throw new IllegalArgumentException("savepoint \"" + name + "\" does not exist");
+    throw new PgException.Argument("3B001", "savepoint \"" + name + "\" does not exist");
   }
 
   /** BEGIN or SET TRANSACTION options: ISOLATION LEVEL, READ ONLY, READ WRITE. */
@@ -662,7 +665,8 @@ public class QueryProcessor {
   private void checkIsolation(String requested) {
     String available = defaults.getOrDefault("transaction_isolation", "read committed");
     if (isolationRank(requested) > isolationRank(available)) {
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "0A000",
           "isolation level "
               + requested
               + " is not available: this ScalarDB runs at "
@@ -937,7 +941,7 @@ public class QueryProcessor {
   private DistributedTransaction active() throws TransactionException {
     if (transaction == null) {
       if (!pending) {
-        throw new IllegalStateException("No active transaction");
+        throw new PgException.State("25P01", "No active transaction");
       }
       transaction = pendingReadOnly ? manager.beginReadOnly() : manager.begin();
       pending = false;

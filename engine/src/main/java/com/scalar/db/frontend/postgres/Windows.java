@@ -76,7 +76,7 @@ final class Windows {
     String name = a.getName().toUpperCase(Locale.ROOT);
     name = name.substring(name.lastIndexOf('.') + 1);
     if (!RANKING.contains(name) && !Evaluator.isAggregateName(name)) {
-      throw new IllegalArgumentException("Unsupported window function: " + a);
+      throw new PgException.Argument("0A000", "Unsupported window function: " + a);
     }
     if (a.isDistinct()) {
       throw new IllegalArgumentException("DISTINCT is not implemented for window functions");
@@ -109,7 +109,7 @@ final class Windows {
             || (!unbounded
                 && bound.getType() != WindowOffset.Type.CURRENT
                 && frame.getType() != WindowElement.Type.ROWS)) {
-          throw new IllegalArgumentException("Unsupported window frame: " + frame);
+          throw new PgException.Argument("0A000", "Unsupported window frame: " + frame);
         }
       }
     }
@@ -365,7 +365,7 @@ final class Windows {
         }
         return j + offset(o, unit, ctx) + (start ? 0 : 1);
       default:
-        throw new IllegalArgumentException("Unsupported window frame bound: " + o);
+        throw new PgException.Argument("0A000", "Unsupported window frame bound: " + o);
     }
   }
 

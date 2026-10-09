@@ -965,8 +965,8 @@ final class Operators {
         out = current.iterator();
       }
       if (++produced > MAX_ROWS) {
-        throw new IllegalArgumentException(
-            "Recursive query produced more than " + MAX_ROWS + " rows");
+        throw new PgException.Argument(
+            "54000", "Recursive query produced more than " + MAX_ROWS + " rows");
       }
       return out.next();
     }
@@ -1571,7 +1571,7 @@ final class Operators {
         QueryParser.Plan plan) {
       super(left, right, on, kind, leftColumns, plan);
       if (rightOuter) {
-        throw new IllegalArgumentException("RIGHT and FULL JOIN LATERAL are not supported");
+        throw new PgException.Argument("0A000", "RIGHT and FULL JOIN LATERAL are not supported");
       }
       this.derived = Objects.requireNonNull(right.derived, "LATERAL needs a subquery");
       List<String> outputs = derived.getOutputColumns();

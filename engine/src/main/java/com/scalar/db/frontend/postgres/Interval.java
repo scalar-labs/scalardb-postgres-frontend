@@ -117,7 +117,8 @@ final class Interval implements Comparable<Interval> {
   }
 
   private static IllegalArgumentException invalid(String text) {
-    return new IllegalArgumentException("invalid input syntax for type interval: \"" + text + "\"");
+    return new PgException.Argument(
+        "22007", "invalid input syntax for type interval: \"" + text + "\"");
   }
 
   private static long num(String group) {
@@ -242,7 +243,7 @@ final class Interval implements Comparable<Interval> {
           return secs.add(BigDecimal.valueOf(micros, 6));
         }
       default:
-        throw new IllegalArgumentException("Unsupported EXTRACT field for interval: " + field);
+        throw new PgException.Argument("0A000", "Unsupported EXTRACT field for interval: " + field);
     }
   }
 
