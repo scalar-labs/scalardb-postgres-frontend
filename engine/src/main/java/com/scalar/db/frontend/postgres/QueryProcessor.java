@@ -83,7 +83,7 @@ public class QueryProcessor {
           "(?i)\\bISOLATION\\s+LEVEL\\s+(READ\\s+UNCOMMITTED|READ\\s+COMMITTED|REPEATABLE\\s+READ|SERIALIZABLE)\\b");
   private static final java.util.regex.Pattern SET_TRANSACTION =
       java.util.regex.Pattern.compile(
-          "(?is)^\\s*SET\\s+(SESSION\\s+CHARACTERISTICS\\s+AS\\s+)?TRANSACTION\\s+(.+?)\\s*;?\\s*$");
+          "(?is)SET\\s+(SESSION\\s+CHARACTERISTICS\\s+AS\\s+)?TRANSACTION\\s+(.+)");
   private static final java.util.regex.Pattern BEGIN_WORD =
       java.util.regex.Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
   // The most rows a read-then-write statement may write; 0 means no limit
@@ -569,7 +569,8 @@ public class QueryProcessor {
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "SET":
         {
-          java.util.regex.Matcher tx = SET_TRANSACTION.matcher(sql);
+          // on the trimmed text, as the other statement patterns: no backtracking tail (todo 029)
+          java.util.regex.Matcher tx = SET_TRANSACTION.matcher(QueryParser.trimStatement(sql));
           if (tx.matches()) {
             if (tx.group(1) != null) {
               sessionTransactionDefaults(tx.group(2)); // SET SESSION CHARACTERISTICS AS ...

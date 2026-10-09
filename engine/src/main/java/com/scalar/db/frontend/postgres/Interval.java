@@ -62,7 +62,10 @@ final class Interval implements Comparable<Interval> {
       days = num(iso.group(3)) * 7 + num(iso.group(4));
       micros =
           seconds(num(iso.group(5)) * 3600 + num(iso.group(6)) * 60)
-              .add(iso.group(7) == null ? BigDecimal.ZERO : seconds(new BigDecimal(iso.group(7))));
+              .add(
+                  iso.group(7) == null
+                      ? BigDecimal.ZERO
+                      : seconds(Evaluator.checkedNumeric(new BigDecimal(iso.group(7)))));
     } else {
       Matcher m = TOKEN.matcher(s);
       while (m.find()) {
@@ -71,14 +74,17 @@ final class Interval implements Comparable<Interval> {
           boolean negative = parts[0].startsWith("-");
           BigDecimal secs =
               seconds(Math.abs(Long.parseLong(parts[0])) * 3600 + Long.parseLong(parts[1]) * 60)
-                  .add(parts.length > 2 ? seconds(new BigDecimal(parts[2])) : BigDecimal.ZERO);
+                  .add(
+                      parts.length > 2
+                          ? seconds(Evaluator.checkedNumeric(new BigDecimal(parts[2])))
+                          : BigDecimal.ZERO);
           micros = micros.add(negative ? secs.negate() : secs);
           continue;
         }
         if (m.group(2) == null) {
           throw invalid(text);
         }
-        BigDecimal amount = new BigDecimal(m.group(2));
+        BigDecimal amount = Evaluator.checkedNumeric(new BigDecimal(m.group(2)));
         String unit = m.group(3).toLowerCase(Locale.ROOT);
         if (unit.isEmpty() || unit.matches("s|sec|secs|second|seconds")) {
           micros = micros.add(seconds(amount));

@@ -1083,8 +1083,21 @@ final class Evaluator {
 
   /** A numeric from its text, with a non-negative scale as PostgreSQL stores it (1e3 is 1000). */
   static BigDecimal decimal(String s) {
-    BigDecimal v = new BigDecimal(s.trim());
+    BigDecimal v = checkedNumeric(new BigDecimal(s.trim()));
     return v.scale() < 0 ? v.setScale(0) : v;
+  }
+
+  /**
+   * PostgreSQL's numeric range: 131,072 digits before the point and 16,383 after. Checked before
+   * anything expands the value, since 1e500000000 is a short literal for a half-billion-digit
+   * number (todo 028).
+   */
+  static BigDecimal checkedNumeric(BigDecimal v) {
+    if (v.signum() != 0
+        && ((long) v.precision() - v.scale() > 131_072 || v.scale() > 16_383 + 1000)) {
+      throw new ArithmeticException("value overflows numeric format");
+    }
+    return v;
   }
 
   /** A number as a numeric: a double by its shortest decimal digits, as it was written. */
@@ -1220,7 +1233,7 @@ final class Evaluator {
   private static Object coerce(String s, Object target) {
     try {
       if (target instanceof Number) {
-        return new BigDecimal(s);
+        return checkedNumeric(new BigDecimal(s));
       }
       if (target instanceof Boolean) {
         return parseBoolean(s);
@@ -2088,7 +2101,7 @@ final class Evaluator {
         try {
           return v instanceof Number
               ? rounded((Number) v)
-              : new BigDecimal(s.trim()).setScale(0, RoundingMode.HALF_UP).longValueExact();
+              : decimal(s).setScale(0, RoundingMode.HALF_UP).longValueExact();
         } catch (ArithmeticException e) {
           throw new ArithmeticException("bigint out of range");
         }
@@ -2100,7 +2113,7 @@ final class Evaluator {
           n =
               v instanceof Number
                   ? rounded((Number) v)
-                  : new BigDecimal(s.trim()).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                  : decimal(s).setScale(0, RoundingMode.HALF_UP).longValueExact();
         } catch (ArithmeticException e) {
           n = Long.MAX_VALUE; // beyond bigint: out of range below
         }

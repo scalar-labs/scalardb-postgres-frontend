@@ -429,7 +429,7 @@ final class Json {
           .append(JsonStringEncoder.getInstance().quoteAsString(node.textValue()))
           .append('"');
     } else if (node.isNumber()) {
-      sb.append(node.decimalValue().toPlainString());
+      sb.append(Evaluator.checkedNumeric(node.decimalValue()).toPlainString());
     } else {
       sb.append(node.asText()); // true, false, null
     }
