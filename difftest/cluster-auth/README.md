@@ -7,6 +7,58 @@ design marked **(verify)**: `getCurrentUser` under `UserpassHolder` as the login
 `begin` and on every one-shot call including the lookup join's pool reads, and the SDK's exception types for the
 `DB-AUTH` codes.
 
+## Demo, in two terminals
+
+Everything runs from this directory. It needs the frontend's fat jar (`./gradlew :server:shadowJar` at the
+repository root), the SDK classpath in `sdk-classpath/lib/` (`./gradlew -p difftest/cluster-auth/sdk-classpath
+lib`), and a locally built node in `node/`, which git ignores and the Setup section below shows how to build.
+The scripts assume JDK 21 for the node and JDK 17 for the frontend at the paths in them; `JAVA21_HOME` and
+`JAVA17_HOME` override those.
+
+Terminal 1, the node (authentication on, data in the database `clusterdb` on the PostgreSQL at 15440):
+
+```sh
+./node.sh
+```
+
+Terminal 2, once the node says it is listening on 60053: the users and table, then the frontend on 15445:
+
+```sh
+./users.sh list                       # admin (superuser) is created by the node itself
+java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' Setup.java admin.properties
+./frontend.sh                         # ./frontend.sh 15446 for another port
+```
+
+Then, from any terminal, what a PostgreSQL client sees:
+
+```sh
+PGPASSWORD=alicepw psql "host=localhost port=15445 dbname=authdemo user=alice sslmode=require" \
+    -c 'SELECT current_user' -c 'SELECT * FROM items' -c '\conninfo'
+PGPASSWORD=bobpw   psql "host=localhost port=15445 dbname=authdemo user=bob sslmode=require" -c 'SELECT * FROM items'
+PGPASSWORD=wrong   psql "host=localhost port=15445 dbname=authdemo user=alice sslmode=require" -c 'SELECT 1'
+PGPASSWORD=alicepw psql "host=localhost port=15445 dbname=authdemo user=alice sslmode=disable" -c 'SELECT 1'
+```
+
+alice sees her name and the rows, and `\conninfo` reports TLS; bob is refused with `42501` and Cluster's message
+naming the missing READ privilege; the wrong password is refused after about a second; the plaintext attempt is
+refused outright. `./run.sh` performs seventeen such checks and prints PASS or FAIL for each.
+
+### Users
+
+The frontend has no `CREATE USER` or `GRANT` yet, so users are managed through the Cluster API as the superuser
+(`admin.properties`), with `users.sh`:
+
+```sh
+./users.sh create carol carolpw            # add superuser as a third word for a superuser
+./users.sh grant carol authdemo READ,WRITE # privileges: READ, WRITE, DELETE, CREATE, DROP, TRUNCATE, ALTER, GRANT
+./users.sh revoke carol authdemo WRITE
+./users.sh list
+./users.sh drop carol
+```
+
+A grant is on a namespace and covers every table in it. A user logs in the moment it exists; dropping it refuses
+the next login (open sessions keep their token until it expires).
+
 ## Setup
 
 1. **The Cluster client SDK and its dependencies.** The SDK jar alone is not runnable: it needs

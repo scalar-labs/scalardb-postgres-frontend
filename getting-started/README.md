@@ -207,7 +207,9 @@ What the session sees: `current_user`, `session_authorization` and `is_superuser
 user; a wrong password is `28P01` after a one-second delay and the connection closes; a missing
 privilege is `42501` and the session goes on; a token that expires mid-session is `28000` and the
 session ends, which pools handle by reconnecting; `SET ROLE` and `SET SESSION AUTHORIZATION` are
-refused. The design is in [docs/auth-design.md](../docs/auth-design.md).
+refused. The design is in [docs/auth-design.md](../docs/auth-design.md), and
+[difftest/cluster-auth](../difftest/cluster-auth/README.md) is a working demo against a local Cluster node, with
+a command to create users and grant privileges.
 
 ## Limitations to know
 
