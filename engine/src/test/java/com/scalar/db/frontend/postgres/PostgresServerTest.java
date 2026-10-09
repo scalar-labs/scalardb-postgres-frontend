@@ -518,6 +518,12 @@ public class PostgresServerTest {
 
   private StubIdentity lastIdentity;
 
+  private void allowPlaintext() {
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.ssl.require", "false");
+    server.configure(properties);
+  }
+
   private Authenticator.Identity stubAuthenticate(String user, String secret)
       throws Authenticator.AuthenticationException {
     if (!user.equals("alice") || !secret.equals("secret")) {
@@ -574,6 +580,7 @@ public class PostgresServerTest {
   @Test
   public void auth_WrongPassword_ShouldBeRefusedWith28P01() {
     server.loginFailureDelayMillis = 0;
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
     assertThatThrownBy(() -> connectAs("alice", "nope"))
         .isInstanceOfSatisfying(
@@ -586,6 +593,7 @@ public class PostgresServerTest {
 
   @Test
   public void auth_EveryScalarDbCall_ShouldRunInsideTheIdentity() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
     requireScope();
     try (Connection connection = connectAs("alice", "secret");
@@ -636,6 +644,7 @@ public class PostgresServerTest {
 
   @Test
   public void auth_TokenInvalidMidSession_ShouldReport28000AndCloseTheSession() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
     when(manager.scan(any()))
         .thenThrow(new CrudException("DB-AUTH-10006: Access denied: Invalid auth token", "tx"));
@@ -648,6 +657,7 @@ public class PostgresServerTest {
 
   @Test
   public void auth_MissingPrivilege_ShouldReport42501AndKeepTheSession() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
     when(manager.scan(any()))
         .thenThrow(
@@ -661,5 +671,57 @@ public class PostgresServerTest {
         assertThat(rs.next()).isTrue();
       }
     }
+  }
+
+  // ---- TLS: the test certificate under src/test/resources/tls
+
+  private static String resource(String name) {
+    return java.util.Objects.requireNonNull(PostgresServerTest.class.getResource(name)).getPath();
+  }
+
+  private static Properties tlsProperties() {
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.ssl.cert", resource("/tls/server.crt"));
+    properties.setProperty("scalar.db.postgres.ssl.key", resource("/tls/server.key"));
+    return properties;
+  }
+
+  @Test
+  public void tls_SslRequest_ShouldUpgradeTheConnection() throws Exception {
+    server.configure(tlsProperties());
+    Properties properties = new Properties();
+    properties.setProperty("user", "test");
+    properties.setProperty("ssl", "true");
+    properties.setProperty("sslmode", "require");
+    properties.setProperty("sslfactory", "org.postgresql.ssl.NonValidatingFactory");
+    try (Connection connection =
+            DriverManager.getConnection(
+                "jdbc:postgresql://localhost:" + server.getPort() + "/ns", properties);
+        Statement statement = connection.createStatement();
+        ResultSet rs = statement.executeQuery("SELECT id FROM t")) {
+      assertThat(rs.next()).isTrue();
+    }
+  }
+
+  @Test
+  public void tls_Required_ShouldRefuseAPlaintextConnection() {
+    Properties properties = tlsProperties();
+    properties.setProperty("scalar.db.postgres.ssl.require", "true");
+    server.configure(properties);
+    assertThatThrownBy(() -> connect("?sslmode=disable"))
+        .isInstanceOfSatisfying(
+            SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("28000"));
+  }
+
+  @Test
+  public void tls_Pkcs1Key_ShouldBeRefusedWithTheConversionHint() throws Exception {
+    java.nio.file.Path key = java.nio.file.Files.createTempFile("key", ".pem");
+    java.nio.file.Files.writeString(
+        key, "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n");
+    Properties properties = tlsProperties();
+    properties.setProperty("scalar.db.postgres.ssl.key", key.toString());
+    assertThatThrownBy(() -> server.configure(properties))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pkcs8");
   }
 }

@@ -19,6 +19,17 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -26,6 +37,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +47,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import javax.annotation.Nullable;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,9 +57,9 @@ import org.slf4j.LoggerFactory;
  * A PostgreSQL wire-protocol (version 3) server in front of ScalarDB. It speaks the simple and the
  * extended query protocol with text-format parameters and results. Connections are trusted unless
  * an {@link Authenticator} is set, which then verifies a password at startup and makes every
- * ScalarDB call of the session the authenticated user's. TLS is not implemented yet. The database
- * name of a connection is used as the default ScalarDB namespace, and each connection is a session
- * with its own transaction state.
+ * ScalarDB call of the session the authenticated user's. TLS is negotiated by SSLRequest once a
+ * certificate is configured, see {@link #configure}. The database name of a connection is used as
+ * the default ScalarDB namespace, and each connection is a session with its own transaction state.
  */
 public class PostgresServer implements AutoCloseable {
   private static final Logger logger = LoggerFactory.getLogger(PostgresServer.class);
@@ -57,13 +73,20 @@ public class PostgresServer implements AutoCloseable {
   private final DistributedTransactionAdmin admin;
   private final ServerSocket serverSocket;
   @Nullable private volatile Authenticator authenticator;
+  @Nullable private volatile SSLContext sslContext;
+  @Nullable private Boolean sslRequire; // null: required exactly when an authenticator is set
+
+  /** PostgreSQL's own limit on a startup packet; a password message gets the same order. */
+  private static final int MAX_STARTUP_LENGTH = 10_000;
+
+  private static final int MAX_PASSWORD_LENGTH = 65_536; // room for an OIDC token
 
   /** Milliseconds a refused login waits before answering, to slow down password guessing. */
   long loginFailureDelayMillis = 1000;
 
   @SuppressFBWarnings(
       value = "UNENCRYPTED_SERVER_SOCKET",
-      justification = "TLS is not implemented yet; see docs/auth-design.md")
+      justification = "TLS is negotiated per connection by SSLRequest, as the protocol requires")
   public PostgresServer(
       DistributedTransactionManager manager, DistributedTransactionAdmin admin, int port)
       throws IOException {
@@ -89,7 +112,24 @@ public class PostgresServer implements AutoCloseable {
    *
    * @param properties the ScalarDB properties of the transaction manager
    */
+  @SuppressFBWarnings(
+      value = "PATH_TRAVERSAL_IN",
+      justification = "The operator names the certificate and key files in the properties")
   public void configure(Properties properties) {
+    // TLS: a certificate chain and an unencrypted PKCS#8 key, both PEM; SSLRequest is then honored
+    String cert = properties.getProperty("scalar.db.postgres.ssl.cert");
+    String key = properties.getProperty("scalar.db.postgres.ssl.key");
+    if (cert != null || key != null) {
+      if (cert == null || key == null) {
+        throw new IllegalArgumentException(
+            "scalar.db.postgres.ssl.cert and scalar.db.postgres.ssl.key go together");
+      }
+      sslContext = sslContext(Paths.get(cert), Paths.get(key));
+    }
+    String require = properties.getProperty("scalar.db.postgres.ssl.require");
+    if (require != null) {
+      sslRequire = Boolean.parseBoolean(require);
+    }
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -117,6 +157,59 @@ public class PostgresServer implements AutoCloseable {
    */
   public void setAuthenticator(Authenticator authenticator) {
     this.authenticator = authenticator;
+  }
+
+  /** Whether a connection must be TLS: as configured, else exactly when it must log in. */
+  private boolean sslRequired() {
+    Boolean require = sslRequire;
+    return require != null ? require : authenticator != null;
+  }
+
+  /**
+   * An SSL context from a PEM certificate chain and an unencrypted PKCS#8 key (RSA or EC), the
+   * files a PostgreSQL server is configured with.
+   */
+  static SSLContext sslContext(Path certificate, Path key) {
+    try {
+      Collection<? extends Certificate> chain;
+      try (java.io.InputStream in = Files.newInputStream(certificate)) {
+        chain = CertificateFactory.getInstance("X.509").generateCertificates(in);
+      }
+      String pem = Files.readString(key);
+      String begin = "-----BEGIN PRIVATE KEY-----";
+      String end = "-----END PRIVATE KEY-----";
+      if (!pem.contains(begin) || !pem.contains(end)) {
+        throw new IllegalArgumentException(
+            "The TLS key must be an unencrypted PKCS#8 PEM (BEGIN PRIVATE KEY); convert it with:"
+                + " openssl pkcs8 -topk8 -nocrypt -in "
+                + key
+                + " -out "
+                + key
+                + ".pk8");
+      }
+      byte[] der =
+          Base64.getMimeDecoder()
+              .decode(pem.substring(pem.indexOf(begin) + begin.length(), pem.indexOf(end)));
+      PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(der);
+      PrivateKey privateKey;
+      try {
+        privateKey = KeyFactory.getInstance("RSA").generatePrivate(spec);
+      } catch (InvalidKeySpecException notRsa) {
+        privateKey = KeyFactory.getInstance("EC").generatePrivate(spec);
+      }
+      KeyStore keyStore = KeyStore.getInstance("PKCS12");
+      keyStore.load(null, null);
+      char[] none = new char[0]; // the store lives in memory only
+      keyStore.setKeyEntry("server", privateKey, none, chain.toArray(new Certificate[0]));
+      KeyManagerFactory keys =
+          KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+      keys.init(keyStore, none);
+      SSLContext context = SSLContext.getInstance("TLS");
+      context.init(keys.getKeyManagers(), null, null);
+      return context;
+    } catch (IOException | GeneralSecurityException e) {
+      throw new IllegalArgumentException("TLS configuration: " + e.getMessage(), e);
+    }
   }
 
   public int getPort() {
@@ -153,9 +246,10 @@ public class PostgresServer implements AutoCloseable {
 
   /** One client connection: the startup handshake, then the message loop. */
   private final class Connection implements Runnable {
-    private final Socket socket;
-    private final DataInputStream in;
-    private final DataOutputStream out;
+    private Socket socket; // replaced by the TLS socket after SSLRequest
+    private DataInputStream in;
+    private DataOutputStream out;
+    private boolean tls;
     private final Map<String, String> statements = new HashMap<>(); // name -> SQL with $n
     private final Map<String, int[]> parameterTypes = new HashMap<>(); // name -> declared OIDs
     private final Map<String, Portal> portals = new HashMap<>();
@@ -203,10 +297,37 @@ public class PostgresServer implements AutoCloseable {
       while (true) {
         int length = in.readInt();
         int code = in.readInt();
-        if (code == SSL_REQUEST || code == GSS_REQUEST) {
-          out.writeByte('N'); // neither SSL nor GSS encryption is supported
+        if (code == SSL_REQUEST) {
+          SSLContext context = sslContext;
+          if (context == null) {
+            out.writeByte('N');
+            out.flush();
+            continue;
+          }
+          out.writeByte('S');
+          out.flush();
+          SSLSocket ssl =
+              (SSLSocket)
+                  context
+                      .getSocketFactory()
+                      .createSocket(
+                          socket, socket.getInetAddress().getHostAddress(), socket.getPort(), true);
+          ssl.setUseClientMode(false);
+          ssl.startHandshake();
+          socket = ssl;
+          in = new DataInputStream(new BufferedInputStream(ssl.getInputStream()));
+          out = new DataOutputStream(new BufferedOutputStream(ssl.getOutputStream()));
+          tls = true;
+          continue;
+        }
+        if (code == GSS_REQUEST) {
+          out.writeByte('N'); // GSS encryption is not supported
           out.flush();
           continue;
+        }
+        if (length < 8 || length > MAX_STARTUP_LENGTH) {
+          fatal("08P01", "invalid length of startup packet"); // protocol_violation, as PostgreSQL
+          return null;
         }
         if (code == CANCEL_REQUEST) {
           return null;
@@ -224,6 +345,11 @@ public class PostgresServer implements AutoCloseable {
         }
         String user = params.getOrDefault("user", "");
         String database = params.getOrDefault("database", user);
+        if (sslRequired() && !tls) {
+          // as PostgreSQL answers a plaintext connection where pg_hba.conf allows only hostssl
+          fatal("28000", "no encryption: this server accepts only SSL connections");
+          return null;
+        }
         Authenticator authenticator = PostgresServer.this.authenticator;
         boolean superuser = false;
         if (authenticator != null) {
@@ -232,7 +358,12 @@ public class PostgresServer implements AutoCloseable {
           send('R', new Msg().i32(3)); // AuthenticationCleartextPassword
           out.flush();
           int type = in.read();
-          byte[] response = new byte[in.readInt() - 4];
+          int responseLength = in.readInt() - 4;
+          if (responseLength < 0 || responseLength > MAX_PASSWORD_LENGTH) {
+            fatal("08P01", "invalid length of password message");
+            return null;
+          }
+          byte[] response = new byte[responseLength];
           in.readFully(response);
           if (type != 'p') {
             fatal("08P01", "expected a password response, got message type " + (char) type);
@@ -244,6 +375,10 @@ public class PostgresServer implements AutoCloseable {
             logger.info("Login failed for user \"{}\"", user);
             sleepQuietly(loginFailureDelayMillis);
             fatal("28P01", "password authentication failed for user \"" + user + "\"");
+            return null;
+          } catch (RuntimeException e) {
+            logger.warn("Authentication of user \"{}\" failed", user, e);
+            fatal("58000", "authentication failed: " + e.getMessage()); // system_error
             return null;
           }
           user = identity.user();
