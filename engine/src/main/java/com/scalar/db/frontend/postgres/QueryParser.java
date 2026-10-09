@@ -147,8 +147,13 @@ public class QueryParser {
   private final DistributedTransactionAdmin admin;
   private final String defaultNamespace;
   private final Catalog catalog;
-  // ponytail: never invalidated; clear it on schema change if that ever matters
+  // Per session; dropped after DDL by any session of this process (DDL_GENERATION, todo 011).
+  // ponytail: DDL from another process is seen only through ScalarDB's own metadata cache expiry;
+  // a cluster-wide schema version would be the upgrade path
   private final Map<String, TableMetadata> metadataCache = new HashMap<>();
+  private static final java.util.concurrent.atomic.AtomicLong DDL_GENERATION =
+      new java.util.concurrent.atomic.AtomicLong();
+  private long seenGeneration = DDL_GENERATION.get();
 
   public QueryParser(DistributedTransactionAdmin admin, String defaultNamespace) {
     this.admin = admin;
@@ -156,9 +161,23 @@ public class QueryParser {
     this.catalog = new Catalog(admin, defaultNamespace);
   }
 
-  /** Forgets cached table metadata, after DDL. */
+  /** Forgets cached table metadata, after DDL, in every session of this process. */
   public void invalidateMetadata() {
+    DDL_GENERATION.incrementAndGet();
+  }
+
+  /**
+   * True, once, after DDL in any session since this session last looked: its cached metadata is
+   * dropped, and the caller drops plans made with it.
+   */
+  public boolean metadataChanged() {
+    long now = DDL_GENERATION.get();
+    if (now == seenGeneration) {
+      return false;
+    }
+    seenGeneration = now;
     metadataCache.clear();
+    return true;
   }
 
   /**
@@ -1973,7 +1992,14 @@ public class QueryParser {
     } catch (IllegalArgumentException e) {
       // psql describes objects with catalog queries beyond this engine (UNION, table functions,
       // arrays); for the tables involved the answer is always "nothing", so return that
-      if (sql.toLowerCase(Locale.ROOT).contains("pg_catalog.")) {
+      // Only a read that the engine cannot plan; a misspelled column, or a DML statement whose text
+      // happens to mention pg_catalog, is reported as it would be anywhere else (todo 024)
+      String m = String.valueOf(e.getMessage());
+      String word = trimStatement(sql).split("\\s+", 2)[0].toUpperCase(Locale.ROOT);
+      if (sql.toLowerCase(Locale.ROOT).contains("pg_catalog.")
+          && (word.equals("SELECT") || word.equals("WITH") || word.startsWith("("))
+          && !m.startsWith("Unknown column")
+          && !m.startsWith("Ambiguous column")) {
         return Plan.constant(catalogColumnNames(sql), Collections.emptyList(), "SELECT");
       }
       throw e;
@@ -2543,6 +2569,7 @@ public class QueryParser {
           return updateByScan(update);
         }
         Target t = target(update.getTable());
+        checkTextAgainstNumber(update.getWhere(), t); // WHERE name = 1 is 42883, as in a SELECT
         for (UpdateSet set : update.getUpdateSets()) {
           for (int i = 0; i < set.getColumns().size(); i++) {
             if (keyColumns(t).contains(columnName(set.getColumn(i)))) {
@@ -2567,6 +2594,7 @@ public class QueryParser {
           return deleteByScan(delete);
         }
         Target t = target(delete.getTable());
+        checkTextAgainstNumber(delete.getWhere(), t);
         return Plan.deferred(ctx -> Collections.singletonList(delete(delete, t, ctx)));
       } finally {
         ctes = saved;
@@ -2957,11 +2985,19 @@ public class QueryParser {
     String namespace = namespaceOf(alter.getTable());
     String name = unquote(alter.getTable().getName());
     List<Ddl> steps = new ArrayList<>();
+    List<String> notices = new ArrayList<>();
     for (AlterExpression expression : alter.getAlterExpressions()) {
       if (expression.getOperation() == AlterOperation.ADD
           && expression.getColDataTypeList() != null) {
         for (AlterExpression.ColumnDataType c : expression.getColDataTypeList()) {
           String column = checkedName(unquote(c.getColumnName()), true);
+          // the same rules as CREATE TABLE: a non-NULL DEFAULT is refused (existing rows would read
+          // NULL), other constraints and type modifiers are announced (todo 014)
+          String specs =
+              c.getColumnSpecs() == null
+                  ? ""
+                  : String.join(" ", c.getColumnSpecs()).toUpperCase(Locale.ROOT);
+          notices.addAll(unenforced(column, c.getColDataType().getDataType(), specs, false));
           DataType type = dataType(c.getColDataType().getDataType());
           steps.add(() -> admin.addNewColumnToTable(namespace, name, column, type));
         }
@@ -2975,13 +3011,16 @@ public class QueryParser {
             "Unsupported ALTER TABLE (ScalarDB supports ADD COLUMN and RENAME COLUMN): " + alter);
       }
     }
-    return Plan.ddl(
-        () -> {
-          for (Ddl step : steps) {
-            step.run();
-          }
-        },
-        "ALTER TABLE");
+    Plan plan =
+        Plan.ddl(
+            () -> {
+              for (Ddl step : steps) {
+                step.run();
+              }
+            },
+            "ALTER TABLE");
+    plan.notices.addAll(notices);
+    return plan;
   }
 
   /** The numeric arguments of a declared type: {10, 2} for {@code NUMERIC (10, 2)}. */
@@ -4523,6 +4562,28 @@ public class QueryParser {
    * integer); comparing the texts would silently match nothing, so it is refused here too.
    */
   private static void checkTextAgainstNumber(Expression e, Scope scope) {
+    checkTextAgainstNumber(
+        e,
+        c -> {
+          String name = columnName(c);
+          LogicalPlan.Source s = scope.resolve(c);
+          return s.target != null
+              ? s.target.metadata.getColumnDataType(name)
+              : s.derived != null && s.columns.contains(name)
+                  ? s.derived.outputTypes.get(s.columns.indexOf(name))
+                  : null;
+        });
+  }
+
+  /** As above, for a single-table UPDATE or DELETE planned by key, without a scope. */
+  private static void checkTextAgainstNumber(@Nullable Expression where, Target t) {
+    if (where != null) {
+      checkTextAgainstNumber(where, c -> t.metadata.getColumnDataType(columnName(c)));
+    }
+  }
+
+  private static void checkTextAgainstNumber(
+      Expression e, java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf) {
     e.accept(
         new ExpressionVisitorAdapter<Void>() {
           @Override
@@ -4570,13 +4631,7 @@ public class QueryParser {
             if (c.getTable() == null && (isBooleanLiteral(name) || isKeyword(name))) {
               return;
             }
-            LogicalPlan.Source s = scope.resolve(c);
-            DataType type =
-                s.target != null
-                    ? s.target.metadata.getColumnDataType(name)
-                    : s.derived != null && s.columns.contains(name)
-                        ? s.derived.outputTypes.get(s.columns.indexOf(name))
-                        : null;
+            DataType type = typeOf.apply(c);
             if (type == DataType.TEXT) {
               throw new IllegalArgumentException(
                   "operator does not exist: text "
@@ -6212,11 +6267,11 @@ public class QueryParser {
       case INT:
         return s == null
             ? IntColumn.ofNull(name)
-            : IntColumn.of(name, new BigDecimal(s).intValueExact());
+            : IntColumn.of(name, new BigDecimal(s.trim()).intValueExact()); // ' 42' is 42
       case BIGINT:
         return s == null
             ? BigIntColumn.ofNull(name)
-            : BigIntColumn.of(name, new BigDecimal(s).longValueExact());
+            : BigIntColumn.of(name, new BigDecimal(s.trim()).longValueExact());
       case FLOAT:
         return s == null
             ? FloatColumn.ofNull(name)

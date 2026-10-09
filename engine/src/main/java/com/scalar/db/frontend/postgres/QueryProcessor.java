@@ -487,7 +487,9 @@ public class QueryProcessor {
       case "BEGIN":
       case "START":
         if (inTransaction()) {
-          throw new IllegalStateException("A transaction is already active");
+          // As in PostgreSQL: a warning, and the block goes on (todo 010)
+          lastCommandTag = "BEGIN";
+          return warning("there is already a transaction in progress");
         }
         // BEGIN READ ONLY (what JDBC sends for a read-only connection) will start a read-only
         // ScalarDB transaction: no coordinator write and no validation at commit
@@ -501,7 +503,7 @@ public class QueryProcessor {
         if (!inTransaction()) {
           // As in PostgreSQL, only a warning: the error that ended the transaction stays visible
           lastCommandTag = "COMMIT";
-          return new Rows(null, QueryParser.Cursor.EMPTY);
+          return warning("there is no transaction in progress");
         }
         if (aborted) {
           // As in PostgreSQL, COMMIT of an aborted transaction rolls it back
@@ -539,8 +541,11 @@ public class QueryProcessor {
           lastCommandTag = "ROLLBACK";
           return new Rows(null, QueryParser.Cursor.EMPTY);
         }
+        boolean active = inTransaction();
         rollback();
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return active
+            ? new Rows(null, QueryParser.Cursor.EMPTY)
+            : warning("there is no transaction in progress");
       case "SAVEPOINT":
         if (!inTransaction()) {
           throw new IllegalStateException("SAVEPOINT can only be used in transaction blocks");
@@ -859,6 +864,9 @@ public class QueryProcessor {
    * The cached plan for the statement, rebound to the values, or a new one (cached if it can be).
    */
   private QueryParser.Plan plan(String sql, List<Object> parameters) throws ExecutionException {
+    if (parser.metadataChanged()) {
+      planCache.clear(); // another session (or this one) changed a table
+    }
     // An unqualified table resolves through search_path, so a plan is only valid under the path
     // it was made with
     String key = current("search_path") + '\u0000' + sql;

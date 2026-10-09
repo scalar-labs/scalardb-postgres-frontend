@@ -503,3 +503,23 @@ SELECT id, unnest(ARRAY[1,2,3]) AS g FROM dept LIMIT 4;
 SELECT id FROM emp WHERE salary IN (SELECT budget FROM dept WHERE budget IS NOT NULL) ORDER BY id; SELECT id FROM emp WHERE id IN (SELECT id * 1.0 FROM dept) ORDER BY id;
 -- @in_subquery_hashed_nulls
 SELECT id, dept_id IN (SELECT parent_id FROM dept) AS i, dept_id NOT IN (SELECT parent_id FROM dept) AS n FROM emp WHERE id <= 12 ORDER BY id; SELECT count(*) FROM emp WHERE name IN (SELECT name FROM dept);
+-- @between_null_bounds
+SELECT 5 BETWEEN NULL AND 3 AS a, 5 NOT BETWEEN NULL AND 3 AS b, 5 BETWEEN 1 AND NULL AS c, 5 BETWEEN SYMMETRIC 9 AND NULL AS d;
+-- @short_circuit_and_coalesce
+SELECT coalesce(1, 1/0) AS c, (0 <> 0 AND 1/0 > 1) AS d, (1 = 1 OR 1/0 > 1) AS e;
+-- @row_value_and_array_equality
+SELECT (1, 2) AS r, (1, 'a b', NULL) AS s, ARRAY[1,NULL] = ARRAY[1,NULL] AS a, (1, NULL) = (1, NULL) AS n;
+-- @numeric_edge_errors
+SELECT sqrt(-1);
+-- @numeric_edge_power
+SELECT power(0, -1);
+-- @numeric_edge_casts
+SELECT '3000000000'::int;
+-- @numeric_edge_trim_cast
+SELECT ' 42 '::int AS a, 12::numeric(3,0) AS b, 1.25::numeric(4,1) AS c;
+-- @numeric_edge_precision
+SELECT 12345::numeric(3,0);
+-- @numeric_edge_smallint
+SELECT 40000::smallint;
+-- @numeric_edge_negate
+SELECT -(-2147483647 - 1);

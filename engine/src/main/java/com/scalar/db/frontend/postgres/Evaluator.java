@@ -406,6 +406,16 @@ final class Evaluator {
     }
   }
 
+  /** {@code v >= lo AND v <= hi} in three-valued logic. */
+  @Nullable private static Boolean between(@Nullable Object v, @Nullable Object lo, @Nullable Object hi) {
+    Boolean ge = v == null || lo == null ? null : compare(v, lo) >= 0;
+    Boolean le = v == null || hi == null ? null : compare(v, hi) <= 0;
+    if (Boolean.FALSE.equals(ge) || Boolean.FALSE.equals(le)) {
+      return false;
+    }
+    return ge == null || le == null ? null : Boolean.TRUE;
+  }
+
   static boolean isTrue(@Nullable Object value) {
     return Boolean.TRUE.equals(value);
   }
@@ -653,6 +663,9 @@ final class Evaluator {
     }
     if (e instanceof AndExpression) {
       Object l = eval(((AndExpression) e).getLeftExpression(), group, ctx);
+      if (Boolean.FALSE.equals(l)) {
+        return false; // b <> 0 AND a / b > 1 must not divide by zero
+      }
       Object r = eval(((AndExpression) e).getRightExpression(), group, ctx);
       if (Boolean.FALSE.equals(l) || Boolean.FALSE.equals(r)) {
         return false;
@@ -661,6 +674,9 @@ final class Evaluator {
     }
     if (e instanceof OrExpression) {
       Object l = eval(((OrExpression) e).getLeftExpression(), group, ctx);
+      if (isTrue(l)) {
+        return true;
+      }
       Object r = eval(((OrExpression) e).getRightExpression(), group, ctx);
       if (isTrue(l) || isTrue(r)) {
         return true;
@@ -754,15 +770,16 @@ final class Evaluator {
       Object v = eval(b.getLeftExpression(), group, ctx);
       Object lo = eval(b.getBetweenExpressionStart(), group, ctx);
       Object hi = eval(b.getBetweenExpressionEnd(), group, ctx);
-      if (v == null || lo == null || hi == null) {
-        return null;
+      // v >= lo AND v <= hi in three-valued logic: 5 BETWEEN NULL AND 3 is false (todo 017)
+      Boolean in = between(v, lo, hi);
+      if (b.isUsingSymmetric()) {
+        Boolean swapped = between(v, hi, lo);
+        in =
+            Boolean.TRUE.equals(in) || Boolean.TRUE.equals(swapped)
+                ? Boolean.TRUE
+                : in == null || swapped == null ? null : Boolean.FALSE;
       }
-      if (b.isUsingSymmetric() && compare(lo, hi) > 0) {
-        Object swap = lo;
-        lo = hi;
-        hi = swap;
-      }
-      return (compare(v, lo) >= 0 && compare(v, hi) <= 0) != b.isNot();
+      return in == null ? null : in != b.isNot();
     }
     if (e instanceof ComparisonOperator) {
       ComparisonOperator op = (ComparisonOperator) e;
@@ -794,7 +811,9 @@ final class Evaluator {
       } else if (l instanceof String && untyped(op.getRightExpression(), ctx)) {
         r = untypedText(op.getRightExpression(), ctx);
       }
-      if (l instanceof List && r instanceof List) {
+      // rows compare field by field, a NULL field making the result unknown; arrays compare as
+      // wholes, NULL elements equal (ARRAY[1,NULL] = ARRAY[1,NULL] is true), in compare() below
+      if ((l instanceof Row || r instanceof Row) && l instanceof List && r instanceof List) {
         Integer order = rowCompare((List<?>) l, (List<?>) r);
         if (order == null) {
           return null;
@@ -932,7 +951,7 @@ final class Evaluator {
     }
     if (e instanceof ParenthesedExpressionList) {
       // a row value such as (a, b), compared element-wise
-      List<Object> row = new ArrayList<>();
+      List<Object> row = new Row();
       for (Expression item : (ParenthesedExpressionList<?>) e) {
         row.add(eval(item, group, ctx));
       }
@@ -1011,6 +1030,11 @@ final class Evaluator {
   }
 
   /** Rows compared element-wise; null when a pair decides nothing because one side is NULL. */
+  /** A row value, (a, b): a list, so list code keeps working, but a record, not an array. */
+  static final class Row extends ArrayList<Object> {
+    private static final long serialVersionUID = 1L;
+  }
+
   @Nullable static Integer rowCompare(List<?> a, List<?> b) {
     if (a.size() != b.size()) {
       throw new IllegalArgumentException("Unequal number of entries in row expressions");
@@ -1324,7 +1348,16 @@ final class Evaluator {
     if (v == null) {
       return null;
     }
+    if (v instanceof Integer) {
+      if ((Integer) v == Integer.MIN_VALUE) {
+        throw new ArithmeticException("integer out of range");
+      }
+      return -(Integer) v; // stays an int4, so later int4 arithmetic still checks its range
+    }
     if (isIntegral(v)) {
+      if (((Number) v).longValue() == Long.MIN_VALUE) {
+        throw new ArithmeticException("bigint out of range");
+      }
       return -((Number) v).longValue();
     }
     if (v instanceof BigDecimal) {
@@ -1361,6 +1394,21 @@ final class Evaluator {
     }
     if (v instanceof Catalog.Int2Vector) {
       return v.toString(); // pg_index.indkey prints as "1 2"
+    }
+    if (v instanceof Row) {
+      // a record as PostgreSQL prints it: (1,,"a b"); NULL fields are empty
+      StringBuilder sb = new StringBuilder("(");
+      for (Object item : (Row) v) {
+        if (sb.length() > 1) {
+          sb.append(',');
+        }
+        if (item != null) {
+          String s = text(item);
+          boolean quote = s.isEmpty() || s.matches(".*[\\s(),\"\\\\].*");
+          sb.append(quote ? '"' + s.replace("\\", "\\\\").replace("\"", "\"\"") + '"' : s);
+        }
+      }
+      return sb.append(')').toString();
     }
     if (v instanceof List) {
       StringBuilder sb = new StringBuilder("{");
@@ -1618,6 +1666,12 @@ final class Evaluator {
     if (r instanceof Interval && l instanceof Number && e instanceof Multiplication) {
       return ((Interval) r).times(((Number) l).doubleValue());
     }
+    if (sub && l instanceof Instant && r instanceof Instant) {
+      // elapsed time between two instants, whatever the zone's offsets (23:00:00 across spring DST)
+      return Interval.between(
+          LocalDateTime.ofInstant((Instant) r, ZoneOffset.UTC),
+          LocalDateTime.ofInstant((Instant) l, ZoneOffset.UTC));
+    }
     if (sub) {
       LocalDateTime a = asTimestamp(l);
       LocalDateTime b = asTimestamp(r);
@@ -1694,6 +1748,12 @@ final class Evaluator {
 
   /** An INT value, or an integer literal small enough to be int4 in PostgreSQL. */
   private static boolean isInt(Object v, Expression e) {
+    if (e instanceof SignedExpression
+        && ((SignedExpression) e).getExpression() instanceof LongValue) {
+      // -2147483648 is an int4 literal too
+      BigInteger n = ((LongValue) ((SignedExpression) e).getExpression()).getBigIntegerValue();
+      return (((SignedExpression) e).getSign() == '-' ? n.negate() : n).bitLength() < 32;
+    }
     return v instanceof Integer
         || (e instanceof LongValue && ((LongValue) e).getBigIntegerValue().bitLength() < 32);
   }
@@ -2025,19 +2085,42 @@ final class Evaluator {
         return out;
       }
       if (t.equals("bigint") || t.equals("int8")) {
-        return v instanceof Number ? rounded((Number) v) : new BigDecimal(s).longValueExact();
+        try {
+          return v instanceof Number
+              ? rounded((Number) v)
+              : new BigDecimal(s.trim()).setScale(0, RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException e) {
+          throw new ArithmeticException("bigint out of range");
+        }
       }
       if (t.contains("int")) {
-        return v instanceof Number
-            ? Math.toIntExact(rounded((Number) v))
-            : new BigDecimal(s).intValueExact();
+        boolean small = t.equals("smallint") || t.equals("int2");
+        long n;
+        try {
+          n =
+              v instanceof Number
+                  ? rounded((Number) v)
+                  : new BigDecimal(s.trim()).setScale(0, RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException e) {
+          n = Long.MAX_VALUE; // beyond bigint: out of range below
+        }
+        if (small ? n < Short.MIN_VALUE || n > Short.MAX_VALUE : n != (int) n) {
+          throw new ArithmeticException((small ? "smallint" : "integer") + " out of range");
+        }
+        return (int) n;
       }
       if (t.startsWith("numeric") || t.startsWith("decimal")) {
-        BigDecimal d = v instanceof Number ? toDecimal(v) : decimal(s);
-        int comma = t.indexOf(',');
-        if (comma > 0) {
-          int scale = Integer.parseInt(t.substring(comma + 1, t.indexOf(')')).trim());
+        BigDecimal d = v instanceof Number ? toDecimal(v) : decimal(s.trim());
+        java.util.regex.Matcher typmod =
+            Pattern.compile("\\(\\s*(\\d+)\\s*(?:,\\s*(-?\\d+)\\s*)?\\)").matcher(t);
+        if (typmod.find()) {
+          int precision = Integer.parseInt(typmod.group(1));
+          int scale = typmod.group(2) == null ? 0 : Integer.parseInt(typmod.group(2));
           d = d.setScale(scale, RoundingMode.HALF_UP);
+          // PostgreSQL: the value must round to an absolute value below 10^(precision - scale)
+          if (d.signum() != 0 && d.precision() - d.scale() > precision - scale) {
+            throw new ArithmeticException("numeric field overflow");
+          }
         }
         return d;
       }
@@ -2086,6 +2169,8 @@ final class Evaluator {
                 ? LocalDateTime.ofInstant((Instant) v, zone())
                 : QueryParser.localDateTime(s);
       }
+    } catch (ArithmeticException e) {
+      throw e; // out of range: 22003, not invalid text
     } catch (RuntimeException e) {
       throw new IllegalArgumentException("Cannot cast '" + s + "' to " + type, e);
     }
@@ -2149,6 +2234,16 @@ final class Evaluator {
         values.add(row.values().iterator().next());
       }
       return values;
+    }
+    if (name.equals("COALESCE") && f.getParameters() != null) {
+      // stops at the first non-null argument: coalesce(1, 1/0) is 1, as in PostgreSQL
+      for (Expression p : f.getParameters()) {
+        Object a = eval(p, group, ctx);
+        if (a != null) {
+          return widened(a, f.getParameters(), group, ctx);
+        }
+      }
+      return null;
     }
     List<Object> args = new ArrayList<>();
     boolean textual = TEXT_FUNCTIONS.contains(name);
@@ -2312,6 +2407,9 @@ final class Evaluator {
       case "RTRIM":
         return trim(str(args, 0), args.size() > 1 ? str(args, 1) : " ", false, true);
       case "ABS":
+        if (isIntegral(args.get(0)) && num(args, 0).longValue() < 0) {
+          return negate(args.get(0)); // with negate's overflow checks
+        }
         return isIntegral(args.get(0))
             ? (Object) Math.abs(num(args, 0).longValue())
             : args.get(0) instanceof BigDecimal
@@ -2357,8 +2455,22 @@ final class Evaluator {
         return toDecimal(args.get(0)).remainder(toDecimal(args.get(1)));
       case "POWER":
       case "POW":
-        return Math.pow(num(args, 0).doubleValue(), num(args, 1).doubleValue());
+        {
+          double base = num(args, 0).doubleValue();
+          double exponent = num(args, 1).doubleValue();
+          if (base == 0 && exponent < 0) {
+            throw new IllegalArgumentException("zero raised to a negative power is undefined");
+          }
+          if (base < 0 && exponent != Math.rint(exponent)) {
+            throw new IllegalArgumentException(
+                "a negative number raised to a non-integer power yields a complex result");
+          }
+          return Math.pow(base, exponent);
+        }
       case "SQRT":
+        if (num(args, 0).doubleValue() < 0) {
+          throw new IllegalArgumentException("cannot take square root of a negative number");
+        }
         return Math.sqrt(num(args, 0).doubleValue());
       case "SIGN":
         {

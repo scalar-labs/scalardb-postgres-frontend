@@ -84,3 +84,11 @@ CREATE SCHEMA IF NOT EXISTS probe_ne; CREATE TABLE IF NOT EXISTS probe_ne.t (id 
 DROP TABLE probe_ne.t; DROP SCHEMA probe_ne;
 -- @session_search_path_plan_cache
 CREATE SCHEMA sp_other; CREATE TABLE sp_other.emp (id INT, name TEXT, PRIMARY KEY (id)); SELECT count(*) FROM emp; SET search_path TO sp_other; SELECT count(*) FROM emp; RESET search_path; SELECT count(*) FROM emp; DROP TABLE sp_other.emp; DROP SCHEMA sp_other;
+-- @session_timestamptz_interval_dst
+SET TIME ZONE 'America/New_York'; SELECT '2024-03-09 12:00:00-05'::timestamptz + interval '1 day' AS a, '2024-03-10 12:00:00-04'::timestamptz - '2024-03-09 12:00:00-05'::timestamptz AS b;
+-- @session_nested_begin
+BEGIN; BEGIN; SELECT count(*) FROM dept; COMMIT;
+-- @refuse_number_against_text_in_update
+BEGIN; UPDATE emp SET salary = 1 WHERE id = 1 AND name = 1; ROLLBACK;
+-- @refuse_pg_catalog_unknown_column
+SELECT nosuch FROM pg_catalog.pg_class;

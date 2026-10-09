@@ -584,4 +584,29 @@ public class PostgresServerTest {
       assertThat(readUntil(in, 'Z')).isEmpty(); // ReadyForQuery after Sync: still connected
     }
   }
+
+  @Test
+  public void simpleQuery_SeveralWrites_ShouldRunInOneTransaction() throws Exception {
+    // one Query message, as psql -c sends it; pgjdbc's default mode splits it into extended ones
+    try (Connection connection = connect("?preferQueryMode=simple");
+        Statement statement = connection.createStatement()) {
+      statement.execute("INSERT INTO t VALUES (5, 'x'); INSERT INTO t VALUES (6, 'y')");
+    }
+    verify(manager).begin(); // both inserts in one transaction, committed once
+    verify(transaction).commit();
+  }
+
+  @Test
+  public void simpleQuery_SecondWriteFails_ShouldRollBackTheFirst() throws Exception {
+    try (Connection connection = connect("?preferQueryMode=simple");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(
+              () ->
+                  statement.execute("INSERT INTO t VALUES (5, 'x'); INSERT INTO nosuch VALUES (1)"))
+          .isInstanceOf(SQLException.class);
+    }
+    verify(manager).begin();
+    verify(transaction).rollback();
+    verify(transaction, org.mockito.Mockito.never()).commit();
+  }
 }

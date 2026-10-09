@@ -249,3 +249,13 @@ count_distinct_int_bigint OK
 limit_with_set_returning_function OK
 in_subquery_hashed_mixed_numbers OK
 in_subquery_hashed_nulls OK
+between_null_bounds OK
+short_circuit_and_coalesce OK
+row_value_and_array_equality OK
+numeric_edge_errors BOTH_ERR
+numeric_edge_power BOTH_ERR
+numeric_edge_casts BOTH_ERR
+numeric_edge_trim_cast OK
+numeric_edge_precision BOTH_ERR
+numeric_edge_smallint BOTH_ERR
+numeric_edge_negate BOTH_ERR

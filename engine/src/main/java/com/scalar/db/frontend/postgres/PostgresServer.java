@@ -345,10 +345,42 @@ public class PostgresServer implements AutoCloseable {
       if (parts.isEmpty()) {
         send('I', new Msg()); // EmptyQueryResponse
       }
-      for (String part : parts) {
-        run(processor, part, Collections.emptyList(), true, new short[0]);
+      // As PostgreSQL: the writes of one Query run in an implicit transaction, so a failure undoes
+      // the ones before it (todo 009). Only a Query of writes alone: a read after a write in one
+      // ScalarDB transaction fails (DB-CORE-10106), and failing a harmless read is worse
+      boolean implicit =
+          parts.size() > 1
+              && !processor.inTransaction()
+              && parts.stream().allMatch(part -> WRITES.contains(firstWord(part)));
+      if (implicit) {
+        processor.execute("BEGIN");
+      }
+      try {
+        for (String part : parts) {
+          run(processor, part, Collections.emptyList(), true, new short[0]);
+        }
+        if (implicit) {
+          processor.execute("COMMIT");
+        }
+      } catch (Exception | Error e) {
+        if (implicit && processor.inTransaction()) {
+          try {
+            processor.execute("ROLLBACK");
+          } catch (Exception rollback) {
+            e.addSuppressed(rollback);
+          }
+        }
+        throw e;
       }
       readyForQuery(processor);
+    }
+
+    private final java.util.Set<String> WRITES =
+        new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE"));
+
+    private String firstWord(String sql) {
+      String[] words = QueryParser.trimStatement(sql).split("\\s+", 2);
+      return words[0].toUpperCase(Locale.ROOT);
     }
 
     /** Runs one statement, streaming its rows (with a RowDescription if asked) and command tag. */
@@ -672,6 +704,11 @@ public class PostgresServer implements AutoCloseable {
       }
       if (m.startsWith("savepoint \"") && m.endsWith("does not exist")) {
         return "3B001"; // invalid_savepoint_specification
+      }
+      if (m.startsWith("cannot take square root")
+          || m.startsWith("zero raised to a negative power")
+          || m.startsWith("a negative number raised to a non-integer power")) {
+        return "2201F"; // invalid_argument_for_power_function
       }
       if (m.equals(SHORT_MESSAGE) || m.startsWith("too many parameters")) {
         return "08P01"; // protocol_violation
@@ -1340,6 +1377,9 @@ public class PostgresServer implements AutoCloseable {
         }
         if (v instanceof Catalog.Int2Vector) {
           return 22;
+        }
+        if (v instanceof Evaluator.Row) {
+          return 2249; // record
         }
         if (v instanceof List) {
           Object element = null;

@@ -5,7 +5,6 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -163,7 +162,13 @@ final class Interval implements Comparable<Interval> {
   }
 
   Instant addTo(Instant t) {
-    return addTo(LocalDateTime.ofInstant(t, ZoneOffset.UTC)).toInstant(ZoneOffset.UTC);
+    // As PostgreSQL: months and days move the wall clock in the session's zone, so a day across a
+    // DST change keeps the time of day; the time part is elapsed time (todo 018)
+    return t.atZone(Evaluator.zone())
+        .plusMonths(months)
+        .plusDays(days)
+        .toInstant()
+        .plus(micros, ChronoUnit.MICROS);
   }
 
   LocalTime addTo(LocalTime t) {

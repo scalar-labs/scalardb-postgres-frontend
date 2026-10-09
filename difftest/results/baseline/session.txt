@@ -40,3 +40,7 @@ accept_timestamp3_without_notice OK
 refuse_drop_schema_not_empty BOTH_ERR
 drop_schema_after_its_table OK
 session_search_path_plan_cache OK
+session_timestamptz_interval_dst OK
+session_nested_begin BOTH_ERR
+refuse_number_against_text_in_update BOTH_ERR
+refuse_pg_catalog_unknown_column BOTH_ERR

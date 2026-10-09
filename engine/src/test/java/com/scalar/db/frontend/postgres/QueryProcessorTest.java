@@ -452,4 +452,20 @@ public class QueryProcessorTest {
         .hasMessageContaining("does not exist");
     processor.execute("ROLLBACK");
   }
+
+  @Test
+  public void plan_AfterAnotherSessionsDdl_ShouldReadTheTableAgain() throws Exception {
+    DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
+    when(admin.getTableMetadata("ns", "t")).thenReturn(METADATA);
+    when(manager.scan(any())).thenReturn(Collections.emptyList());
+    QueryProcessor a = new QueryProcessor(manager, admin, "ns");
+    QueryProcessor b = new QueryProcessor(manager, admin, "ns");
+    a.execute("SELECT * FROM t");
+    a.execute("SELECT * FROM t");
+    verify(admin, org.mockito.Mockito.times(1)).getTableMetadata("ns", "t"); // cached
+    b.execute("CREATE INDEX t_id ON t (id)"); // DDL in another session
+    org.mockito.Mockito.clearInvocations(admin);
+    a.execute("SELECT * FROM t"); // a re-reads the table instead of its cached metadata
+    verify(admin).getTableMetadata("ns", "t");
+  }
 }
