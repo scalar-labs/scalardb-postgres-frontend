@@ -276,6 +276,9 @@ test still asserts that neither the error sent to the client nor the log line co
   exception types for DB-AUTH codes.
 - If the node will not start without a license, `difftest/cluster-auth/README.md` records the steps and
   what was and was not verified, and the branch stays "workable" on the stub tests.
+- Outcome 2026-10-09: the SDK built from an export of Cluster main; the node did not, for want of
+  `scalardb-graphql` and `scalardb-sql-direct-mode` snapshots that exist nowhere reachable (details in the
+  kit's README). The kit, the properties, `Setup.java` and `run.sh` are ready for a machine that has a node.
 - Effort: half a day to a day, most of it the node setup.
 
 ## Alternative Approaches Considered
