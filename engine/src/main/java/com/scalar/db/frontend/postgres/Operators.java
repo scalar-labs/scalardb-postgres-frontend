@@ -300,6 +300,13 @@ final class Operators {
    * Computes the output columns. With {@code keepInput} the source columns stay in the row so a
    * later Sort can order by them; without expressions it only keeps the named columns.
    */
+  /** A select-list value; a bare untyped parameter is output as the text it was sent as. */
+  @Nullable static Object output(Expression e, List<Map<String, Object>> group, Evaluator.Context ctx) {
+    return e instanceof net.sf.jsqlparser.expression.JdbcParameter
+        ? Evaluator.evalText(e, group, ctx)
+        : Evaluator.eval(e, group, ctx);
+  }
+
   static final class Project extends Unary {
     private final List<String> names;
     @Nullable private final List<Expression> expressions;
@@ -337,9 +344,7 @@ final class Operators {
       for (int i = 0; i < names.size(); i++) {
         out.put(
             names.get(i),
-            expressions == null
-                ? row.get(names.get(i))
-                : Evaluator.eval(expressions.get(i), group, ctx));
+            expressions == null ? row.get(names.get(i)) : output(expressions.get(i), group, ctx));
       }
       return out;
     }
@@ -798,7 +803,7 @@ final class Operators {
       for (List<Map<String, Object>> group : kept) {
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < names.size(); i++) {
-          row.put(names.get(i), Evaluator.eval(expressions.get(i), group, ctx));
+          row.put(names.get(i), output(expressions.get(i), group, ctx));
         }
         for (int i = 0; i < orderBy.size(); i++) {
           Expression e = orderBy.get(i).getExpression();

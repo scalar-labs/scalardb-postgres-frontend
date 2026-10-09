@@ -16,3 +16,5 @@ bind_dml_reuse OK
 bind_dml_scan_reuse OK
 bind_delete_reuse OK
 bind_ts OK
+bind_untyped_text_like_number OK
+bind_untyped_insert_text_column OK

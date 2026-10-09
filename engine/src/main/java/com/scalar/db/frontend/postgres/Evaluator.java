@@ -236,6 +236,101 @@ final class Evaluator {
     return d;
   }
 
+  /**
+   * A parameter sent without a type (OID 0, as node-postgres and psql's \\bind send them) whose
+   * text looks like a number or boolean. PostgreSQL types it from where it is used: '007' stays
+   * text when it is inserted into a text column or concatenated, and is 7 in {@code $1 + 1}. The
+   * planner does not infer types from context, so both forms travel together: {@link #eval} gives
+   * the guess, as every numeric operation needs, and the text contexts ({@link #evalText}, and
+   * literals while planning) take the text the client sent.
+   */
+  static final class Untyped {
+    final String text;
+    final Object guess;
+
+    Untyped(String text, Object guess) {
+      this.text = text;
+      this.guess = guess;
+    }
+
+    @Override
+    public String toString() {
+      return text;
+    }
+  }
+
+  /** The guess of an untyped parameter, any other value unchanged. */
+  @Nullable static Object typedValue(@Nullable Object v) {
+    return v instanceof Untyped ? ((Untyped) v).guess : v;
+  }
+
+  /** As {@link #eval}, but an untyped parameter is the text the client sent. */
+  @Nullable static Object evalText(Expression e, List<Map<String, Object>> group, Context ctx) {
+    if (e instanceof JdbcParameter) {
+      Object raw = parameter((JdbcParameter) e, ctx);
+      if (raw instanceof Untyped) {
+        return ((Untyped) raw).text;
+      }
+    }
+    return eval(e, group, ctx);
+  }
+
+  @Nullable private static Object parameter(JdbcParameter p, Context ctx) {
+    int i = p.getIndex() - 1;
+    if (i < 0 || i >= ctx.parameters.size()) {
+      throw new IllegalArgumentException("Unbound parameter: " + p);
+    }
+    return ctx.parameters.get(i);
+  }
+
+  /** The text of an untyped parameter; only call it where {@link #untyped} holds. */
+  private static String untypedText(Expression e, Context ctx) {
+    return ((Untyped) java.util.Objects.requireNonNull(parameter((JdbcParameter) e, ctx))).text;
+  }
+
+  /** True if {@code e} is a parameter bound without a type to number-like or boolean-like text. */
+  private static boolean untyped(Expression e, Context ctx) {
+    return e instanceof JdbcParameter && parameter((JdbcParameter) e, ctx) instanceof Untyped;
+  }
+
+  // String functions whose first argument (every argument for the concat family) is text
+  private static final Set<String> TEXT_FUNCTIONS =
+      new java.util.HashSet<>(
+          Arrays.asList(
+              "LENGTH",
+              "CHAR_LENGTH",
+              "CHARACTER_LENGTH",
+              "OCTET_LENGTH",
+              "UPPER",
+              "LOWER",
+              "INITCAP",
+              "SUBSTRING",
+              "SUBSTR",
+              "LEFT",
+              "RIGHT",
+              "STRPOS",
+              "POSITION",
+              "REPLACE",
+              "TRIM",
+              "BTRIM",
+              "LTRIM",
+              "RTRIM",
+              "LPAD",
+              "RPAD",
+              "REVERSE",
+              "MD5",
+              "SPLIT_PART",
+              "REPEAT",
+              "CONCAT",
+              "CONCAT_WS",
+              "ASCII",
+              "TRANSLATE",
+              "STARTS_WITH",
+              "QUOTE_LITERAL",
+              "QUOTE_IDENT",
+              "REGEXP_REPLACE",
+              "REGEXP_MATCH"));
+
   static boolean isTrue(@Nullable Object value) {
     return Boolean.TRUE.equals(value);
   }
@@ -363,11 +458,7 @@ final class Evaluator {
       return column((Column) e, group, ctx);
     }
     if (e instanceof JdbcParameter) {
-      int i = ((JdbcParameter) e).getIndex() - 1;
-      if (i < 0 || i >= ctx.parameters.size()) {
-        throw new IllegalArgumentException("Unbound parameter: " + e);
-      }
-      return ctx.parameters.get(i);
+      return typedValue(parameter((JdbcParameter) e, ctx));
     }
     if (e instanceof Function) {
       Function f = (Function) e;
@@ -416,7 +507,7 @@ final class Evaluator {
     if (e instanceof CastExpression) {
       CastExpression cast = (CastExpression) e;
       String type = castType(cast.getColDataType());
-      Object v = eval(cast.getLeftExpression(), group, ctx);
+      Object v = evalText(cast.getLeftExpression(), group, ctx); // '007'::text is 007
       String t = type.toLowerCase(Locale.ROOT);
       t = t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
       if (v instanceof String && ctx.catalog != null) {
@@ -513,8 +604,8 @@ final class Evaluator {
     }
     if (e instanceof LikeExpression) {
       LikeExpression like = (LikeExpression) e;
-      Object v = eval(like.getLeftExpression(), group, ctx);
-      Object p = eval(like.getRightExpression(), group, ctx);
+      Object v = evalText(like.getLeftExpression(), group, ctx);
+      Object p = evalText(like.getRightExpression(), group, ctx);
       if (v == null || p == null) {
         return null;
       }
@@ -607,6 +698,12 @@ final class Evaluator {
       if (l == null || r == null) {
         return null;
       }
+      // An untyped parameter compared with text is text: name = $1 with '007' looks for 007
+      if (r instanceof String && untyped(op.getLeftExpression(), ctx)) {
+        l = untypedText(op.getLeftExpression(), ctx);
+      } else if (l instanceof String && untyped(op.getRightExpression(), ctx)) {
+        r = untypedText(op.getRightExpression(), ctx);
+      }
       if (l instanceof List && r instanceof List) {
         Integer order = rowCompare((List<?>) l, (List<?>) r);
         if (order == null) {
@@ -621,8 +718,8 @@ final class Evaluator {
       }
     }
     if (e instanceof Concat) {
-      Object l = eval(((Concat) e).getLeftExpression(), group, ctx);
-      Object r = eval(((Concat) e).getRightExpression(), group, ctx);
+      Object l = evalText(((Concat) e).getLeftExpression(), group, ctx);
+      Object r = evalText(((Concat) e).getRightExpression(), group, ctx);
       if (l == null || r == null) {
         return null;
       }
@@ -1964,9 +2061,12 @@ final class Evaluator {
       return values;
     }
     List<Object> args = new ArrayList<>();
+    boolean textual = TEXT_FUNCTIONS.contains(name);
+    boolean allText = name.equals("CONCAT") || name.equals("CONCAT_WS");
     if (f.getParameters() != null) {
       for (Expression p : f.getParameters()) {
-        args.add(eval(p, group, ctx));
+        args.add(
+            textual && (allText || args.isEmpty()) ? evalText(p, group, ctx) : eval(p, group, ctx));
       }
     } else if (f.getNamedParameters() != null) {
       // position(sub IN s), substring(s FROM n FOR m): the operands in written order

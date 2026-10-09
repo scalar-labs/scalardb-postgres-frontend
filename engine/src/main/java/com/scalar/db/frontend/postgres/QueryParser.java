@@ -1426,7 +1426,13 @@ public class QueryParser {
     @Nullable Operation lookupOperation(Source s, Map<String, Object> left, Evaluator.Context ctx) {
       List<ConditionalExpression> conditions = new ArrayList<>(s.lookup().pushed);
       for (Map.Entry<String, Expression> p : s.lookupParams().entrySet()) {
-        Object value = Evaluator.eval(p.getValue(), Collections.singletonList(left), ctx);
+        Object value =
+            forColumn(
+                s.lookup().table().metadata,
+                p.getKey(),
+                p.getValue(),
+                Collections.singletonList(left),
+                ctx);
         if (value == null) {
           return null; // NULL never equals anything
         }
@@ -2094,7 +2100,10 @@ public class QueryParser {
     if (a instanceof StringValue) {
       value = stringLiteral((StringValue) a);
     } else if (a instanceof JdbcParameter) {
-      value = bound((JdbcParameter) a);
+      value = boundRaw((JdbcParameter) a);
+      if (value instanceof Evaluator.Untyped) {
+        value = ((Evaluator.Untyped) value).text;
+      }
     } else {
       return null;
     }
@@ -2195,6 +2204,12 @@ public class QueryParser {
 
   /** The value bound to a placeholder of the statement being planned. */
   @Nullable private static Object bound(JdbcParameter p) {
+    EMBEDDED.set(true);
+    return Evaluator.typedValue(boundRaw(p));
+  }
+
+  /** As {@link #bound}, but an untyped parameter keeps both forms (see Evaluator.Untyped). */
+  @Nullable private static Object boundRaw(JdbcParameter p) {
     EMBEDDED.set(true);
     List<Object> parameters = BOUND.get();
     int i = p.getIndex() - 1;
@@ -5368,10 +5383,25 @@ public class QueryParser {
     return out;
   }
 
+  /**
+   * The value of {@code e} for column {@code name}: for a TEXT column an untyped parameter is the
+   * text it was sent as ('007' stays 007), for any other column its guess (see Evaluator.Untyped).
+   */
+  @Nullable private static Object forColumn(
+      TableMetadata metadata,
+      String name,
+      Expression e,
+      List<Map<String, Object>> rows,
+      Evaluator.Context ctx) {
+    return metadata.getColumnDataType(name) == DataType.TEXT
+        ? Evaluator.evalText(e, rows, ctx)
+        : Evaluator.eval(e, rows, ctx);
+  }
+
   /** A column holding the value of a constant expression (a literal or a placeholder). */
   private static Column<?> value(
       TableMetadata metadata, String name, Expression e, Evaluator.Context ctx) {
-    Object v = Evaluator.eval(e, Collections.<Map<String, Object>>emptyList(), ctx);
+    Object v = forColumn(metadata, name, e, Collections.<Map<String, Object>>emptyList(), ctx);
     DataType type = metadata.getColumnDataType(name);
     if ((type == DataType.INT || type == DataType.BIGINT)
         && v instanceof Number
@@ -5481,7 +5511,9 @@ public class QueryParser {
       return isNull(value) ? null : column(metadata, name, value);
     }
     Object v =
-        Evaluator.eval(
+        forColumn(
+            metadata,
+            name,
             value,
             row == null
                 ? Collections.<Map<String, Object>>emptyList()
@@ -6221,7 +6253,8 @@ public class QueryParser {
       return null;
     }
     if (e instanceof JdbcParameter) {
-      Object value = bound((JdbcParameter) e);
+      // the text the client sent: '007' into a text column is 007, into an integer column 7
+      Object value = boundRaw((JdbcParameter) e);
       return value == null ? null : String.valueOf(value);
     }
     if (e instanceof StringValue) {

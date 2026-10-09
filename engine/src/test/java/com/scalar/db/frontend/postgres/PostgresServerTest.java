@@ -238,8 +238,18 @@ public class PostgresServerTest {
   public void typed_ShouldGiveParametersTheValueOfTheirLiteral() {
     assertThat(PostgresServer.typed("5", 0)).isEqualTo(5L);
     // a decimal or exponent literal is numeric, as in PostgreSQL; 1.5e3 has no fraction digits
-    assertThat(PostgresServer.typed("-1.5e3", 0)).isEqualTo(new java.math.BigDecimal("-1500"));
-    assertThat(PostgresServer.typed("true", 0)).isEqualTo(true);
+    assertThat(Evaluator.typedValue(PostgresServer.typed("-1.5e3", 0)))
+        .isEqualTo(new java.math.BigDecimal("-1500"));
+    assertThat(Evaluator.typedValue(PostgresServer.typed("true", 0))).isEqualTo(true);
+    // undeclared text that does not print back as itself keeps its text for text contexts
+    assertThat(PostgresServer.typed("007", 0))
+        .isInstanceOfSatisfying(
+            Evaluator.Untyped.class,
+            u -> {
+              assertThat(u.text).isEqualTo("007");
+              assertThat(u.guess).isEqualTo(7L);
+            });
+    assertThat(PostgresServer.typed("007", 23)).isEqualTo(7L); // declared int4: a number
     assertThat(PostgresServer.typed("x", 0)).isEqualTo("x");
     assertThat(PostgresServer.typed("7", 1043)).isEqualTo("7"); // declared varchar
     assertThat(PostgresServer.typed("t", 16)).isEqualTo(true);

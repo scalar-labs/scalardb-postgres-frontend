@@ -823,6 +823,15 @@ public class PostgresServer implements AutoCloseable {
     if (!plain(value, oid)) {
       return value;
     }
+    Object guess = guess(value, oid);
+    // Undeclared, and the guess does not print back as what was sent ('007', 'true', '1e3'): keep
+    // both, so text contexts see the text (Evaluator.Untyped)
+    return oid == 0 && (guess instanceof Boolean || !Evaluator.text(guess).equals(value))
+        ? new Evaluator.Untyped(value, guess)
+        : guess;
+  }
+
+  private static Object guess(String value, int oid) {
     if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false")) {
       return Boolean.valueOf(value.toLowerCase(Locale.ROOT));
     }
