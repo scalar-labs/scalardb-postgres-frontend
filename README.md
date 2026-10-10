@@ -32,7 +32,7 @@ java -jar server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalar
 `scalardb.properties` is an ordinary ScalarDB configuration. The database name a client connects
 with is the ScalarDB namespace. [`getting-started/`](getting-started/README.md) walks through the
 whole setup with sample data, psql and JDBC, and through the container image
-(`./gradlew :server:dockerContext && docker build -t scalardb-postgres-frontend server/build/docker`).
+(`./gradlew :server:dockerBuild`).
 
 ## Layout
 

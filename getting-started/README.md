@@ -98,14 +98,16 @@ first and run the copy: a running jar that gets rewritten fails with class loadi
 
 ### Or run it in a container
 
-The image holds the frontend and the Cluster client SDK, so the same image serves every mode,
-authentication included. Build it from the root of this repository, after step 1's
-`publishToMavenLocal`:
+The image holds the frontend and the Cluster client SDK, on a Java 25 runtime, so the same image
+serves every mode, authentication included. Build it from the root of this repository, after step
+1's `publishToMavenLocal`:
 
 ```sh
-./gradlew :server:dockerContext
-docker build -t scalardb-postgres-frontend server/build/docker
+./gradlew :server:dockerBuild    # scalardb-postgres-frontend:4.0.0-SNAPSHOT, in the local Docker
 ```
+
+`./gradlew :server:dockerContext` alone assembles the build context in `server/build/docker`, for
+`docker build` or a CI build of other platforms.
 
 Mount the properties file at `/scalardb-postgres-frontend/scalardb.properties`. Any value in it may
 read the environment as `${env:NAME}`, or `${env:NAME:-default}`, which keeps passwords out of the
@@ -119,13 +121,16 @@ scalar.db.password=${env:PG_PASSWORD}
 ```sh
 docker run -d -p 15432:5432 -e PG_HOST=host.docker.internal -e PG_PASSWORD=postgres \
   -v "$PWD/scalardb.properties:/scalardb-postgres-frontend/scalardb.properties:ro" \
-  scalardb-postgres-frontend
+  scalardb-postgres-frontend:4.0.0-SNAPSHOT
 ```
 
 `localhost` inside the container is the container itself: `host.docker.internal` reaches a database
-on the host with Docker Desktop. The server listens on 5432 in the container and runs as an
-unprivileged user. Mount TLS files the same way and point `scalar.db.postgres.ssl.cert` and `.key`
-at them. The heap may use 75% of the container's memory; set `JAVA_TOOL_OPTIONS` to change that.
+on the host with Docker Desktop. The server listens on 5432 in the container and runs as uid and
+gid 201, which Kubernetes' `runAsNonRoot` accepts. Mount TLS files the same way, readable by uid
+201, and point `scalar.db.postgres.ssl.cert` and `.key` at them. The heap may use 75% of the
+container's memory, and running out of it ends the process. Both come from `JAVA_TOOL_OPTIONS`,
+together with `--enable-native-access=ALL-UNNAMED`: setting it replaces all three, so repeat the ones
+to keep.
 
 ## 4. Create the tables and load the data
 

@@ -21,7 +21,7 @@ tasks.shadowJar {
     }
 }
 
-// The container image's build context: docker build server/build/docker (see server/src/docker).
+// The container image's build context, from which dockerBuild builds it (see server/src/docker).
 // Plain jars rather than the fat jar, with the Cluster client SDK added, so that one image serves
 // every mode, auth included, and Gradle resolves each library once across the frontend and the SDK.
 val image: Configuration by configurations.creating {
@@ -49,4 +49,19 @@ tasks.register<Sync>("dockerContext") {
         from(imageJar)
         from(image)
     }
+}
+
+// The image, into the local Docker daemon, labelled with the version and the commit
+tasks.register<Exec>("dockerBuild") {
+    description = "Builds the container image scalardb-postgres-frontend:<version>."
+    dependsOn("dockerContext")
+    val revision = providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText
+    workingDir = layout.buildDirectory.dir("docker").get().asFile
+    commandLine(
+        "docker", "build",
+        "--build-arg", "IMAGE_VERSION=${project.version}",
+        "--build-arg", "IMAGE_REVISION=${revision.get().trim()}",
+        "-t", "scalardb-postgres-frontend:${project.version}",
+        ".",
+    )
 }
