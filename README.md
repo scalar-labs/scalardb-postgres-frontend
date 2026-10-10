@@ -31,14 +31,15 @@ java -jar server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalar
 
 `scalardb.properties` is an ordinary ScalarDB configuration. The database name a client connects
 with is the ScalarDB namespace. [`getting-started/`](getting-started/README.md) walks through the
-whole setup with sample data, psql and JDBC.
+whole setup with sample data, psql and JDBC, and through the container image
+(`./gradlew :server:dockerContext && docker build -t scalardb-postgres-frontend server/build/docker`).
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `engine/` | the frontend as a library: the PostgreSQL wire protocol, the SQL parser and planner, and the in-memory operators, with the unit tests. A ScalarDB Cluster node can embed it. |
-| `server/` | the standalone server: `main` and the fat jar |
+| `server/` | the standalone server: `main`, the fat jar, and the container image (`server/src/docker`) |
 | `build-logic/`, `gradle/libs.versions.toml` | shared Gradle conventions and the dependency versions |
 | [`getting-started/`](getting-started/README.md) | setup guide, sample schema and data, and a tour of what the frontend does |
 | [`LIMITATIONS.md`](LIMITATIONS.md) | what the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL |

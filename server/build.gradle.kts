@@ -20,3 +20,33 @@ tasks.shadowJar {
         attributes("Main-Class" to "com.scalar.db.frontend.postgres.server.Main")
     }
 }
+
+// The container image's build context: docker build server/build/docker (see server/src/docker).
+// Plain jars rather than the fat jar, with the Cluster client SDK added, so that one image serves
+// every mode, auth included, and Gradle resolves each library once across the frontend and the SDK.
+val image: Configuration by configurations.creating {
+    extendsFrom(configurations.runtimeClasspath.get())
+    // The SDK asks for slf4j 2, which ignores the slf4j-simple 1.7 binding and would log nothing;
+    // the fat jar has always run the SDK on the 1.7 API (difftest/cluster-auth)
+    resolutionStrategy.force(libs.slf4j.api)
+}
+
+dependencies {
+    image(libs.scalardb.cluster.client)
+}
+
+val imageJar by tasks.registering(Jar::class) {
+    from(sourceSets.main.get().output)
+    archiveFileName = "scalardb-postgres-frontend-server.jar"
+    destinationDirectory = layout.buildDirectory.dir("image-jar")
+}
+
+tasks.register<Sync>("dockerContext") {
+    description = "Assembles the container image's build context in build/docker."
+    from("src/docker")
+    into(layout.buildDirectory.dir("docker"))
+    into("lib") {
+        from(imageJar)
+        from(image)
+    }
+}

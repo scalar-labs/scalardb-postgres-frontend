@@ -59,4 +59,17 @@ public class MainTest {
                         "scalar.db.transaction_manager", "cluster")))
         .hasMessageContaining("ssl.cert");
   }
+
+  @Test
+  public void resolvePlaceholders_ShouldResolveEveryValueAndDropEmptyOnes() {
+    Properties properties =
+        properties(
+            "scalar.db.postgres.ssl.require", "${sys:frontend.test.require:-false}",
+            "scalar.db.username", "${sys:frontend.test.unset:-}",
+            "scalar.db.storage", "jdbc");
+    Main.resolvePlaceholders(properties);
+    assertThat(properties.getProperty("scalar.db.postgres.ssl.require")).isEqualTo("false");
+    assertThat(properties.containsKey("scalar.db.username")).isFalse();
+    assertThat(properties.getProperty("scalar.db.storage")).isEqualTo("jdbc");
+  }
 }

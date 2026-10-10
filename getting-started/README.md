@@ -96,6 +96,37 @@ It logs `Listening on port 15432` when it is ready. Leave it running in its own 
 If the checkout is in a folder that a sync tool such as Dropbox rewrites, copy the jar elsewhere
 first and run the copy: a running jar that gets rewritten fails with class loading errors.
 
+### Or run it in a container
+
+The image holds the frontend and the Cluster client SDK, so the same image serves every mode,
+authentication included. Build it from the root of this repository, after step 1's
+`publishToMavenLocal`:
+
+```sh
+./gradlew :server:dockerContext
+docker build -t scalardb-postgres-frontend server/build/docker
+```
+
+Mount the properties file at `/scalardb-postgres-frontend/scalardb.properties`. Any value in it may
+read the environment as `${env:NAME}`, or `${env:NAME:-default}`, which keeps passwords out of the
+file:
+
+```properties
+scalar.db.contact_points=jdbc:postgresql://${env:PG_HOST}:5432/scalardb
+scalar.db.password=${env:PG_PASSWORD}
+```
+
+```sh
+docker run -d -p 15432:5432 -e PG_HOST=host.docker.internal -e PG_PASSWORD=postgres \
+  -v "$PWD/scalardb.properties:/scalardb-postgres-frontend/scalardb.properties:ro" \
+  scalardb-postgres-frontend
+```
+
+`localhost` inside the container is the container itself: `host.docker.internal` reaches a database
+on the host with Docker Desktop. The server listens on 5432 in the container and runs as an
+unprivileged user. Mount TLS files the same way and point `scalar.db.postgres.ssl.cert` and `.key`
+at them. The heap may use 75% of the container's memory; set `JAVA_TOOL_OPTIONS` to change that.
+
 ## 4. Create the tables and load the data
 
 In another terminal, from this directory:
@@ -200,8 +231,8 @@ scalar.db.postgres.ssl.key=server.key          # PEM, unencrypted PKCS#8 (openss
 Leave `scalar.db.username` and `scalar.db.password` out: every call runs as the session's user, and
 the server refuses to start with a configured user, so that nothing can ever run as anyone else. TLS is
 required with authentication on; `scalar.db.postgres.ssl.require=false` allows plaintext for local
-testing only. The Cluster client SDK and its dependencies are on the classpath rather than inside the
-jar; `difftest/cluster-auth/sdk-classpath/` copies them into one directory:
+testing only. The container image includes the Cluster client SDK. For the jar, the SDK and its
+dependencies are on the classpath rather than inside it; `difftest/cluster-auth/sdk-classpath/` copies them into one directory:
 
 ```sh
 java -cp scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' \

@@ -1,5 +1,6 @@
 package com.scalar.db.frontend.postgres.server;
 
+import com.scalar.db.config.ConfigUtils;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.frontend.postgres.PostgresServer;
 import com.scalar.db.service.TransactionFactory;
@@ -42,6 +43,7 @@ public final class Main {
     try (InputStream in = new FileInputStream(args[0])) {
       properties.load(in);
     }
+    resolvePlaceholders(properties);
     // ScalarDB caches table metadata for 60 s by default; a short cache lets sessions wait out DDL
     // on an existing table (see PostgresServer#configure) instead of missing it for a minute
     properties.putIfAbsent(DatabaseConfig.METADATA_CACHE_EXPIRATION_TIME_SECS, "1");
@@ -73,6 +75,22 @@ public final class Main {
         server.getPort(),
         auth.equals("none") ? ", trusting every connection" : " with " + auth + " authentication");
     server.serve();
+  }
+
+  /**
+   * Replaces ScalarDB's {@code ${env:NAME}} and {@code ${sys:name}} placeholders in every value,
+   * the frontend's own {@code scalar.db.postgres.*} included, so that a container can take its
+   * passwords and addresses from the environment; a value that resolves to nothing is removed.
+   */
+  static void resolvePlaceholders(Properties properties) {
+    for (String name : properties.stringPropertyNames()) {
+      String value = ConfigUtils.getString(properties, name, null);
+      if (value == null) {
+        properties.remove(name);
+      } else {
+        properties.setProperty(name, value);
+      }
+    }
   }
 
   /**
