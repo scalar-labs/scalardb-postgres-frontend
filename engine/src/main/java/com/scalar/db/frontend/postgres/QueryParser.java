@@ -2815,7 +2815,8 @@ public class QueryParser {
           unenforced(column, definition.getColDataType().getDataType(), specs, keyColumn));
       for (String earlier : columns) {
         if (earlier.equals(column)) {
-          throw new IllegalArgumentException("column \"" + column + "\" specified more than once");
+          throw new PgException.Argument(
+              "42701", "column \"" + column + "\" specified more than once"); // duplicate_column
         }
         if (earlier.equalsIgnoreCase(column)) {
           throw new PgException.Argument(
@@ -6135,7 +6136,7 @@ public class QueryParser {
    */
   private static void validateGrouping(LogicalPlan plan, PlainSelect select) {
     if (select.getWhere() != null && hasAggregate(select.getWhere())) {
-      throw new IllegalArgumentException("aggregate functions are not allowed in WHERE");
+      throw new PgException.Argument("42803", "aggregate functions are not allowed in WHERE");
     }
     for (Expression e : plan.outputExpressions) {
       noNestedAggregate(e);
@@ -6178,7 +6179,8 @@ public class QueryParser {
       if (c.getTable() == null || grouped.contains(c.toString()) || keyGrouped(c, grouped, plan)) {
         continue;
       }
-      throw new IllegalArgumentException(
+      throw new PgException.Argument(
+          "42803", // grouping_error
           "column \""
               + c
               + "\" must appear in the GROUP BY clause or be used in an aggregate function");
@@ -6258,7 +6260,8 @@ public class QueryParser {
             if (Evaluator.isAggregate(function) && function.getParameters() != null) {
               for (Expression p : function.getParameters()) {
                 if (hasAggregate(p)) {
-                  throw new IllegalArgumentException("aggregate function calls cannot be nested");
+                  throw new PgException.Argument(
+                      "42803", "aggregate function calls cannot be nested");
                 }
               }
               return null;

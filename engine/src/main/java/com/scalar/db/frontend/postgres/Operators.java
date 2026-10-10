@@ -618,7 +618,8 @@ final class Operators {
       if (e instanceof LongValue) {
         int index = (int) ((LongValue) e).getValue() - 1;
         if (index < 0 || index >= names.size()) {
-          throw new IllegalArgumentException("ORDER BY position out of range: " + orderBy.get(i));
+          throw new PgException.Argument(
+              "42P10", "ORDER BY position " + (index + 1) + " is not in select list");
         }
         return row.get(names.get(index));
       }

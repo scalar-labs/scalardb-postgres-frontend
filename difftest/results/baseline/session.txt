@@ -33,7 +33,7 @@ refuse_date_before_year_1000 FE_ERR
 refuse_varchar_length_over_max BOTH_ERR
 refuse_char_zero_length BOTH_ERR
 refuse_numeric_precision_over_max BOTH_ERR
-refuse_table_name_over_63 BOTH_ERR
+refuse_table_name_over_63 CODE
 refuse_column_name_over_56 FE_ERR
 notice_timestamp_precision FE_ERR
 accept_timestamp3_without_notice OK

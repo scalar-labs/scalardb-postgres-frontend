@@ -55,7 +55,12 @@ Run the sets one at a time, and reload both sides (`trunc.sql` then `data.sql`) 
 follows the write sets: the write and bind sets leave the two sides slightly different.
 
 Statuses: OK, NAMES (only result column names differ), NUM_FMT (numbers differ only in formatting, e.g. 2500 vs 2500.0),
-DIFF (wrong result), FE_ERR / PG_ERR (only one side errors), BOTH_ERR.
+DIFF (wrong result), FE_ERR / PG_ERR (only one side errors), BOTH_ERR (both fail with the same SQLSTATEs),
+CODE (both fail, with different SQLSTATEs). psql runs with `VERBOSITY=verbose` so that each error line
+carries its SQLSTATE. Two cases are CODE on purpose: `s02_11_1_create_schema_authorization`, where the
+frontend refuses `AUTHORIZATION` (`0A000`) and PostgreSQL reports the existing schema, and
+`refuse_table_name_over_63`, where PostgreSQL only truncates the name with a NOTICE (no SQLSTATE in
+the comparison) and the frontend refuses it (`42622`).
 
 ## Concurrency
 

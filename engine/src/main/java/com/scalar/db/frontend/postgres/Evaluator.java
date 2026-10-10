@@ -784,9 +784,12 @@ final class Evaluator {
       if (rows.isEmpty()) {
         return null;
       }
-      if (rows.size() > 1 || rows.get(0).size() != 1) {
+      if (rows.get(0).size() != 1) {
+        throw new PgException.Argument("42601", "subquery must return only one column");
+      }
+      if (rows.size() > 1) {
         throw new PgException.Argument(
-            "21000", "Subquery must return one row and one column: " + e);
+            "21000", "more than one row returned by a subquery used as an expression");
       }
       return rows.get(0).values().iterator().next();
     }

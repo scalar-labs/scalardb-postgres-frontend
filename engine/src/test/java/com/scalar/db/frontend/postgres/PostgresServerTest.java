@@ -431,6 +431,11 @@ public class PostgresServerTest {
       assertSqlState(statement, "SELECT CAST('x' AS INT)", "22P02");
       assertSqlState(statement, "SELECT (SELECT id FROM t), 1", "21000");
       assertSqlState(statement, "SELECT id FROM t LIMIT -1", "2201W");
+      assertSqlState(statement, "SELECT (SELECT id, name FROM t)", "42601");
+      assertSqlState(statement, "SELECT id FROM t WHERE count(*) > 1", "42803");
+      assertSqlState(statement, "SELECT id, count(*) FROM t GROUP BY name", "42803");
+      assertSqlState(statement, "SELECT id FROM t ORDER BY 2", "42P10");
+      assertSqlState(statement, "CREATE TABLE d (id INT, id INT, PRIMARY KEY (id))", "42701");
       assertSqlState(statement, "SELECT id FROM t OFFSET -1", "2201X");
       assertSqlState(statement, "SELECT CAST(1e308 AS DOUBLE PRECISION) * 10", "22003");
       assertSqlState(statement, "INSERT INTO t VALUES (2, E'a\\000b')", "22021");

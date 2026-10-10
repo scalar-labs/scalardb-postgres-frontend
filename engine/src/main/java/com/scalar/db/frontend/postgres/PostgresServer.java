@@ -862,6 +862,17 @@ public class PostgresServer implements AutoCloseable {
         int oid = i < oids.length ? oids[i] : 0;
         params.add(format == 0 ? new String(value, StandardCharsets.UTF_8) : binary(oid, value));
       }
+      int needed = Math.max(QueryParser.parameterCount(sql), oids.length); // as PostgreSQL counts
+      if (params.size() != needed) {
+        throw new PgException.Argument(
+            "08P01",
+            "bind message supplies "
+                + params.size()
+                + " parameters, but prepared statement \""
+                + statement
+                + "\" requires "
+                + needed);
+      }
       short[] resultFormats = new short[count(msg, 2)];
       for (int i = 0; i < resultFormats.length; i++) {
         resultFormats[i] = msg.getShort();
@@ -1046,6 +1057,9 @@ public class PostgresServer implements AutoCloseable {
       }
       if (m.contains("DB-CORE-10020") || m.contains("DB-CORE-10017")) {
         return "22023"; // invalid_parameter_value: a key or value ScalarDB does not accept
+      }
+      if (m.contains("DB-CORE-10052")) {
+        return "42P07"; // duplicate_table: CREATE TABLE of an existing table
       }
       if (m.contains("DB-CORE-10053")) {
         return "2BP01"; // dependent_objects_still_exist: DROP SCHEMA with tables in it
