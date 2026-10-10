@@ -37,8 +37,8 @@ USER 201:201
 # most of the container's memory, and running out of it ends the process, for the orchestrator to
 # restart, rather than leaving it half working. The Cluster SDK's gRPC loads Netty's native library,
 # a restricted method since JDK 24: without native access the JVM warns, and a later release will
-# block it. Left as is: the warning about sun.misc.Unsafe from Caffeine 2.9.3, which ScalarDB core
-# depends on; it holds on 25, and Caffeine 3 in core is the fix before a JRE that removes it.
+# block it. (Caffeine, under ScalarDB core, is on 3 here, not 2, which used sun.misc.Unsafe: see
+# server/build.gradle.kts.)
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED"
 EXPOSE 5432
 # java is PID 1, so it receives SIGTERM itself

@@ -13,6 +13,13 @@ dependencies {
     runtimeOnly(libs.slf4j.simple)
 }
 
+// ScalarDB core's caches on Caffeine 3, which uses VarHandles where 2 uses sun.misc.Unsafe: the server
+// runs on Java 17 or later, where 3 runs, and core calls only builder and map methods 3 still has.
+// Here, not in the engine: in a Cluster node, the node's own build decides the version
+configurations.configureEach {
+    resolutionStrategy.force(libs.caffeine)
+}
+
 // java -jar build/libs/scalardb-postgres-frontend-<version>.jar <scalardb.properties> [port]
 tasks.shadowJar {
     archiveBaseName = "scalardb-postgres-frontend"
