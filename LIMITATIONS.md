@@ -16,6 +16,11 @@ at the end of this section.
   its token and ends with `28000` when it expires, `CREATE USER` and `GRANT` are not SQL statements
   here yet, and `CancelRequest` is ignored.
 - **`COPY` is not supported;** load data with INSERTs.
+- **Fixed resource limits.** A session may hold at most 64 MiB of prepared statements and portals,
+  and a statement may spend at most 5 seconds matching regular expressions over all its rows; both
+  fail with an error rather than slow the server. A connection must finish its startup and login
+  within 60 seconds. None of these is configurable yet; the
+  [settings table](getting-started/README.md#2-configure) lists them.
 - **Window functions and recursive CTEs** work, except `RANGE`/`GROUPS` frames with offsets,
   `DISTINCT` inside a window aggregate, and a recursive CTE whose body is not
   `anchor UNION [ALL] step`.

@@ -59,6 +59,26 @@ scalar.db.cross_partition_scan.ordering.enabled=true
 The three cross-partition scan settings are what let queries without a key work, such as
 `SELECT ... WHERE price > 199`.
 
+The same file takes the frontend's own settings, all optional:
+
+| Property | Default | What it does |
+|---|---|---|
+| `scalar.db.postgres.listen_address` | every interface | The one address to listen on, such as `127.0.0.1` |
+| `scalar.db.postgres.max_connections` | `100` | Sessions at once; one more is refused with `53300`, as in PostgreSQL |
+| `scalar.db.postgres.auth` | `none` | `userpass` or `oidc_jwt` to log in as Cluster users: see [Connect as a user](#connect-as-a-user) |
+| `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | none | PEM certificate chain and key, to accept TLS |
+| `scalar.db.postgres.ssl.require` | `true` with `auth` on | Refuse clients that do not use TLS |
+
+The frontend also enforces fixed limits that protect it from a single client:
+
+| Limit | Value | Past it |
+|---|---|---|
+| Time from connecting to finishing the startup and login | 60 s | The connection is closed |
+| One protocol message | 64 MiB | `08P01`, and the session ends |
+| Prepared statements, and portals, per session | 10,000 each | `53000` |
+| SQL text and bound values held by a session's prepared statements and portals | 64 MiB | `53000`; close some to make room |
+| Regular expression matching (`~`, `SIMILAR TO`, `LIKE`) in one statement, over all its rows | 5 s | `2201B` |
+
 ## 3. Start the frontend
 
 From this directory (`getting-started`), give it the properties file and the
