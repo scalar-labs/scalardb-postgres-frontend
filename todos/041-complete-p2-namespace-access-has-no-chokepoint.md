@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "041"
 tags: [code-review, security, auth-adjacent, architecture]
@@ -91,3 +91,13 @@ database string (identifier chars, 63 bytes).
 
 **Verdict:**
 - PARTLY REAL (security). With auth=none, which every non-Cluster backend uses, any client that reaches the port can drop the coordinator tables or a schema with CASCADE. With Cluster authentication, Cluster's privileges govern these calls.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- DROP COORDINATOR TABLES is refused with 42501 unless the session is a Cluster superuser or the operator sets scalar.db.postgres.allow_drop_coordinator_tables=true. CREATE COORDINATOR TABLES IF NOT EXISTS, which the setup scripts run, is unchanged.
+
+**Remaining, by design:**
+- DROP SCHEMA ... CASCADE under auth=none is left alone: a trusted connection may drop each of those tables anyway, so refusing the cascade protects nothing. With Cluster authentication its privileges decide.

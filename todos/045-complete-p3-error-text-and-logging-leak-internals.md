@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "045"
 tags: [code-review, info-leak, hardening]
@@ -87,3 +87,13 @@ failure messages generic.
 
 **Verdict:**
 - PARTLY REAL. The auth path is fixed. Still real: JDK exception text reaches the client (NPE, IndexOutOfBounds: probed via nth_value below), failed statements are logged at INFO with their SQL, and a startup packet without a terminator closes silently with a WARN stack trace (probed), where PostgreSQL answers FATAL 08P01.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- A bug or JVM failure (an Error other than a stack overflow, NullPointerException, ClassCastException, IndexOutOfBoundsException, UnsupportedOperationException, ConcurrentModificationException) reaches the client as "internal error: the server log has the details", with the stack trace logged at WARN.
+- A stack overflow on deeply nested SQL is 54001 "stack depth limit exceeded", as in PostgreSQL.
+- A failed statement is logged at DEBUG, not INFO, since its SQL may hold data.
+- A startup packet that does not end with its terminator is FATAL 08P01 "invalid startup packet layout", byte for byte PostgreSQL's message, instead of a silent close and a WARN stack trace.

@@ -178,6 +178,9 @@ public class PostgresServer implements AutoCloseable {
   /** Milliseconds a session waits after DDL on an existing table, see {@link #configure}. */
   long ddlSettleMillis;
 
+  private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
+  private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling
+
   /**
    * Applies the settings that depend on the ScalarDB configuration the manager was created from:
    * how long a session waits after DDL on an existing table, so that the engine's table metadata
@@ -193,6 +196,13 @@ public class PostgresServer implements AutoCloseable {
     String max = properties.getProperty("scalar.db.postgres.max_connections");
     if (max != null) {
       maxConnections = Integer.parseInt(max.trim());
+    }
+    allowCoordinatorDrop =
+        Boolean.parseBoolean(
+            properties.getProperty("scalar.db.postgres.allow_drop_coordinator_tables", "false"));
+    String ceiling = properties.getProperty("scalar.db.postgres.max_rows_per_write_ceiling");
+    if (ceiling != null) {
+      maxRowsPerWriteCeiling = Integer.parseInt(ceiling.trim());
     }
     String held = properties.getProperty("scalar.db.postgres.max_rows_in_memory");
     if (held != null) {
@@ -518,6 +528,11 @@ public class PostgresServer implements AutoCloseable {
         }
         byte[] body = new byte[length - 8];
         in.readFully(body);
+        if (body.length == 0 || body[body.length - 1] != 0) {
+          // as PostgreSQL: names and values are NUL-terminated and the list ends with a NUL
+          fatal("08P01", "invalid startup packet layout: expected terminator as last byte");
+          return null;
+        }
         ByteBuffer msg = ByteBuffer.wrap(body);
         Map<String, String> params = new HashMap<>();
         while (msg.hasRemaining()) {
@@ -585,6 +600,8 @@ public class PostgresServer implements AutoCloseable {
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
         Evaluator.setCancel(cancel); // this thread serves the session from here on
         processor.setDdlSettleMillis(ddlSettleMillis);
+        processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
+        processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
         if (identity != null) {
           processor.setIdentity(identity);
         } else if (!user.isEmpty()) {
@@ -1036,11 +1053,24 @@ public class PostgresServer implements AutoCloseable {
     }
 
     /** Reports a statement's failure to the client and returns its SQLSTATE. */
+    /** A failure that is the server's fault, whose own text means nothing to the client. */
+    private boolean isInternal(Throwable e) {
+      return (e instanceof Error && !(e instanceof StackOverflowError))
+          || e instanceof NullPointerException
+          || e instanceof ClassCastException
+          || e instanceof IndexOutOfBoundsException
+          || e instanceof UnsupportedOperationException
+          || e instanceof java.util.ConcurrentModificationException;
+    }
+
     private String sendError(Throwable failure) throws IOException {
       Throwable cause = failure.getCause();
       Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);
-      String message = e.getMessage() == null ? e.toString() : e.getMessage();
+      String message =
+          e instanceof StackOverflowError
+              ? "stack depth limit exceeded"
+              : e.getMessage() == null ? e.toString() : e.getMessage();
       // ScalarDB's "Creating the table failed" and the like keep the database's reason in the cause
       Throwable root = rootCause(e);
       if (root instanceof java.sql.SQLException
@@ -1048,10 +1078,13 @@ public class PostgresServer implements AutoCloseable {
           && !message.contains(root.getMessage())) {
         message += " Details: " + root.getMessage();
       }
-      if (e instanceof Error) {
-        logger.warn("Statement failed with an error", e);
+      if (isInternal(e)) {
+        // A bug or a JVM failure: the client learns that much, the log gets the rest, since the
+        // JDK's text names classes and variables the client has no use for
+        logger.warn("Statement failed with an internal error", e);
+        message = "internal error: the server log has the details";
       } else {
-        logger.info("Statement failed: {}", message);
+        logger.debug("Statement failed: {}", message); // the SQL text may hold data: not at INFO
       }
       error(code.equals("28000") ? "FATAL" : "ERROR", code, message); // 28000 closes the session
       return code;
@@ -1065,6 +1098,9 @@ public class PostgresServer implements AutoCloseable {
     // grows
     private String sqlState(Throwable e) {
       String m = e.getMessage() == null ? "" : e.getMessage();
+      if (e instanceof StackOverflowError) {
+        return "54001"; // statement_too_complex, PostgreSQL's "stack depth limit exceeded"
+      }
       if (e instanceof Error) {
         return "XX000"; // internal_error
       }

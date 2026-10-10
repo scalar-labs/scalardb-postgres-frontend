@@ -194,7 +194,8 @@ public class PostgresServerTest {
       statement.execute("BEGIN"); // the ScalarDB transaction starts with the first statement
       assertThatThrownBy(() -> statement.executeQuery("SELECT id FROM t"))
           .isInstanceOf(SQLException.class)
-          .hasMessageContaining("boom")
+          .hasMessageContaining("internal error") // the JVM's own text stays in the log
+          .satisfies(e -> assertThat(e.getMessage()).doesNotContain("boom"))
           .extracting(e -> ((SQLException) e).getSQLState())
           .isEqualTo("XX000");
       statement.execute("ROLLBACK");
@@ -999,6 +1000,7 @@ public class PostgresServerTest {
     String big =
         "SELECT count(*) FROM generate_series(1, 1000) a, generate_series(1, 1000) b,"
             + " generate_series(1, 1000) c";
+    QueryParser.setMaxRowsInMemory(Integer.MAX_VALUE); // so the timeout and the cancel come first
     try (Connection connection = connect("");
         Statement statement = connection.createStatement()) {
       statement.execute("SET statement_timeout = '200ms'");
@@ -1024,17 +1026,56 @@ public class PostgresServerTest {
       canceller.join();
       // and a statement that would hold more rows than allowed fails instead of filling the heap
       QueryParser.setMaxRowsInMemory(1000);
-      try {
-        assertSqlState(
-            statement,
-            "SELECT count(*) FROM generate_series(1, 100) a, generate_series(1, 100) b",
-            "54000");
-      } finally {
-        QueryParser.setMaxRowsInMemory(1_000_000);
-      }
+      assertSqlState(
+          statement,
+          "SELECT count(*) FROM generate_series(1, 100) a, generate_series(1, 100) b",
+          "54000");
       try (ResultSet rs = statement.executeQuery("SELECT 1")) {
         assertThat(rs.next()).isTrue(); // the session goes on
       }
+    } finally {
+      QueryParser.setMaxRowsInMemory(1_000_000);
+    }
+  }
+
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void hardening_CoordinatorDropWriteCeilingAndStartupLayout() throws Exception {
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      // without Cluster's privileges to decide, only the operator may drop the coordinator tables
+      assertSqlState(statement, "DROP COORDINATOR TABLES", "42501");
+      verify(admin, org.mockito.Mockito.never()).dropCoordinatorTables(anyBoolean());
+    }
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.max_rows_per_write_ceiling", "500");
+    server.configure(properties);
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      assertSqlState(statement, "SET scalardb.max_rows_per_write = 0", "42501");
+      assertSqlState(statement, "SET scalardb.max_rows_per_write = 501", "42501");
+      statement.execute("SET scalardb.max_rows_per_write = 100");
+      try (ResultSet rs = statement.executeQuery("SHOW scalardb.max_rows_per_write")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1)).isEqualTo("100");
+      }
+      statement.execute("RESET scalardb.max_rows_per_write");
+      try (ResultSet rs = statement.executeQuery("SHOW scalardb.max_rows_per_write")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1)).isEqualTo("500"); // the default lowered to the ceiling
+      }
+    }
+    // a startup packet whose last string has no terminator: FATAL 08P01, as PostgreSQL answers
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      out.writeInt(12);
+      out.writeInt(196608);
+      out.writeBytes("user");
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
     }
   }
 

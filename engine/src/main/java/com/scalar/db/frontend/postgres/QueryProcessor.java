@@ -34,6 +34,10 @@ public class QueryProcessor {
   // BEGIN was seen but no statement ran yet: the ScalarDB transaction starts with the first
   // statement, so SET TRANSACTION READ ONLY / ISOLATION LEVEL can still shape it, as in PostgreSQL
   private boolean pending;
+  private boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
+  private int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling; 0: none
+  private static final java.util.regex.Pattern DROP_COORDINATOR =
+      java.util.regex.Pattern.compile("(?is)DROP\\s+COORDINATOR\\s+TABLES\\b.*");
   // When the transaction block began: now() for every statement in it, as in PostgreSQL
   @Nullable private java.time.Instant transactionStart;
   private boolean pendingReadOnly;
@@ -246,6 +250,19 @@ public class QueryProcessor {
         throw new PgException.Argument(
             "22023",
             "invalid value for parameter \"" + MAX_ROWS_PER_WRITE + "\": \"" + value + "\"");
+      }
+      if (MAX_ROWS_PER_WRITE.equals(key) && maxRowsPerWriteCeiling > 0) {
+        int rows = Integer.parseInt(value);
+        if (rows == 0 || rows > maxRowsPerWriteCeiling) {
+          // 0 is no cap at all; the operator's ceiling bounds what a client may ask for
+          throw new PgException.Argument(
+              "42501",
+              "permission denied to set parameter \""
+                  + MAX_ROWS_PER_WRITE
+                  + "\" above "
+                  + maxRowsPerWriteCeiling
+                  + " (scalar.db.postgres.max_rows_per_write_ceiling)");
+        }
       }
       settings.put(key == null ? name : key, value);
       searchPathChanged(key);
@@ -524,6 +541,17 @@ public class QueryProcessor {
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
+    }
+    if (word.equals("DROP")
+        && DROP_COORDINATOR.matcher(QueryParser.trimStatement(sql)).matches()
+        && !allowCoordinatorDrop
+        && !(identity != null && identity.superuser())) {
+      // Every application's transactions depend on these tables: without Cluster's privileges to
+      // decide, only an operator's setting lets a client drop them
+      throw new PgException.Argument(
+          "42501",
+          "permission denied: DROP COORDINATOR TABLES needs a Cluster superuser, or"
+              + " scalar.db.postgres.allow_drop_coordinator_tables=true");
     }
     switch (word) {
       case "BEGIN":
@@ -986,6 +1014,22 @@ public class QueryProcessor {
    */
   public void setDdlSettleMillis(long millis) {
     ddlSettleMillis = millis;
+  }
+
+  /** Lets DROP COORDINATOR TABLES run for any session, not only a Cluster superuser's. */
+  public void setAllowCoordinatorDrop(boolean allow) {
+    allowCoordinatorDrop = allow;
+  }
+
+  /**
+   * The most rows per write a session may set {@code scalardb.max_rows_per_write} to; 0 for no
+   * ceiling. The default is lowered to it if higher.
+   */
+  public void setMaxRowsPerWriteCeiling(int ceiling) {
+    maxRowsPerWriteCeiling = ceiling;
+    if (ceiling > 0 && Long.parseLong(defaults.get(MAX_ROWS_PER_WRITE)) > ceiling) {
+      defaults.put(MAX_ROWS_PER_WRITE, String.valueOf(ceiling));
+    }
   }
 
   private void settleMetadata(String commandTag) {

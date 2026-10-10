@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "044"
 tags: [code-review, hardening]
@@ -81,3 +81,10 @@ configured value (or to 0) needs an operator property.
 
 **Verdict:**
 - STILL REAL (hardening). SET scalardb.max_rows_per_write = 0 lifts the cap for any client; there is no operator ceiling.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- scalar.db.postgres.max_rows_per_write_ceiling bounds what SET scalardb.max_rows_per_write may ask for: 0 (no cap) and values above it are 42501, and a higher default is lowered to it. Without the property nothing changes: the cap guards against accidents, as the triage noted.
