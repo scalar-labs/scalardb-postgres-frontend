@@ -65,6 +65,11 @@ public class QueryProcessor {
   private final java.util.Deque<Map.Entry<String, Integer>> savepoints =
       new java.util.ArrayDeque<>();
   private int writes; // write statements run in this transaction, failed ones included
+  // Whether every write so far was a plain INSERT: a conflict at commit then means an existing key
+  private boolean onlyInserts = true;
+  private static final java.util.regex.Pattern ON_CONFLICT =
+      java.util.regex.Pattern.compile(
+          "\\bON\\s+CONFLICT\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
   private static final java.util.Set<String> WRITES =
       new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
   private static final java.util.regex.Pattern SAVEPOINT_NAME =
@@ -541,6 +546,16 @@ public class QueryProcessor {
           if (transaction != null) {
             transaction.commit();
           }
+        } catch (TransactionException e) {
+          // ScalarDB finds an INSERT's existing key only at commit, as the conflict DB-CORE-20013,
+          // which is also what a write-write conflict raises. After plain INSERTs alone it is
+          // PostgreSQL's unique violation, as in a one-shot INSERT, and must not be retried
+          if (onlyInserts
+              && writes > 0
+              && String.valueOf(e.getMessage()).contains("DB-CORE-20013")) {
+            throw new QueryParser.UniqueViolationException(e);
+          }
+          throw e;
         } finally {
           endTransaction();
         }
@@ -630,6 +645,9 @@ public class QueryProcessor {
       default:
         if (inTransaction() && WRITES.contains(word)) {
           writes++;
+          if (!word.equals("INSERT") || ON_CONFLICT.matcher(sql).find()) {
+            onlyInserts = false;
+          }
         }
         try {
           return statement(sql, parameters);
@@ -729,6 +747,7 @@ public class QueryProcessor {
     pendingReadOnly = false;
     savepoints.clear();
     writes = 0;
+    onlyInserts = true;
     for (Map.Entry<String, String> saved : localSaved.entrySet()) {
       if (saved.getValue() == null) {
         settings.remove(saved.getKey()); // SET LOCAL ends with the transaction

@@ -592,6 +592,13 @@ public class PostgresServer implements AutoCloseable {
         ByteBuffer msg = ByteBuffer.wrap(body);
         if (type == 'S') {
           failed = false;
+          if (implicit) {
+            try {
+              scoped(() -> endImplicit(processor)); // commits, or rolls back after an error
+            } catch (Exception | Error e) {
+              sendError(e);
+            }
+          }
           readyForQuery(processor);
           continue;
         }
@@ -685,7 +692,19 @@ public class PostgresServer implements AutoCloseable {
       }
     }
 
+    // An implicit transaction holding the extended-protocol writes until the next Sync
+    private boolean implicit;
+
+    /** Ends the implicit transaction: COMMIT, which rolls back if a statement in it failed. */
+    private void endImplicit(QueryProcessor processor) throws Exception {
+      implicit = false;
+      processor.execute("COMMIT");
+    }
+
     private void simpleQuery(QueryProcessor processor, String sql) throws Exception {
+      if (implicit) {
+        endImplicit(processor); // a Query without the Sync that should have come before it
+      }
       List<String> parts = split(sql);
       if (parts.isEmpty()) {
         send('I', new Msg()); // EmptyQueryResponse
@@ -917,9 +936,21 @@ public class PostgresServer implements AutoCloseable {
       // The maximum row count is ignored: all rows are always sent
       if (portal.sql.trim().isEmpty()) {
         send('I', new Msg());
-      } else {
-        run(processor, portal.sql, portal.parameters, false, portal.formats);
+        return;
       }
+      // As PostgreSQL: the writes up to a Sync run in an implicit transaction, so a batch, which
+      // pgjdbc sends with one Sync, is all or nothing (todo 009). A read or any other statement
+      // commits the writes before it first: a read after a write in one ScalarDB transaction
+      // fails (DB-CORE-10106), as the simple protocol's rule also avoids
+      boolean write = WRITES.contains(firstWord(portal.sql));
+      if (implicit && !write) {
+        endImplicit(processor);
+      }
+      if (write && !processor.inTransaction()) {
+        processor.execute("BEGIN");
+        implicit = true;
+      }
+      run(processor, portal.sql, portal.parameters, false, portal.formats);
     }
 
     private void sendRowDescription(List<String> labels, int[] oids, short[] formats)

@@ -416,6 +416,12 @@ public class PostgresServerTest {
                 "DB-CORE-20013: The record being prepared already exists", null, "tx"))
         .when(manager)
         .mutate(any());
+    // a write over pgjdbc's extended protocol runs in an implicit transaction
+    doThrow(
+            new CrudConflictException(
+                "DB-CORE-20013: The record being prepared already exists", null, "tx"))
+        .when(transaction)
+        .mutate(any());
     try (Connection connection = connect("");
         Statement statement = connection.createStatement()) {
       assertSqlState(statement, "SELECT 1 / 0", "22012");
@@ -904,6 +910,73 @@ public class PostgresServerTest {
     verify(manager).begin();
     verify(transaction).rollback();
     verify(transaction, org.mockito.Mockito.never()).commit();
+  }
+
+  @Test
+  public void extendedBatch_ShouldRunInOneTransaction() throws Exception {
+    // pgjdbc sends a batch as Parse/Bind/Execute messages and one Sync: one implicit transaction
+    try (Connection connection = connect("");
+        PreparedStatement insert = connection.prepareStatement("INSERT INTO t VALUES (?, ?)")) {
+      for (int id = 5; id <= 7; id++) {
+        insert.setInt(1, id);
+        insert.setString(2, "x");
+        insert.addBatch();
+      }
+      insert.executeBatch();
+    }
+    verify(manager).begin();
+    verify(transaction).commit();
+  }
+
+  @Test
+  public void extendedBatch_FailingWrite_ShouldRollBackTheOthers() throws Exception {
+    org.mockito.Mockito.doNothing() // the first insert succeeds, the second hits a key
+        .doThrow(
+            new CrudConflictException(
+                "DB-CORE-20013: The record being prepared already exists", null, "tx"))
+        .when(transaction)
+        .mutate(any());
+    try (Connection connection = connect("");
+        PreparedStatement insert = connection.prepareStatement("INSERT INTO t VALUES (?, ?)")) {
+      insert.setInt(1, 5);
+      insert.setString(2, "x");
+      insert.addBatch();
+      insert.setInt(1, 1); // the mock's existing key
+      insert.setString(2, "y");
+      insert.addBatch();
+      assertThatThrownBy(insert::executeBatch).isInstanceOf(SQLException.class);
+      // the session is usable after the failed batch, outside any transaction
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("SELECT 1");
+      }
+    }
+    verify(transaction).rollback();
+    verify(transaction, org.mockito.Mockito.never()).commit();
+  }
+
+  @Test
+  public void commitConflict_AfterPlainInserts_ShouldBeAUniqueViolation() throws Exception {
+    // ScalarDB finds an INSERT's existing key only at commit, as a conflict
+    doThrow(
+            new com.scalar.db.exception.transaction.CommitConflictException(
+                "DB-CORE-20013: A conflict occurred. Details: Mutations: [{Type: Put, Table:"
+                    + " ns.t, Condition: Optional[PutIfNotExists{}]}]",
+                null,
+                "tx"))
+        .when(transaction)
+        .commit();
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.execute("INSERT INTO t VALUES (9, 'x')"))
+          .isInstanceOfSatisfying(
+              SQLException.class,
+              e -> {
+                assertThat(e.getSQLState()).isEqualTo("23505");
+                assertThat(e.getMessage()).contains("\"t_pkey\"");
+              });
+      // after an UPDATE the same conflict is a write-write conflict, to retry
+      assertSqlState(statement, "UPDATE t SET name = 'y' WHERE id = 1", "40001");
+    }
   }
 
   @Test

@@ -120,6 +120,12 @@ the result is not what PostgreSQL would return.
   `SELECT sum(balance) FROM accounts` during a transfer can report a total that never existed.
   PostgreSQL's `READ COMMITTED` gives each statement one snapshot. ScalarDB's `SERIALIZABLE`
   (`scalar.db.consensus_commit.isolation_level`) validates the read at commit and fails it instead.
+- **A read inside a batch splits it.** Writes outside `BEGIN` sent together, as one Query string
+  (`psql -c "INSERT ...; INSERT ..."`) or as a pgjdbc batch, run in one implicit transaction, as in
+  PostgreSQL: one failing write undoes the others. A read or any other statement among them commits
+  the writes before it and runs on its own, so a later failure no longer undoes those earlier writes.
+  The reason is that ScalarDB refuses a scan over records its transaction already wrote
+  (`DB-CORE-10106`). Inside `BEGIN` ... `COMMIT` the mix stays atomic, but such a scan fails.
 - **A value where PostgreSQL raises an error.** `REAL` arithmetic runs in double precision, so a
   product beyond `3.4e38` is returned rather than refused; an aggregate that would overflow in a
   group that `HAVING` discards is never evaluated; `round(double, n)` and `max(boolean)` are

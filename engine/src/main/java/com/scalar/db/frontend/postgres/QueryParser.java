@@ -333,11 +333,22 @@ public class QueryParser {
   /** An INSERT hit an existing primary key: SQLSTATE 23505. */
   public static final class UniqueViolationException extends RuntimeException {
     UniqueViolationException(Mutation insert, Exception cause) {
-      super(
-          "duplicate key value violates unique constraint \""
-              + insert.forTable().orElse("")
-              + "_pkey\"",
-          cause);
+      super(message(insert.forTable().orElse("")), cause);
+    }
+
+    /** At commit, where the table is known only from ScalarDB's message ("Table: ns.t"). */
+    UniqueViolationException(Exception cause) {
+      super(message(table(String.valueOf(cause.getMessage()))), cause);
+    }
+
+    private static String message(String table) {
+      return "duplicate key value violates unique constraint \"" + table + "_pkey\"";
+    }
+
+    private static String table(String message) {
+      java.util.regex.Matcher m =
+          java.util.regex.Pattern.compile("Table: ([^,\\s]+)").matcher(message);
+      return m.find() ? m.group(1).substring(m.group(1).lastIndexOf('.') + 1) : "";
     }
   }
 
