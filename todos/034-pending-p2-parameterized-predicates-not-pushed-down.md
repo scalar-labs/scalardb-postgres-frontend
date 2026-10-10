@@ -81,3 +81,9 @@ list-with-parameters plans EMBEDDED and resolve them at bind time like LIMIT $1.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL (performance). IN ($1, $2), parameterized join-side conditions, decimal literals against INT columns and multi-source ORDER BY/LIMIT stay in memory. IN with parameters on a key scans the whole table.

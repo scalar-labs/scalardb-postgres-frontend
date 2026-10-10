@@ -85,3 +85,9 @@ database string (identifier chars, 63 bytes).
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- PARTLY REAL (security). With auth=none, which every non-Cluster backend uses, any client that reaches the port can drop the coordinator tables or a schema with CASCADE. With Cluster authentication, Cluster's privileges govern these calls.

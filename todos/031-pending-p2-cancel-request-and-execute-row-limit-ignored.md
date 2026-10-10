@@ -81,3 +81,9 @@ is a separate small change in execute().
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL. Probed: a pgjdbc Statement.cancel() after 0.5 s had no effect; the query ran 498 s until the heap ran out (see todo 053). The Execute row limit is ignored: results are right, but setFetchSize buffers everything.

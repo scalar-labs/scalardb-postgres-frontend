@@ -100,3 +100,9 @@ loop dropped a nibble (already wrapped as Cannot cast).
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- MOSTLY REAL (code quality). The sqlState branches are gone (todo 026); the dead code, 19-argument Plan constructor and doubled Javadoc remain.

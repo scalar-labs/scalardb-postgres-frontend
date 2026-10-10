@@ -80,3 +80,9 @@ for hash-join candidates against a two-map view before merging.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL (performance). Qualified names are concatenated per cell, rows are copied per join candidate, and send() copies each message twice.

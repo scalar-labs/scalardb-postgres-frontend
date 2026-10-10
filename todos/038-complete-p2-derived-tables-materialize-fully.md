@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "038"
 tags: [code-review, performance, memory]
@@ -77,3 +77,9 @@ it is not correlated, not LATERAL and not the re-opened side of a join.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Closed: not real
+
+**By:** Claude Code
+
+**Actions:**
+- A FROM subquery at top level is planned with no outer scope, so it streams: an outer LIMIT stops it early. Only correlated, LATERAL and scalar subqueries are cached, and those are re-opened, so caching them is right. The claim was already wrong at 6c71631.

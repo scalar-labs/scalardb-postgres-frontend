@@ -91,3 +91,9 @@ ZONE into Evaluator.Context/Execution (~10 call sites). Leave BOUND/EMBEDDED unt
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- PARTLY REAL. The lookup pool is an uncapped cached pool (about 16 threads per busy session, so up to about 1,600). The ThreadLocal hazard does not apply today: pool tasks only read and build rows.

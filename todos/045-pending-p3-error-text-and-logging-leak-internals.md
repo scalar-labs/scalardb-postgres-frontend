@@ -81,3 +81,9 @@ failure messages generic.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- PARTLY REAL. The auth path is fixed. Still real: JDK exception text reaches the client (NPE, IndexOutOfBounds: probed via nth_value below), failed statements are logged at INFO with their SQL, and a startup packet without a terminator closes silently with a WARN stack trace (probed), where PostgreSQL answers FATAL 08P01.

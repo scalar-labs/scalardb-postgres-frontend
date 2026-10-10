@@ -75,3 +75,9 @@ configured value (or to 0) needs an operator property.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL (hardening). SET scalardb.max_rows_per_write = 0 lifts the cap for any client; there is no operator ceiling.

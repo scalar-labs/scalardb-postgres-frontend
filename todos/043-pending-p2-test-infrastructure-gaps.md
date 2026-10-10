@@ -91,3 +91,9 @@ static helpers; protocol tests for todo 002.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- PARTLY REAL. Raw-socket tests and SQLSTATE checks were added since; the key-only stub table, missing CancelRequest and unknown-message tests, and wording-pinned assertions remain.

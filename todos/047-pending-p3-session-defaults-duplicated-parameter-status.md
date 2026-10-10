@@ -78,3 +78,9 @@ the same default.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL. Probed with pgjdbc: the startup ParameterStatus says TimeZone=UTC although the client sent Asia/Tokyo, nothing is reported after SET TIME ZONE, and application_name is never reported.

@@ -94,3 +94,9 @@ UPDATE DEFAULT note to LIMITATIONS.md.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- MOSTLY REAL. Probed against PostgreSQL: now() changes per row (49,043 distinct values in one statement, PostgreSQL 1); SET of an unknown parameter is accepted (PostgreSQL 42704); INSERT INTO t (k, k) and UPDATE ... SET n = 1, n = 2 succeed silently (PostgreSQL 42701 and 42601); INSERT ... ON CONFLICT DO NOTHING with the same key twice fails 23505 (PostgreSQL inserts one); nth_value over an empty frame fails with 'Index 3 out of bounds' (PostgreSQL NULL). Not real: DEFAULT in UPDATE, since a non-NULL DEFAULT is refused at CREATE TABLE.

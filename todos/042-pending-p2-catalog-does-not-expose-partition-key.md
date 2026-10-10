@@ -76,3 +76,9 @@ _pkey indexdef.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL (discoverability). The catalog does not tell partition from clustering keys or show DESC order; obj_description is hard-wired to NULL.

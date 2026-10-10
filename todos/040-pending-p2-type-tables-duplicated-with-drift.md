@@ -93,3 +93,9 @@ column.
 **Learnings:**
 - See Findings above
 
+### 2026-10-10 - Triage
+
+**By:** Claude Code (code read against main@85d3c40; probes against native PostgreSQL 18 where marked)
+
+**Verdict:**
+- STILL REAL, as a silent difference. Probed: an array stored into a TEXT column is [a, b], where PostgreSQL stores {a,b} (it does not raise 42804, as the reviewer thought). The typlen drift between Catalog and PostgresServer is harmless to drivers.
