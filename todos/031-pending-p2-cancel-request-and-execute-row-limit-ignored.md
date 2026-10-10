@@ -87,3 +87,13 @@ is a separate small change in execute().
 
 **Verdict:**
 - STILL REAL. Probed: a pgjdbc Statement.cancel() after 0.5 s had no effect; the query ran 498 s until the heap ran out (see todo 053). The Execute row limit is ignored: results are right, but setFetchSize buffers everything.
+
+### 2026-10-10 - Partly fixed
+
+**By:** Claude Code
+
+**Actions:**
+- CancelRequest now works: BackendKeyData's process ID and secret key name the session, whose running statement fails 57014 at its next row (see todo 053).
+
+**Remaining:**
+- The Execute row limit is still ignored: results are right, but pgjdbc's setFetchSize in a transaction receives all rows at once.

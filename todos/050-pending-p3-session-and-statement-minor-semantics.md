@@ -100,3 +100,16 @@ UPDATE DEFAULT note to LIMITATIONS.md.
 
 **Verdict:**
 - MOSTLY REAL. Probed against PostgreSQL: now() changes per row (49,043 distinct values in one statement, PostgreSQL 1); SET of an unknown parameter is accepted (PostgreSQL 42704); INSERT INTO t (k, k) and UPDATE ... SET n = 1, n = 2 succeed silently (PostgreSQL 42701 and 42601); INSERT ... ON CONFLICT DO NOTHING with the same key twice fails 23505 (PostgreSQL inserts one); nth_value over an empty frame fails with 'Index 3 out of bounds' (PostgreSQL NULL). Not real: DEFAULT in UPDATE, since a non-NULL DEFAULT is refused at CREATE TABLE.
+
+### 2026-10-10 - Partly fixed
+
+**By:** Claude Code
+
+**Actions:**
+- now(), CURRENT_TIMESTAMP, CURRENT_DATE and the like are the transaction's start time, fixed for every row and statement in it; statement_timestamp(), transaction_timestamp() and clock_timestamp() are supported.
+- INSERT INTO t (k, k) is 42701 and UPDATE ... SET n = 1, n = 2 (also in ON CONFLICT DO UPDATE) is 42601, as in PostgreSQL.
+
+**Remaining:**
+- SET of an unknown parameter is accepted: refusing it needs PostgreSQL's full parameter list, or clients setting real parameters this frontend does not know would break.
+- INSERT ... ON CONFLICT DO NOTHING with the same key twice in one statement fails 23505.
+- nth_value over an empty frame fails with an index error.

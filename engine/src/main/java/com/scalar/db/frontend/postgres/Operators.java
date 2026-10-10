@@ -56,6 +56,7 @@ final class Operators {
 
     @Override
     @Nullable public final Map<String, Object> next() {
+      Evaluator.checkInterrupt(); // cancel and statement_timeout, between any two rows
       Map<String, Object> row = fetch();
       if (row != null) {
         rows++;
@@ -1284,6 +1285,7 @@ final class Operators {
           matched = false;
         }
         while (candidates.hasNext()) {
+          Evaluator.checkInterrupt(); // a join can try many pairs between two output rows
           Map<String, Object> candidate = candidates.next();
           Map<String, Object> merged = new LinkedHashMap<>(current);
           merged.putAll(candidate);

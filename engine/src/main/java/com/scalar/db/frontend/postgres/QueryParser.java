@@ -1629,10 +1629,32 @@ public class QueryParser {
     };
   }
 
-  /** Pulls every remaining row without closing the cursor. */
+  /**
+   * The most rows one sort, aggregate, window or join side may hold in memory: past it a statement
+   * fails with 54000 rather than exhausting the heap every session shares ({@code
+   * scalar.db.postgres.max_rows_in_memory}).
+   */
+  private static volatile int maxRowsInMemory = 1_000_000;
+
+  static void setMaxRowsInMemory(int max) {
+    maxRowsInMemory = max;
+  }
+
+  /** Pulls every remaining row without closing the cursor, up to {@link #maxRowsInMemory}. */
   static List<Map<String, Object>> drain(Cursor cursor) {
+    // ponytail: a cap per collection, not per statement or per process; a statement holding
+    // several such collections, or many sessions at once, can still use a multiple of it
+    int max = maxRowsInMemory;
     List<Map<String, Object>> rows = new ArrayList<>();
     for (Map<String, Object> row = cursor.next(); row != null; row = cursor.next()) {
+      if (rows.size() >= max) {
+        throw new PgException.Argument(
+            "54000", // program_limit_exceeded
+            "the statement would hold more than "
+                + max
+                + " rows in memory (scalar.db.postgres.max_rows_in_memory): narrow it with WHERE"
+                + " or LIMIT");
+      }
       rows.add(row);
     }
     return rows;
@@ -1959,7 +1981,8 @@ public class QueryParser {
       text =
           value instanceof BigDecimal
               ? ((BigDecimal) value).toPlainString()
-              : String.valueOf(value);
+              // an array keeps PostgreSQL's text form, {a,b}, not Java's [a, b]
+              : value instanceof List ? Evaluator.text(value) : String.valueOf(value);
     }
     return columnFromText(metadata, name, text);
   }
@@ -2651,6 +2674,19 @@ public class QueryParser {
     if (statement instanceof net.sf.jsqlparser.statement.insert.Insert) {
       net.sf.jsqlparser.statement.insert.Insert insert =
           (net.sf.jsqlparser.statement.insert.Insert) statement;
+      if (insert.getColumns() != null) {
+        Set<String> seen = new HashSet<>();
+        for (Expression c : insert.getColumns()) {
+          if (!seen.add(columnName(c))) {
+            throw new PgException.Argument(
+                "42701", "column \"" + columnName(c) + "\" specified more than once");
+          }
+        }
+      }
+      if (insert.getConflictAction() != null
+          && insert.getConflictAction().getUpdateSets() != null) {
+        checkSingleAssignments(insert.getConflictAction().getUpdateSets());
+      }
       Map<String, Cte> saved = pushCtes(insert.getWithItemsList());
       try {
         // Literal rows without RETURNING map straight to Inserts, or to Upserts for the plain
@@ -2671,6 +2707,7 @@ public class QueryParser {
     if (statement instanceof net.sf.jsqlparser.statement.update.Update) {
       net.sf.jsqlparser.statement.update.Update update =
           (net.sf.jsqlparser.statement.update.Update) statement;
+      checkSingleAssignments(update.getUpdateSets());
       Map<String, Cte> saved = pushCtes(update.getWithItemsList());
       try {
         if (update.getFromItem() != null || !keyed(update) || update.getReturningClause() != null) {
@@ -5019,6 +5056,20 @@ public class QueryParser {
       b.value(c);
     }
     return b.build();
+  }
+
+  /** UPDATE SET c = 1, c = 2 is 42601 in PostgreSQL, not the last assignment winning. */
+  private static void checkSingleAssignments(List<UpdateSet> sets) {
+    Set<String> seen = new HashSet<>();
+    for (UpdateSet set : sets) {
+      for (int i = 0; i < set.getColumns().size(); i++) {
+        String name = columnName(set.getColumn(i));
+        if (!seen.add(name)) {
+          throw new PgException.Argument(
+              "42601", "multiple assignments to same column \"" + name + "\"");
+        }
+      }
+    }
   }
 
   /** The target column names of an INSERT: the listed ones, or every column. */

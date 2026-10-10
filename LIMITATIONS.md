@@ -13,14 +13,16 @@ at the end of this section.
   refuses that. Without Cluster there is no user store: `auth=none` trusts every connection and
   `current_user` echoes the name the client gave. Still open with authentication on: the catalog lists
   every table whatever the user's privileges (reading the data is what fails), an OIDC session outlives
-  its token and ends with `28000` when it expires, `CREATE USER` and `GRANT` are not SQL statements
-  here yet, and `CancelRequest` is ignored.
+  its token and ends with `28000` when it expires, and `CREATE USER` and `GRANT` are not SQL
+  statements here yet.
 - **`COPY` is not supported;** load data with INSERTs.
-- **Fixed resource limits.** A session may hold at most 64 MiB of prepared statements and portals,
-  and a statement may spend at most 5 seconds matching regular expressions over all its rows; both
-  fail with an error rather than slow the server. A connection must finish its startup and login
-  within 60 seconds. None of these is configurable yet; the
-  [settings table](getting-started/README.md#2-configure) lists them.
+- **Resource limits PostgreSQL does not have.** A sort, aggregate, window or join side holds its
+  rows in memory, so one of them may hold at most a million rows
+  (`scalar.db.postgres.max_rows_in_memory`); past that the statement fails with `54000` rather than
+  exhausting the memory every session shares. A session may hold at most 64 MiB of prepared
+  statements and portals, a statement may spend at most 5 seconds matching regular expressions
+  over all its rows, and a connection must finish its startup and login within 60 seconds. The
+  [settings table](getting-started/README.md#2-configure) lists them all.
 - **Window functions and recursive CTEs** work, except `RANGE`/`GROUPS` frames with offsets,
   `DISTINCT` inside a window aggregate, and a recursive CTE whose body is not
   `anchor UNION [ALL] step`.
@@ -89,7 +91,8 @@ at the end of this section.
 - **Session settings.** `SET TIME ZONE` shapes how `timestamptz` values are read and printed, as in
   PostgreSQL; `search_path` decides where an unqualified table name is looked up; `SET LOCAL`
   reverts at the end of the transaction and only warns outside one. `statement_timeout` and
-  `lock_timeout` are accepted but not enforced.
+  a cancel request (psql's Ctrl-C, JDBC's `Statement.cancel()`) stop a statement with `57014`, as in
+  PostgreSQL; `lock_timeout` is accepted but has nothing to time, since nothing waits for a lock.
 - **`SELECT ... FOR UPDATE` / `FOR SHARE` take no lock.** ScalarDB is optimistic: the statement
   is accepted, and a concurrent writer is found out at commit time (`40001`), not blocked.
 

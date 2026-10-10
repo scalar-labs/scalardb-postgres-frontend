@@ -35,3 +35,7 @@ savepoint_unknown BOTH_ERR
 final_state_emp OK
 final_state_dept OK
 final_state_assign OK
+insert_duplicate_target_column BOTH_ERR
+update_multiple_assignments BOTH_ERR
+upsert_multiple_assignments BOTH_ERR
+insert_array_into_text_column OK

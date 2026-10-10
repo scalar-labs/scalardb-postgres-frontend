@@ -182,3 +182,20 @@ SELECT * FROM emp;
 SELECT * FROM dept;
 -- @final_state_assign
 SELECT * FROM assign;
+-- @insert_duplicate_target_column
+BEGIN;
+INSERT INTO dept (id, name, NAME) VALUES (300, 'a', 'b');
+ROLLBACK;
+-- @update_multiple_assignments
+BEGIN;
+UPDATE emp SET salary = 1, note = 'x', salary = 2 WHERE id = 7;
+ROLLBACK;
+-- @upsert_multiple_assignments
+BEGIN;
+INSERT INTO dept VALUES (1, 'a', NULL, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name = 'b', name = 'c';
+ROLLBACK;
+-- @insert_array_into_text_column
+BEGIN;
+INSERT INTO dept (id, name, region) VALUES (301, ARRAY['a', 'b c'], ARRAY[1, 2]::text);
+SELECT id, name, region FROM dept WHERE id = 301;
+ROLLBACK;

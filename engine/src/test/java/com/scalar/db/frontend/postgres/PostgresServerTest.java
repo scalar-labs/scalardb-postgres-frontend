@@ -995,6 +995,72 @@ public class PostgresServerTest {
   }
 
   @Test
+  public void statement_TimeoutCancelAndRowBudget_ShouldStopIt() throws Exception {
+    String big =
+        "SELECT count(*) FROM generate_series(1, 1000) a, generate_series(1, 1000) b,"
+            + " generate_series(1, 1000) c";
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      statement.execute("SET statement_timeout = '200ms'");
+      long start = System.nanoTime();
+      assertSqlState(statement, big, "57014");
+      assertThat(System.nanoTime() - start).isLessThan(5_000_000_000L);
+      statement.execute("SET statement_timeout = 0");
+      // a CancelRequest on another connection, with this session's key, stops it too
+      Thread canceller =
+          new Thread(
+              () -> {
+                try {
+                  Thread.sleep(200);
+                  statement.cancel();
+                } catch (Exception e) {
+                  throw new IllegalStateException(e);
+                }
+              });
+      canceller.start();
+      start = System.nanoTime();
+      assertSqlState(statement, big, "57014");
+      assertThat(System.nanoTime() - start).isLessThan(5_000_000_000L);
+      canceller.join();
+      // and a statement that would hold more rows than allowed fails instead of filling the heap
+      QueryParser.setMaxRowsInMemory(1000);
+      try {
+        assertSqlState(
+            statement,
+            "SELECT count(*) FROM generate_series(1, 100) a, generate_series(1, 100) b",
+            "54000");
+      } finally {
+        QueryParser.setMaxRowsInMemory(1_000_000);
+      }
+      try (ResultSet rs = statement.executeQuery("SELECT 1")) {
+        assertThat(rs.next()).isTrue(); // the session goes on
+      }
+    }
+  }
+
+  @Test
+  public void statement_NowAndSettings_ShouldBehaveAsPostgres() throws Exception {
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      try (ResultSet rs =
+          statement.executeQuery(
+              "SELECT count(DISTINCT now()) FROM generate_series(1, 100000) a")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getLong(1)).isEqualTo(1); // one now() per statement, not per row
+      }
+      // the driver hears about a changed setting, as pgjdbc relies on for TimeZone
+      org.postgresql.PGConnection pg = connection.unwrap(org.postgresql.PGConnection.class);
+      statement.execute("SET TIME ZONE 'Asia/Kolkata'");
+      assertThat(pg.getParameterStatus("TimeZone")).isEqualTo("Asia/Kolkata");
+      statement.execute("SET application_name = 'probe'");
+      assertThat(pg.getParameterStatus("application_name")).isEqualTo("probe");
+      assertSqlState(statement, "SET statement_timeout = 'soon'", "22023");
+      assertSqlState(statement, "INSERT INTO t (id, id) VALUES (1, 2)", "42701");
+      assertSqlState(statement, "UPDATE t SET name = 'a', name = 'b' WHERE id = 1", "42601");
+    }
+  }
+
+  @Test
   public void split_ShouldKnowCommentsQuotesAndDollarQuotes() {
     assertThat(PostgresServer.split("SELECT 1; -- don't\nSELECT 2;"))
         .containsExactly("SELECT 1", "-- don't\nSELECT 2");

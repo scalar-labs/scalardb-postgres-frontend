@@ -65,6 +65,7 @@ The same file takes the frontend's own settings, all optional:
 |---|---|---|
 | `scalar.db.postgres.listen_address` | every interface | The one address to listen on, such as `127.0.0.1` |
 | `scalar.db.postgres.max_connections` | `100` | Sessions at once; one more is refused with `53300`, as in PostgreSQL |
+| `scalar.db.postgres.max_rows_in_memory` | `1000000` | Rows one sort, aggregate, window or join side may hold; past it the statement fails with `54000` |
 | `scalar.db.postgres.auth` | `none` | `userpass` or `oidc_jwt` to log in as Cluster users: see [Connect as a user](#connect-as-a-user) |
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | none | PEM certificate chain and key, to accept TLS |
 | `scalar.db.postgres.ssl.require` | `true` with `auth` on | Refuse clients that do not use TLS |

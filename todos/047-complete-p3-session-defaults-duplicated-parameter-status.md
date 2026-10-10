@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "047"
 tags: [code-review, duplication, protocol]
@@ -84,3 +84,13 @@ the same default.
 
 **Verdict:**
 - STILL REAL. Probed with pgjdbc: the startup ParameterStatus says TimeZone=UTC although the client sent Asia/Tokyo, nothing is reported after SET TIME ZONE, and application_name is never reported.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- ParameterStatus is sent before ReadyForQuery for each reported setting whose value changed, as PostgreSQL does: at startup after the client's own parameters (pgjdbc's TimeZone), and after SET, RESET or a transaction end. application_name is reported. The startup values now come from the session's settings rather than a separate list.
+
+**Remaining:**
+- version() still repeats the server version text.

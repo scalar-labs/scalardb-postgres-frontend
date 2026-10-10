@@ -547,3 +547,7 @@ SELECT '2147483647' + 1;
 SELECT CAST('1.5' AS INT);
 -- @text_column_arithmetic_refused
 SELECT name + 1 FROM emp WHERE id = 1;
+-- @now_fixed_within_statement
+SELECT count(DISTINCT now()) AS n, count(DISTINCT current_timestamp) AS c, count(DISTINCT current_date) AS d FROM emp a, emp b;
+-- @clock_timestamp_moves
+SELECT count(DISTINCT clock_timestamp()) > 1 AS moves FROM emp a, emp b;

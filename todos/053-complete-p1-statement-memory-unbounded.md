@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: "053"
 tags: [security, resource, availability]
@@ -47,3 +47,13 @@ had no effect (todo 031). Any client can send such a statement, authenticated or
 
 **Actions:**
 - Probed with pgjdbc against the frontend on port 15444 (small pool, default 8 GB max heap) and native PostgreSQL on 15440.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- Fixed in the commit after 9e50590: one sort, aggregate, window or join side may hold at most scalar.db.postgres.max_rows_in_memory rows (default 1,000,000), past which the statement fails 54000; statement_timeout and CancelRequest stop a statement with 57014, checked between rows and between join candidates. The probe query now fails 54000 after about 2 s and the session goes on; cancel stops it in 0.4 s and a 1 s statement_timeout in 1.0 s, as on PostgreSQL.
+
+**Remaining:**
+- The cap is per collection, not per statement or process: one statement with several collections, or many sessions at once, can use a multiple of it. Streaming aggregation would let count(*) over a join hold nothing.

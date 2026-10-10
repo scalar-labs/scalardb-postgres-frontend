@@ -67,6 +67,28 @@ public class PostgresServer implements AutoCloseable {
   private static final int SSL_REQUEST = 80877103;
   private static final int GSS_REQUEST = 80877104;
   private static final int CANCEL_REQUEST = 80877102;
+
+  // The settings PostgreSQL reports in ParameterStatus (GUC_REPORT); is_superuser and
+  // session_authorization are reported once at startup, from the login
+  private static final List<String> REPORTED =
+      java.util.Arrays.asList(
+          "server_version",
+          "server_encoding",
+          "client_encoding",
+          "DateStyle",
+          "integer_datetimes",
+          "standard_conforming_strings",
+          "TimeZone",
+          "application_name");
+
+  // Each session's cancel flag, by the process ID and secret key sent to it in BackendKeyData
+  private static final Map<Long, java.util.concurrent.atomic.AtomicBoolean> CANCELS =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private static long cancelKey(int pid, int secret) {
+    return ((long) pid << 32) | (secret & 0xFFFFFFFFL);
+  }
+
   private static final int TEXT_OID = 25;
 
   /** PostgreSQL's own limit on a startup packet. */
@@ -171,6 +193,10 @@ public class PostgresServer implements AutoCloseable {
     String max = properties.getProperty("scalar.db.postgres.max_connections");
     if (max != null) {
       maxConnections = Integer.parseInt(max.trim());
+    }
+    String held = properties.getProperty("scalar.db.postgres.max_rows_in_memory");
+    if (held != null) {
+      QueryParser.setMaxRowsInMemory(Integer.parseInt(held.trim()));
     }
     // TLS: a certificate chain and an unencrypted PKCS#8 key, both PEM; SSLRequest is then honored
     String cert = properties.getProperty("scalar.db.postgres.ssl.cert");
@@ -378,6 +404,9 @@ public class PostgresServer implements AutoCloseable {
     }
 
     @Nullable private Authenticator.Identity identity; // the authenticated user, if any
+    @Nullable private Long cancelKey; // this session's entry in CANCELS
+    // The ParameterStatus values the client was last told, by name
+    private final Map<String, String> reported = new java.util.LinkedHashMap<>();
 
     Connection(Socket socket) throws IOException {
       this.socket = socket;
@@ -425,6 +454,9 @@ public class PostgresServer implements AutoCloseable {
           }
         }
         sessions.remove(accepted);
+        if (cancelKey != null) {
+          CANCELS.remove(cancelKey);
+        }
         if (identity != null) {
           identity.close();
         }
@@ -473,6 +505,15 @@ public class PostgresServer implements AutoCloseable {
           return null;
         }
         if (code == CANCEL_REQUEST) {
+          // The key pair from BackendKeyData: the named session's running statement stops
+          // with 57014 at its next row. As in PostgreSQL, the requester gets no answer
+          if (length == 16) {
+            java.util.concurrent.atomic.AtomicBoolean flag =
+                CANCELS.get(cancelKey(in.readInt(), in.readInt()));
+            if (flag != null) {
+              flag.set(true);
+            }
+          }
           return null;
         }
         byte[] body = new byte[length - 8];
@@ -529,26 +570,20 @@ public class PostgresServer implements AutoCloseable {
           superuser = identity.superuser();
         }
         send('R', new Msg().i32(0)); // AuthenticationOk
-        String[][] status = {
-          {"server_version", "16.0"},
-          {"server_encoding", "UTF8"},
-          {"client_encoding", "UTF8"},
-          {"DateStyle", "ISO, MDY"},
-          {"integer_datetimes", "on"},
-          {"standard_conforming_strings", "on"},
-          {"TimeZone", "UTC"},
-          {"is_superuser", superuser ? "on" : "off"},
-          {"session_authorization", user},
-        };
-        for (String[] s : status) {
-          send('S', new Msg().str(s[0]).str(s[1]));
+        reported.put("is_superuser", superuser ? "on" : "off");
+        reported.put("session_authorization", user);
+        for (Map.Entry<String, String> s : reported.entrySet()) {
+          send('S', new Msg().str(s.getKey()).str(s.getValue()));
         }
-        send(
-            'K',
-            new Msg()
-                .i32(KEYS.nextInt())
-                .i32(KEYS.nextInt())); // a cancel request must not be guessable
+        int pid = KEYS.nextInt();
+        int secret = KEYS.nextInt(); // a cancel request must not be guessable
+        java.util.concurrent.atomic.AtomicBoolean cancel =
+            new java.util.concurrent.atomic.AtomicBoolean();
+        cancelKey = cancelKey(pid, secret);
+        CANCELS.put(cancelKey, cancel);
+        send('K', new Msg().i32(pid).i32(secret));
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
+        Evaluator.setCancel(cancel); // this thread serves the session from here on
         processor.setDdlSettleMillis(ddlSettleMillis);
         if (identity != null) {
           processor.setIdentity(identity);
@@ -570,7 +605,7 @@ public class PostgresServer implements AutoCloseable {
             processor.setDefault(e.getKey(), e.getValue()); // application_name, DateStyle, ...
           }
         }
-        readyForQuery(processor);
+        readyForQuery(processor); // reports the settings, with the client's own applied
         return processor;
       }
     }
@@ -1107,7 +1142,21 @@ public class PostgresServer implements AutoCloseable {
       return root;
     }
 
+    /**
+     * Tells the client about each reported setting whose value changed since it was last told, as
+     * PostgreSQL does before ReadyForQuery: at startup, and after SET, RESET or a transaction end.
+     */
+    private void reportSettings(QueryProcessor processor) throws IOException {
+      for (String name : REPORTED) {
+        String value = processor.currentSetting(name);
+        if (!value.equals(reported.put(name, value))) {
+          send('S', new Msg().str(name).str(value));
+        }
+      }
+    }
+
     private void readyForQuery(QueryProcessor processor) throws IOException {
+      reportSettings(processor);
       send('Z', new Msg().i8(processor.isAborted() ? 'E' : processor.inTransaction() ? 'T' : 'I'));
       out.flush();
     }

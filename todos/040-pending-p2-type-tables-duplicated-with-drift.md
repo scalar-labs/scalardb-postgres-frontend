@@ -99,3 +99,13 @@ column.
 
 **Verdict:**
 - STILL REAL, as a silent difference. Probed: an array stored into a TEXT column is [a, b], where PostgreSQL stores {a,b} (it does not raise 42804, as the reviewer thought). The typlen drift between Catalog and PostgresServer is harmless to drivers.
+
+### 2026-10-10 - Partly fixed
+
+**By:** Claude Code
+
+**Actions:**
+- An array stored into a TEXT column keeps PostgreSQL's text form, {a,b}, not Java's [a, b].
+
+**Remaining:**
+- The type tables are still duplicated between Catalog and PostgresServer (harmless typlen drift).

@@ -34,6 +34,8 @@ public class QueryProcessor {
   // BEGIN was seen but no statement ran yet: the ScalarDB transaction starts with the first
   // statement, so SET TRANSACTION READ ONLY / ISOLATION LEVEL can still shape it, as in PostgreSQL
   private boolean pending;
+  // When the transaction block began: now() for every statement in it, as in PostgreSQL
+  @Nullable private java.time.Instant transactionStart;
   private boolean pendingReadOnly;
   private boolean transactionIsolationSet; // SHOW transaction_isolation reverts when it ends
   private boolean aborted; // a statement failed inside the transaction: only ROLLBACK/COMMIT now
@@ -128,6 +130,7 @@ public class QueryProcessor {
     defaults.put("application_name", "");
     defaults.put("max_identifier_length", "63");
     defaults.put("client_min_messages", "notice");
+    defaults.put("statement_timeout", "0");
   }
 
   /** The user the client connected as, for {@code current_user}. */
@@ -233,6 +236,11 @@ public class QueryProcessor {
       if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
         value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
         checkIsolation(value);
+      }
+      if ("statement_timeout".equals(key)
+          && !DURATION.matcher(value.trim().replace("'", "")).matches()) {
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
       }
       if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
         throw new PgException.Argument(
@@ -510,7 +518,9 @@ public class QueryProcessor {
   public Rows open(String sql, List<Object> parameters)
       throws TransactionException, ExecutionException {
     applyZone();
-    Evaluator.startStatement(); // the statement's regex time budget
+    java.time.Instant now =
+        inTransaction() && transactionStart != null ? transactionStart : java.time.Instant.now();
+    Evaluator.startStatement(now, statementTimeoutMillis());
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
@@ -528,6 +538,7 @@ public class QueryProcessor {
         pendingReadOnly = isOn(current("default_transaction_read_only"));
         transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
         pending = true;
+        transactionStart = java.time.Instant.now();
         lastCommandTag = word.equals("START") ? "START TRANSACTION" : "BEGIN";
         return new Rows(null, QueryParser.Cursor.EMPTY);
       case "COMMIT":
@@ -732,6 +743,39 @@ public class QueryProcessor {
     }
   }
 
+  private static final java.util.regex.Pattern DURATION =
+      java.util.regex.Pattern.compile(
+          "(\\d+(?:\\.\\d+)?)\\s*(ms|s|min|h|d)?", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /** statement_timeout in milliseconds, PostgreSQL's default unit; 0 (the default) for none. */
+  private long statementTimeoutMillis() {
+    String value = current("statement_timeout");
+    java.util.regex.Matcher m = DURATION.matcher(value.trim().replace("'", ""));
+    if (!m.matches()) {
+      return 0;
+    }
+    double amount = Double.parseDouble(m.group(1));
+    String unit = m.group(2) == null ? "ms" : m.group(2).toLowerCase(Locale.ROOT);
+    double millis;
+    switch (unit) {
+      case "s":
+        millis = amount * 1_000;
+        break;
+      case "min":
+        millis = amount * 60_000;
+        break;
+      case "h":
+        millis = amount * 3_600_000;
+        break;
+      case "d":
+        millis = amount * 86_400_000;
+        break;
+      default:
+        millis = amount;
+    }
+    return (long) Math.min(millis, Integer.MAX_VALUE);
+  }
+
   private String current(String key) {
     return settings.getOrDefault(key, defaults.getOrDefault(key, ""));
   }
@@ -743,6 +787,7 @@ public class QueryProcessor {
   /** Forgets the transaction and what BEGIN or SET TRANSACTION set for it. */
   private void endTransaction() {
     transaction = null;
+    transactionStart = null;
     pending = false;
     pendingReadOnly = false;
     savepoints.clear();

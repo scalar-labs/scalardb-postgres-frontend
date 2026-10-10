@@ -426,37 +426,100 @@ final class Evaluator {
   /** How long one pattern match may run: Java's engine can backtrack exponentially (todo 016). */
   static final long REGEX_BUDGET_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
 
-  /**
-   * The text a pattern matches against, failing the match once it has run past the budget. The
-   * matcher reads the input through charAt, so the check rides on the backtracking itself.
-   */
-  // Matching time spent in the current statement on this thread; null outside a statement, where
-  // each match gets the whole budget
-  private static final ThreadLocal<long[]> REGEX_SPENT = new ThreadLocal<>();
+  /** What the statement running on this thread may use, and when it must stop. */
+  static final class Statement {
+    final Instant now; // now() and CURRENT_TIMESTAMP: the transaction's start, as in PostgreSQL
+    final Instant start; // statement_timestamp()
+    final long deadline; // System.nanoTime() past which statement_timeout fires; 0: none
+    @Nullable final java.util.concurrent.atomic.AtomicBoolean cancel; // set by a CancelRequest
+    long regexSpent; // matching time spent so far, against REGEX_BUDGET_NANOS
+    private int tick;
+
+    Statement(
+        Instant now,
+        long timeoutMillis,
+        @Nullable java.util.concurrent.atomic.AtomicBoolean cancel) {
+      this.now = now;
+      this.start = Instant.now();
+      this.deadline = timeoutMillis > 0 ? (System.nanoTime() + timeoutMillis * 1_000_000L) | 1 : 0;
+      this.cancel = cancel;
+    }
+  }
+
+  // The statement running on this thread; null outside one (a test, a pool thread), where nothing
+  // is interrupted and each regex match gets the whole budget
+  private static final ThreadLocal<Statement> STATEMENT = new ThreadLocal<>();
+
+  // The session's cancel flag, on its connection thread: a CancelRequest sets it
+  private static final ThreadLocal<java.util.concurrent.atomic.AtomicBoolean> CANCEL =
+      new ThreadLocal<>();
+
+  /** Gives the session running on this thread its cancel flag, once, at startup. */
+  static void setCancel(java.util.concurrent.atomic.AtomicBoolean cancel) {
+    CANCEL.set(cancel);
+  }
 
   /**
-   * Starts a statement's regex budget on this thread: all its matches together, over however many
-   * rows, get {@link #REGEX_BUDGET_NANOS} (a per-match budget alone multiplies by the row count).
+   * Starts a statement on this thread: {@code now} is what now() returns throughout, a positive
+   * {@code timeoutMillis} is its statement_timeout, and the session's cancel flag, cleared here,
+   * stops it. The regex budget covers all the statement's matches over however many rows.
    */
+  static void startStatement(Instant now, long timeoutMillis) {
+    java.util.concurrent.atomic.AtomicBoolean cancel = CANCEL.get();
+    if (cancel != null) {
+      cancel.set(false); // a cancel sent between statements is for none of them
+    }
+    STATEMENT.set(new Statement(now, timeoutMillis, cancel));
+  }
+
   static void startStatement() {
-    REGEX_SPENT.set(new long[1]);
+    startStatement(Instant.now(), 0);
+  }
+
+  /**
+   * Fails the running statement with 57014 once it has been cancelled or has run past its
+   * statement_timeout. Cheap enough to call per row: the clock is read every 256 calls.
+   */
+  static void checkInterrupt() {
+    Statement s = STATEMENT.get();
+    if (s == null || (++s.tick & 0xFF) != 0) {
+      return;
+    }
+    if (s.cancel != null && s.cancel.get()) {
+      throw new PgException.Argument("57014", "canceling statement due to user request");
+    }
+    if (s.deadline != 0 && System.nanoTime() - s.deadline > 0) {
+      throw new PgException.Argument("57014", "canceling statement due to statement timeout");
+    }
+  }
+
+  /** now(): the statement's (in a transaction, the transaction's) start time. */
+  private static Instant statementNow() {
+    Statement s = STATEMENT.get();
+    return s == null ? Instant.now() : s.now;
   }
 
   /** Runs {@code p} against {@code s} within the statement's remaining regex budget. */
   static boolean match(Pattern p, String s, boolean whole) {
-    long[] spent = REGEX_SPENT.get();
+    Statement statement = STATEMENT.get();
     long start = System.nanoTime();
     try {
       java.util.regex.Matcher m =
-          p.matcher(bounded(s, start + REGEX_BUDGET_NANOS - (spent == null ? 0 : spent[0])));
+          p.matcher(
+              bounded(
+                  s, start + REGEX_BUDGET_NANOS - (statement == null ? 0 : statement.regexSpent)));
       return whole ? m.matches() : m.find();
     } finally {
-      if (spent != null) {
-        spent[0] += System.nanoTime() - start;
+      if (statement != null) {
+        statement.regexSpent += System.nanoTime() - start;
       }
     }
   }
 
+  /**
+   * The text a pattern matches against, failing the match once it has run past the budget. The
+   * matcher reads the input through charAt, so the check rides on the backtracking itself.
+   */
   static CharSequence bounded(String s, long deadline) {
     if (System.nanoTime() > deadline) {
       throw new PgException.Argument(
@@ -1528,14 +1591,14 @@ final class Evaluator {
     switch (keyword.toUpperCase(Locale.ROOT).replace("()", "")) {
       case "CURRENT_TIMESTAMP":
       case "NOW":
-        return Instant.now();
+        return statementNow();
       case "CURRENT_DATE":
-        return LocalDate.now(zone());
+        return LocalDate.ofInstant(statementNow(), zone());
       case "CURRENT_TIME":
       case "LOCALTIME":
-        return LocalTime.now(zone());
+        return LocalTime.ofInstant(statementNow(), zone());
       case "LOCALTIMESTAMP":
-        return LocalDateTime.now(zone());
+        return LocalDateTime.ofInstant(statementNow(), zone());
       default:
         throw new PgException.Argument("0A000", "Unsupported expression: " + keyword);
     }
@@ -2575,7 +2638,15 @@ final class Evaluator {
       case "JSONB_BUILD_ARRAY":
         return new Json.Value(Json.buildArray(args), name.startsWith("JSONB"), null);
       case "NOW":
-        return Instant.now();
+      case "TRANSACTION_TIMESTAMP":
+        return statementNow();
+      case "STATEMENT_TIMESTAMP":
+        {
+          Statement s = STATEMENT.get();
+          return s == null ? Instant.now() : s.start;
+        }
+      case "CLOCK_TIMESTAMP":
+        return Instant.now(); // the one clock that moves within a statement
       case "VERSION":
         return "PostgreSQL 16.0 (ScalarDB frontend)";
       default:
@@ -2802,7 +2873,10 @@ final class Evaluator {
             return null;
           }
           // with two arguments b is set (a NULL one returned above)
-          LocalDateTime to = b != null ? asTimestamp(a) : LocalDate.now(zone()).atStartOfDay();
+          LocalDateTime to =
+              b != null
+                  ? asTimestamp(a)
+                  : LocalDate.ofInstant(statementNow(), zone()).atStartOfDay();
           LocalDateTime from = b != null ? asTimestamp(b) : asTimestamp(a);
           if (to == null || from == null) {
             throw new IllegalArgumentException("age needs timestamps: " + f);
