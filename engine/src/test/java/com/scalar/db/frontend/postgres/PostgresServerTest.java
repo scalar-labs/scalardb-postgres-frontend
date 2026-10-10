@@ -1047,7 +1047,12 @@ public class PostgresServerTest {
         Statement statement = connection.createStatement()) {
       // without Cluster's privileges to decide, only the operator may drop the coordinator tables
       assertSqlState(statement, "DROP COORDINATOR TABLES", "42501");
+      // however it is spelled: the check sits where the drop is planned
+      assertThatThrownBy(() -> statement.execute("/* c */ drop\n COORDINATOR  tables ;"))
+          .isInstanceOf(SQLException.class);
       verify(admin, org.mockito.Mockito.never()).dropCoordinatorTables(anyBoolean());
+      // is_superuser reports the login; a client cannot claim it
+      assertSqlState(statement, "SET is_superuser = on", "55P02");
     }
     Properties properties = new Properties();
     properties.setProperty("scalar.db.postgres.max_rows_per_write_ceiling", "500");
@@ -1066,7 +1071,16 @@ public class PostgresServerTest {
         assertThat(rs.next()).isTrue();
         assertThat(rs.getString(1)).isEqualTo("500"); // the default lowered to the ceiling
       }
+      assertThatThrownBy(
+              () ->
+                  statement.execute("SELECT set_config('scalardb.max_rows_per_write', '0', false)"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42501"));
     }
+    // nor through the startup message: options are checked as SET checks them, FATAL if refused
+    assertThatThrownBy(() -> connect("?options=-c%20scalardb.max_rows_per_write=0"))
+        .isInstanceOfSatisfying(
+            SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42501"));
     // a startup packet whose last string has no terminator: FATAL 08P01, as PostgreSQL answers
     try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
         java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
@@ -1098,6 +1112,18 @@ public class PostgresServerTest {
       assertSqlState(statement, "SET statement_timeout = 'soon'", "22023");
       assertSqlState(statement, "INSERT INTO t (id, id) VALUES (1, 2)", "42701");
       assertSqlState(statement, "UPDATE t SET name = 'a', name = 'b' WHERE id = 1", "42601");
+      // current_setting and set_config read and write what SHOW and SET do
+      try (ResultSet rs =
+          statement.executeQuery(
+              "SELECT current_setting('TimeZone'), set_config('application_name', 'cfg', false),"
+                  + " current_setting('no.such', true)")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1)).isEqualTo("Asia/Kolkata");
+        assertThat(rs.getString(2)).isEqualTo("cfg");
+        assertThat(rs.getString(3)).isNull();
+      }
+      assertThat(pg.getParameterStatus("application_name")).isEqualTo("cfg");
+      assertSqlState(statement, "SELECT current_setting('no_such')", "42704");
     }
   }
 

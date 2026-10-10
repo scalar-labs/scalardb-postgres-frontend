@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "050"
 tags: [code-review, consistency, documentation]
@@ -113,3 +113,14 @@ UPDATE DEFAULT note to LIMITATIONS.md.
 - SET of an unknown parameter is accepted: refusing it needs PostgreSQL's full parameter list, or clients setting real parameters this frontend does not know would break.
 - INSERT ... ON CONFLICT DO NOTHING with the same key twice in one statement fails 23505.
 - nth_value over an empty frame fails with an index error.
+
+### 2026-10-10 - Resolved (group 3)
+
+**By:** Claude Code
+
+**Actions:**
+- INSERT ... ON CONFLICT DO NOTHING with a key repeated in the statement inserts the first row and skips the rest; DO UPDATE with a repeated key is 21000 "ON CONFLICT DO UPDATE command cannot affect row a second time", as in PostgreSQL.
+- nth_value over an empty frame at the end of the partition is NULL; nth_value(x, 0) is 22016.
+
+**Remaining, by design:**
+- SET of an unknown parameter is still accepted, since refusing it needs PostgreSQL's full parameter list; a client setting a real one this frontend does not model would otherwise break.

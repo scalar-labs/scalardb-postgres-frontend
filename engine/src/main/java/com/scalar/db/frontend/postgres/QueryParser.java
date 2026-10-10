@@ -2577,6 +2577,12 @@ public class QueryParser {
   private static final Pattern EXPLAIN =
       Pattern.compile("(?is)EXPLAIN\\s+((?:ANALYZE|\\(\\s*ANALYZE\\s*\\))\\s+)?(.+)");
   private static final Pattern VACUUM = Pattern.compile("(?is)VACUUM\\b.*");
+  private volatile boolean coordinatorDropAllowed; // a Cluster superuser, or the operator's
+
+  void setCoordinatorDropAllowed(boolean allowed) {
+    coordinatorDropAllowed = allowed;
+  }
+
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
 
@@ -2638,6 +2644,15 @@ public class QueryParser {
     Matcher coordinator = COORDINATOR_TABLES.matcher(trimmed);
     if (coordinator.matches()) {
       boolean create = coordinator.group(1).equalsIgnoreCase("CREATE");
+      if (!create && !coordinatorDropAllowed) {
+        // Every application's transactions depend on these tables: without Cluster's privileges
+        // to decide, only an operator's setting lets a client drop them. Checked here, where the
+        // drop is planned, so no spelling of the statement gets past it
+        throw new PgException.Argument(
+            "42501",
+            "permission denied: DROP COORDINATOR TABLES needs a Cluster superuser, or"
+                + " scalar.db.postgres.allow_drop_coordinator_tables=true");
+      }
       return Plan.ddl(
           () -> {
             if (create) {
@@ -5525,6 +5540,10 @@ public class QueryParser {
     Expression conflictWhere = action == null ? null : action.getWhereExpression();
     boolean update = doUpdate;
     List<String> allColumns = new ArrayList<>(t.metadata.getColumnNames());
+    // The keys this execution has proposed so far: the Gets all run before the one mutate, so a
+    // key repeated within the statement is not found by them (a reader per execution resets it)
+    Set<List<Key>> proposedKeys = new HashSet<>();
+    Object[] execution = {null};
     return Plan.write(
         read,
         (row, reader) -> {
@@ -5533,13 +5552,26 @@ public class QueryParser {
             proposed.put(names.get(i), row.get(keys.get(i)));
           }
           if (action != null) {
+            Key partition = keyOf(t, t.metadata.getPartitionKeyNames(), proposed);
             GetBuilder.BuildableGet get =
-                Get.newBuilder()
-                    .namespace(t.namespace)
-                    .table(t.table)
-                    .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), proposed));
+                Get.newBuilder().namespace(t.namespace).table(t.table).partitionKey(partition);
+            List<Key> key = new ArrayList<>(Collections.singletonList(partition));
             if (!t.metadata.getClusteringKeyNames().isEmpty()) {
-              get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), proposed));
+              Key clustering = keyOf(t, t.metadata.getClusteringKeyNames(), proposed);
+              get.clusteringKey(clustering);
+              key.add(clustering);
+            }
+            if (execution[0] != reader) {
+              execution[0] = reader;
+              proposedKeys.clear();
+            }
+            if (!proposedKeys.add(key)) {
+              // As PostgreSQL: the row inserted a moment ago is the conflict
+              if (!update) {
+                return null;
+              }
+              throw new PgException.Argument(
+                  "21000", "ON CONFLICT DO UPDATE command cannot affect row a second time");
             }
             List<Result> found = reader.read(get.build());
             if (!found.isEmpty()) {

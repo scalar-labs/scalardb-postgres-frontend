@@ -551,3 +551,7 @@ SELECT name + 1 FROM emp WHERE id = 1;
 SELECT count(DISTINCT now()) AS n, count(DISTINCT current_timestamp) AS c, count(DISTINCT current_date) AS d FROM emp a, emp b;
 -- @clock_timestamp_moves
 SELECT count(DISTINCT clock_timestamp()) > 1 AS moves FROM emp a, emp b;
+-- @nth_value_empty_frame ordered
+SELECT x, nth_value(x, 1) OVER (ORDER BY x ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) AS nv, nth_value(x, 2) OVER (ORDER BY x) AS second FROM (VALUES (1), (2), (3)) v(x) ORDER BY x;
+-- @nth_value_zero
+SELECT nth_value(x, 0) OVER () FROM (VALUES (1)) v(x);

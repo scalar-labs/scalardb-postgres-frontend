@@ -39,3 +39,6 @@ insert_duplicate_target_column BOTH_ERR
 update_multiple_assignments BOTH_ERR
 upsert_multiple_assignments BOTH_ERR
 insert_array_into_text_column OK
+upsert_do_nothing_repeated_key OK
+upsert_do_update_repeated_key BOTH_ERR
+upsert_excluded_repeated_key BOTH_ERR

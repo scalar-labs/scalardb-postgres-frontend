@@ -610,17 +610,24 @@ public class PostgresServer implements AutoCloseable {
         for (Map.Entry<String, String> e : defaults.entrySet()) {
           processor.setDefault(e.getKey(), e.getValue());
         }
-        for (Map.Entry<String, String> e : params.entrySet()) {
-          if (e.getKey().equals("options")) {
-            // PGOPTIONS='-c client_min_messages=warning': settings given at connection time
-            java.util.regex.Matcher option =
-                java.util.regex.Pattern.compile("-c\\s*([\\w.]+)=(\\S+)").matcher(e.getValue());
-            while (option.find()) {
-              processor.setDefault(option.group(1), option.group(2));
+        try {
+          for (Map.Entry<String, String> e : params.entrySet()) {
+            if (e.getKey().equals("options")) {
+              // PGOPTIONS='-c client_min_messages=warning': settings given at connection time
+              java.util.regex.Matcher option =
+                  java.util.regex.Pattern.compile("-c\\s*([\\w.]+)=(\\S+)").matcher(e.getValue());
+              while (option.find()) {
+                processor.setClientDefault(option.group(1), option.group(2));
+              }
+            } else if (!e.getKey().equals("user") && !e.getKey().equals("database")) {
+              // application_name, DateStyle, ...: the client's, so checked as SET checks them
+              processor.setClientDefault(e.getKey(), e.getValue());
             }
-          } else if (!e.getKey().equals("user") && !e.getKey().equals("database")) {
-            processor.setDefault(e.getKey(), e.getValue()); // application_name, DateStyle, ...
           }
+        } catch (PgException.Argument | PgException.State refused) {
+          // as PostgreSQL refuses a bad startup option: FATAL, with the setting's own code
+          fatal(((PgException) refused).sqlState(), String.valueOf(refused.getMessage()));
+          return null;
         }
         readyForQuery(processor); // reports the settings, with the client's own applied
         return processor;
@@ -1052,7 +1059,6 @@ public class PostgresServer implements AutoCloseable {
               .i8(0));
     }
 
-    /** Reports a statement's failure to the client and returns its SQLSTATE. */
     /** A failure that is the server's fault, whose own text means nothing to the client. */
     private boolean isInternal(Throwable e) {
       return (e instanceof Error && !(e instanceof StackOverflowError))
@@ -1063,6 +1069,7 @@ public class PostgresServer implements AutoCloseable {
           || e instanceof java.util.ConcurrentModificationException;
     }
 
+    /** Reports a statement's failure to the client and returns its SQLSTATE. */
     private String sendError(Throwable failure) throws IOException {
       Throwable cause = failure.getCause();
       Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;

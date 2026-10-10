@@ -397,9 +397,13 @@ final class Windows {
             : null;
       case "NTH_VALUE":
         {
-          Integer n = intArg(a.getOffset(), units.get(partition.get(Math.min(lo, hi))), ctx, a);
+          // the offset is read from a row of the partition; an empty frame at its end starts past
+          // the last row, so that row is used instead (the offset is nearly always a constant)
+          int at = Math.min(Math.min(lo, hi), partition.size() - 1);
+          Integer n = intArg(a.getOffset(), units.get(partition.get(at)), ctx, a);
           if (n != null && n <= 0) {
-            throw new IllegalArgumentException("Argument of nth_value must be greater than zero");
+            throw new PgException.Argument(
+                "22016", "argument of nth_value must be greater than zero"); // as PostgreSQL
           }
           return n != null && lo + n - 1 < hi
               ? Evaluator.eval(a.getExpression(), units.get(partition.get(lo + n - 1)), ctx)

@@ -199,3 +199,16 @@ BEGIN;
 INSERT INTO dept (id, name, region) VALUES (301, ARRAY['a', 'b c'], ARRAY[1, 2]::text);
 SELECT id, name, region FROM dept WHERE id = 301;
 ROLLBACK;
+-- @upsert_do_nothing_repeated_key
+BEGIN;
+INSERT INTO dept VALUES (310, 'a', NULL, NULL, NULL), (310, 'b', NULL, NULL, NULL) ON CONFLICT DO NOTHING;
+SELECT id, name FROM dept WHERE id = 310;
+ROLLBACK;
+-- @upsert_do_update_repeated_key
+BEGIN;
+INSERT INTO dept VALUES (311, 'a', NULL, NULL, NULL), (311, 'b', NULL, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name = 'z';
+ROLLBACK;
+-- @upsert_excluded_repeated_key
+BEGIN;
+INSERT INTO dept VALUES (312, 'a', NULL, NULL, NULL), (312, 'b', NULL, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
+ROLLBACK;

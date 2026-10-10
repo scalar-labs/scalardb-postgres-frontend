@@ -454,6 +454,22 @@ final class Evaluator {
   private static final ThreadLocal<java.util.concurrent.atomic.AtomicBoolean> CANCEL =
       new ThreadLocal<>();
 
+  /** The session's settings, for current_setting and set_config. */
+  interface Settings {
+    /** The setting's current value; null for a name the session does not know. */
+    @Nullable String get(String name);
+
+    /** As SET [LOCAL] name = value. */
+    void set(String name, String value, boolean local);
+  }
+
+  private static final ThreadLocal<Settings> SETTINGS = new ThreadLocal<>();
+
+  /** The settings of the session whose statement runs on this thread. */
+  static void setSettings(Settings settings) {
+    SETTINGS.set(settings);
+  }
+
   /** Gives the session running on this thread its cancel flag, once, at startup. */
   static void setCancel(java.util.concurrent.atomic.AtomicBoolean cancel) {
     CANCEL.set(cancel);
@@ -2640,6 +2656,28 @@ final class Evaluator {
       case "NOW":
       case "TRANSACTION_TIMESTAMP":
         return statementNow();
+      case "CURRENT_SETTING":
+        {
+          // current_setting(name [, missing_ok]): an unknown name is 42704 unless missing_ok
+          String setting = str(args, 0);
+          Settings settings = SETTINGS.get();
+          String value = settings == null ? null : settings.get(setting);
+          if (value == null && !(args.size() > 1 && isTrue(arg(args, 1)))) {
+            throw new PgException.Argument(
+                "42704", "unrecognized configuration parameter \"" + setting + "\"");
+          }
+          return value;
+        }
+      case "SET_CONFIG":
+        {
+          // set_config(name, value, is_local): SET [LOCAL], returning the new value
+          Settings settings = SETTINGS.get();
+          if (settings == null || arg(args, 1) == null) {
+            throw new PgException.Argument("22023", "set_config needs a session and a value");
+          }
+          settings.set(str(args, 0), str(args, 1), isTrue(arg(args, 2)));
+          return settings.get(str(args, 0));
+        }
       case "STATEMENT_TIMESTAMP":
         {
           Statement s = STATEMENT.get();

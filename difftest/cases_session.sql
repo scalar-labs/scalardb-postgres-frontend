@@ -92,3 +92,9 @@ BEGIN; BEGIN; SELECT count(*) FROM dept; COMMIT;
 BEGIN; UPDATE emp SET salary = 1 WHERE id = 1 AND name = 1; ROLLBACK;
 -- @refuse_pg_catalog_unknown_column
 SELECT nosuch FROM pg_catalog.pg_class;
+-- @session_current_setting_and_set_config
+SELECT current_setting('TimeZone') AS tz, current_setting('no.such', true) AS missing;
+SELECT set_config('application_name', 'cfg', false) AS s, current_setting('application_name') AS a;
+SHOW application_name;
+-- @session_current_setting_unknown
+SELECT current_setting('no_such');

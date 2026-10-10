@@ -273,3 +273,5 @@ cast_text_to_int_is_strict BOTH_ERR
 text_column_arithmetic_refused BOTH_ERR
 now_fixed_within_statement OK
 clock_timestamp_moves OK
+nth_value_empty_frame OK
+nth_value_zero BOTH_ERR

@@ -36,8 +36,6 @@ public class QueryProcessor {
   private boolean pending;
   private boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling; 0: none
-  private static final java.util.regex.Pattern DROP_COORDINATOR =
-      java.util.regex.Pattern.compile("(?is)DROP\\s+COORDINATOR\\s+TABLES\\b.*");
   // When the transaction block began: now() for every statement in it, as in PostgreSQL
   @Nullable private java.time.Instant transactionStart;
   private boolean pendingReadOnly;
@@ -152,6 +150,7 @@ public class QueryProcessor {
     this.identity = identity;
     setUser(identity.user());
     defaults.put("is_superuser", identity.superuser() ? "on" : "off");
+    parser.setCoordinatorDropAllowed(allowCoordinatorDrop || identity.superuser());
   }
 
   /** The session's current value of a setting, from SET or the defaults. */
@@ -231,43 +230,75 @@ public class QueryProcessor {
         return null;
       }
       String key = settingKey(name);
-      if ("TimeZone".equals(key)) {
-        value = zoneOf(value).getId().equals("Z") ? "UTC" : value; // validated here
-      }
+      value = checkedValue(key, name, value);
       if (local) {
         localSaved.putIfAbsent(key == null ? name : key, settings.get(key == null ? name : key));
-      }
-      if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
-        value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
-        checkIsolation(value);
-      }
-      if ("statement_timeout".equals(key)
-          && !DURATION.matcher(value.trim().replace("'", "")).matches()) {
-        throw new PgException.Argument(
-            "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
-      }
-      if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
-        throw new PgException.Argument(
-            "22023",
-            "invalid value for parameter \"" + MAX_ROWS_PER_WRITE + "\": \"" + value + "\"");
-      }
-      if (MAX_ROWS_PER_WRITE.equals(key) && maxRowsPerWriteCeiling > 0) {
-        int rows = Integer.parseInt(value);
-        if (rows == 0 || rows > maxRowsPerWriteCeiling) {
-          // 0 is no cap at all; the operator's ceiling bounds what a client may ask for
-          throw new PgException.Argument(
-              "42501",
-              "permission denied to set parameter \""
-                  + MAX_ROWS_PER_WRITE
-                  + "\" above "
-                  + maxRowsPerWriteCeiling
-                  + " (scalar.db.postgres.max_rows_per_write_ceiling)");
-        }
       }
       settings.put(key == null ? name : key, value);
       searchPathChanged(key);
       return null;
     }
+    return resetOrDiscard(sql);
+  }
+
+  /**
+   * A setting's value as SET would store it, after the checks SET makes; every way a client sets
+   * one (SET, set_config, the startup message and its options) goes through here.
+   */
+  private String checkedValue(@Nullable String key, String name, String value) {
+    if (identity != null
+        && (name.equalsIgnoreCase("role") || name.equalsIgnoreCase("session_authorization"))) {
+      throw new PgException.Argument(
+          "0A000",
+          "Unsupported: SET ROLE and SET SESSION AUTHORIZATION, since an authenticated session runs"
+              + " as the user it logged in as");
+    }
+    if ("TimeZone".equals(key)) {
+      value = zoneOf(value).getId().equals("Z") ? "UTC" : value; // validated here
+    }
+    if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
+      value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+      checkIsolation(value);
+    }
+    if ("is_superuser".equals(key)) {
+      // as PostgreSQL: it reports the login, it is not the client's to claim
+      throw new PgException.Argument("55P02", "parameter \"is_superuser\" cannot be changed");
+    }
+    if ("statement_timeout".equals(key)
+        && !DURATION.matcher(value.trim().replace("'", "")).matches()) {
+      throw new PgException.Argument(
+          "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
+    }
+    if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
+      throw new PgException.Argument(
+          "22023", "invalid value for parameter \"" + MAX_ROWS_PER_WRITE + "\": \"" + value + "\"");
+    }
+    if (MAX_ROWS_PER_WRITE.equals(key) && maxRowsPerWriteCeiling > 0) {
+      int rows = Integer.parseInt(value);
+      if (rows == 0 || rows > maxRowsPerWriteCeiling) {
+        // 0 is no cap at all; the operator's ceiling bounds what a client may ask for
+        throw new PgException.Argument(
+            "42501",
+            "permission denied to set parameter \""
+                + MAX_ROWS_PER_WRITE
+                + "\" above "
+                + maxRowsPerWriteCeiling
+                + " (scalar.db.postgres.max_rows_per_write_ceiling)");
+      }
+    }
+    return value;
+  }
+
+  /**
+   * A setting the client gave at connection time (a startup parameter, or {@code -c} in its
+   * options): a session default, checked as SET checks it.
+   */
+  public void setClientDefault(String name, String value) {
+    String key = settingKey(name);
+    defaults.put(key == null ? name : key, checkedValue(key, name, value));
+  }
+
+  @Nullable private String resetOrDiscard(String sql) {
     java.util.regex.Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
     if (reset.matches()) {
       if (reset.group(1).equalsIgnoreCase("ALL")) {
@@ -538,20 +569,10 @@ public class QueryProcessor {
     java.time.Instant now =
         inTransaction() && transactionStart != null ? transactionStart : java.time.Instant.now();
     Evaluator.startStatement(now, statementTimeoutMillis());
+    Evaluator.setSettings(sessionSettings);
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
-    }
-    if (word.equals("DROP")
-        && DROP_COORDINATOR.matcher(QueryParser.trimStatement(sql)).matches()
-        && !allowCoordinatorDrop
-        && !(identity != null && identity.superuser())) {
-      // Every application's transactions depend on these tables: without Cluster's privileges to
-      // decide, only an operator's setting lets a client drop them
-      throw new PgException.Argument(
-          "42501",
-          "permission denied: DROP COORDINATOR TABLES needs a Cluster superuser, or"
-              + " scalar.db.postgres.allow_drop_coordinator_tables=true");
     }
     switch (word) {
       case "BEGIN":
@@ -1016,9 +1037,34 @@ public class QueryProcessor {
     ddlSettleMillis = millis;
   }
 
+  private static final java.util.regex.Pattern SETTING_NAME =
+      java.util.regex.Pattern.compile("[A-Za-z_][\\w.]*");
+
+  // current_setting and set_config read and write the settings SHOW and SET do
+  private final Evaluator.Settings sessionSettings =
+      new Evaluator.Settings() {
+        @Override
+        @Nullable public String get(String name) {
+          String key = settingKey(name);
+          return key == null ? null : current(key);
+        }
+
+        @Override
+        public void set(String name, String value, boolean local) {
+          if (!SETTING_NAME.matcher(name).matches()) {
+            throw new PgException.Argument(
+                "42704", "unrecognized configuration parameter \"" + name + "\"");
+          }
+          // outside a transaction a local set_config is not kept, as SET LOCAL is not
+          setting(
+              "SET " + (local ? "LOCAL " : "") + name + " TO '" + value.replace("'", "''") + "'");
+        }
+      };
+
   /** Lets DROP COORDINATOR TABLES run for any session, not only a Cluster superuser's. */
   public void setAllowCoordinatorDrop(boolean allow) {
     allowCoordinatorDrop = allow;
+    parser.setCoordinatorDropAllowed(allow || (identity != null && identity.superuser()));
   }
 
   /**

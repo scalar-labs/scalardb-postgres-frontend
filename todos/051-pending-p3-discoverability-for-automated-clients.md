@@ -92,3 +92,13 @@ line.
 
 **Verdict:**
 - STILL REAL. Probed: current_setting('TimeZone') and set_config(...) are unsupported functions; SHOW ALL has no descriptions; EXPLAIN's ScalarDB lines are undocumented.
+
+### 2026-10-10 - Partly fixed (group 3)
+
+**By:** Claude Code
+
+**Actions:**
+- current_setting(name [, missing_ok]) and set_config(name, value, is_local) read and write the settings SHOW and SET do, with SET's checks; an unknown name is 42704 unless missing_ok.
+
+**Remaining:**
+- SHOW ALL has no descriptions, the metadata cache delay after DDL is not announced to the client, and EXPLAIN's ScalarDB lines are not documented.
