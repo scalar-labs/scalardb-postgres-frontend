@@ -2994,10 +2994,25 @@ final class Evaluator {
           return ctx.catalog == null || !(arg(args, 0) instanceof Number)
               ? null
               : ctx.catalog.constraintDef(num(args, 0).longValue());
+        case "OBJ_DESCRIPTION": // a table's: its partition and clustering keys
+          return ctx.catalog == null
+                  || !(arg(args, 0) instanceof Number)
+                  || (args.size() > 1 && !"pg_class".equals(arg(args, 1)))
+              ? null
+              : ctx.catalog.description(num(args, 0).longValue());
+        case "PG_SIZE_PRETTY":
+          if (arg(args, 0) != null) {
+            return NOT_A_CATALOG_FUNCTION; // only the unknown sizes below reach it, from psql's
+            // \dt+
+          }
+          return null;
+        case "PG_TABLE_SIZE": // ScalarDB does not tell how much storage a table takes
+        case "PG_RELATION_SIZE":
+        case "PG_TOTAL_RELATION_SIZE":
+        case "PG_INDEXES_SIZE":
         case "PG_GET_EXPR":
         case "PG_PARTITION_ANCESTORS":
         case "COL_DESCRIPTION":
-        case "OBJ_DESCRIPTION":
         case "SHOBJ_DESCRIPTION":
           return null;
         case "CURRENT_SCHEMA":

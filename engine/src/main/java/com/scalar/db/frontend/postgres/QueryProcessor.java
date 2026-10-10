@@ -53,6 +53,11 @@ public class QueryProcessor {
   // The statement describe() planned last: the extended protocol describes a portal right before
   // executing it, and planning it once serves both
   // Plans by statement text, most recently used last: a reusable plan is planned once per session
+  // Plans whose run is still open, such as a suspended portal's: a plan holds its run's operators,
+  // so another run of the same statement must not be handed the same one
+  private final java.util.Set<QueryParser.Plan> openPlans =
+      Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
   private final Map<String, QueryParser.Plan> planCache =
       new LinkedHashMap<String, QueryParser.Plan>(64, 0.75f, true) {
         @Override
@@ -449,7 +454,16 @@ public class QueryProcessor {
       this.cursor = cursor;
       if (plan != null) {
         notices = plan.notices;
+        openPlans.add(plan);
       }
+    }
+
+    /**
+     * Starts a new statement for the rows still to come, as a suspended portal's next Execute is in
+     * PostgreSQL: a fresh statement_timeout and regex budget.
+     */
+    public void resume() {
+      startStatement();
     }
 
     /** Warnings to send the client before the command completes (PostgreSQL NOTICEs). */
@@ -524,6 +538,7 @@ public class QueryProcessor {
     public void close() {
       cursor.close();
       if (plan != null) {
+        openPlans.remove(plan);
         plan.release(); // a cached plan must not keep this run's rows and operators (todo 008)
       }
     }
@@ -562,14 +577,18 @@ public class QueryProcessor {
     return open(sql, Collections.emptyList());
   }
 
-  /** As {@link #open(String)}, with values for the statement's {@code $n} placeholders. */
-  public Rows open(String sql, List<Object> parameters)
-      throws TransactionException, ExecutionException {
+  private void startStatement() {
     applyZone();
     java.time.Instant now =
         inTransaction() && transactionStart != null ? transactionStart : java.time.Instant.now();
     Evaluator.startStatement(now, statementTimeoutMillis());
     Evaluator.setSettings(sessionSettings);
+  }
+
+  /** As {@link #open(String)}, with values for the statement's {@code $n} placeholders. */
+  public Rows open(String sql, List<Object> parameters)
+      throws TransactionException, ExecutionException {
+    startStatement();
     String word = firstWord(sql);
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
@@ -1016,7 +1035,7 @@ public class QueryProcessor {
     // it was made with
     String key = current("search_path") + '\u0000' + sql;
     QueryParser.Plan plan = planCache.get(key);
-    if (plan != null) {
+    if (plan != null && !openPlans.contains(plan)) {
       plan.rebind(parameters);
       return plan;
     }

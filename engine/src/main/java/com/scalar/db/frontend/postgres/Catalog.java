@@ -28,6 +28,7 @@ final class Catalog {
   private static final long OWNER_OID = 10;
   private static final long HEAP_AM = 2;
   private static final long BTREE_AM = 403;
+  private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
 
   private static final Map<String, List<String>> PG_CATALOG = new LinkedHashMap<>();
   private static final Map<String, List<String>> INFORMATION_SCHEMA = new LinkedHashMap<>();
@@ -364,6 +365,7 @@ final class Catalog {
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
+  private final Map<Long, String> descriptions = new HashMap<>(); // table oid -> its comment
   private final Map<String, Long> relationOids = new HashMap<>(); // namespace.name -> oid
   private final Map<String, Long> namespaceOids = new HashMap<>();
 
@@ -426,6 +428,7 @@ final class Catalog {
     tables = null;
     relationOids.clear();
     namespaceOids.clear();
+    descriptions.clear();
   }
 
   // ponytail: a one-second freshness window for DDL from other processes; a cluster-wide schema
@@ -505,6 +508,12 @@ final class Catalog {
   @Nullable String indexDef(long oid) throws ExecutionException {
     load();
     return indexDefs.get(oid);
+  }
+
+  /** A table's comment: which of its key columns are the partition key and the clustering key. */
+  @Nullable String description(long oid) throws ExecutionException {
+    load();
+    return descriptions.get(oid);
   }
 
   @Nullable String constraintDef(long oid) throws ExecutionException {
@@ -671,6 +680,26 @@ final class Catalog {
               null);
         }
         String columnList = String.join(", ", keys);
+        // The primary key as ScalarDB sees it: a read needs the whole partition key to be a Scan
+        // rather than a ScanAll, and a DESC clustering column stores its rows in that order
+        List<String> ordered = new ArrayList<>(metadata.getPartitionKeyNames());
+        List<String> clustering = new ArrayList<>();
+        for (String column : metadata.getClusteringKeyNames()) {
+          clustering.add(
+              metadata.getClusteringOrder(column) == com.scalar.db.api.Scan.Ordering.Order.DESC
+                  ? column + " DESC"
+                  : column);
+        }
+        ordered.addAll(clustering);
+        String description =
+            "ScalarDB partition key ("
+                + String.join(", ", metadata.getPartitionKeyNames())
+                + ")"
+                + (clustering.isEmpty()
+                    ? ""
+                    : ", clustering key (" + String.join(", ", clustering) + ")");
+        descriptions.put(relOid, description);
+        row(t, "pg_catalog.pg_description", relOid, PG_CLASS_OID, 0L, description);
         row(
             t,
             "information_schema.table_constraints",
@@ -715,7 +744,7 @@ final class Catalog {
                 + "."
                 + table
                 + " USING btree ("
-                + columnList
+                + String.join(", ", ordered)
                 + ")";
         indexDefs.put(pkeyOid, pkeyDef);
         relationOids.put(namespace + "." + table + "_pkey", pkeyOid);

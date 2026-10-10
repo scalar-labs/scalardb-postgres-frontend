@@ -458,6 +458,7 @@ public class PostgresServer implements AutoCloseable {
       } catch (RuntimeException | Error e) {
         logger.warn("Connection failed", e);
       } finally {
+        closeSuspended();
         if (processor != null && processor.inTransaction()) {
           QueryProcessor open = processor;
           try {
@@ -726,7 +727,14 @@ public class PostgresServer implements AutoCloseable {
         case 'C':
           char kind = (char) msg.get();
           String closing = readString(msg);
-          (kind == 'S' ? statements : portals).remove(closing);
+          if (kind == 'S') {
+            statements.remove(closing);
+          } else {
+            Portal closed = portals.remove(closing);
+            if (closed != null) {
+              closed.close();
+            }
+          }
           release(kind == 'S' ? statementBytes : portalBytes, closing);
           if (kind == 'S') {
             parameterTypes.remove(closing);
@@ -823,38 +831,48 @@ public class PostgresServer implements AutoCloseable {
         boolean describe,
         short[] formats)
         throws Exception {
-      List<String> notices;
-      try (QueryProcessor.Rows rows = processor.open(sql, parameters)) {
-        notices = rows.notices();
+      sendRows(processor, processor.open(sql, parameters), null, describe, formats, 0);
+    }
+
+    /**
+     * Sends a run's rows, at most {@code maxRows} of them unless it is 0, then its notices and
+     * CommandComplete, and closes it. With rows left past {@code maxRows} it sends PortalSuspended
+     * instead and leaves the run open for the portal's next Execute, returning the column types to
+     * resume with; null when the run is complete.
+     */
+    @Nullable private int[] sendRows(
+        QueryProcessor processor,
+        QueryProcessor.Rows rows,
+        @Nullable int[] resumed,
+        boolean describe,
+        short[] formats,
+        int maxRows)
+        throws Exception {
+      boolean suspended = false;
+      int[] oids = resumed;
+      try {
         Map<String, DataType> columns = rows.columns();
         if (!columns.isEmpty() || rows.returnsRows()) {
-          // The first row is fetched before the RowDescription so computed columns get a type
-          Map<String, Object> first = rows.hasNext() ? rows.next() : null;
-          int[] oids =
-              oids(columns, first == null ? null : Collections.singletonList(first), rows.oids());
-          if (describe) {
-            sendRowDescription(rows.labels(), oids, formats);
-          }
           int sent = 0;
-          for (Map<String, Object> row = first;
-              row != null;
-              row = rows.hasNext() ? rows.next() : null) {
-            Msg m = new Msg().i16(columns.size());
-            int i = 0;
-            for (String column : columns.keySet()) {
-              Object value = row.get(column);
-              if (value == null) {
-                m.i32(-1);
-              } else {
-                byte[] bytes =
-                    format(formats, i) == 1
-                        ? binary(oids[i], value)
-                        : text(value).getBytes(StandardCharsets.UTF_8);
-                m.i32(bytes.length).bytes(bytes);
-              }
-              i++;
+          if (oids == null) {
+            // The first row is fetched before the RowDescription so computed columns get a type
+            Map<String, Object> first = rows.hasNext() ? rows.next() : null;
+            oids =
+                oids(columns, first == null ? null : Collections.singletonList(first), rows.oids());
+            if (describe) {
+              sendRowDescription(rows.labels(), oids, formats);
             }
-            send('D', m);
+            if (first != null) {
+              sendRow(columns, first, oids, formats);
+              sent = 1;
+            }
+          }
+          while (rows.hasNext()) {
+            if (maxRows > 0 && sent == maxRows) {
+              suspended = true;
+              break;
+            }
+            sendRow(columns, rows.next(), oids, formats);
             if (++sent % 64 == 0) {
               out.flush();
             }
@@ -864,7 +882,16 @@ public class PostgresServer implements AutoCloseable {
             rows.next();
           }
         }
+      } finally {
+        if (!suspended) {
+          rows.close();
+        }
       }
+      if (suspended) {
+        send('s', new Msg()); // PortalSuspended
+        return oids;
+      }
+      List<String> notices = rows.notices();
       // client_min_messages above NOTICE (warning, error, ...) suppresses them, as in PostgreSQL
       String minimum = processor.currentSetting("client_min_messages").toLowerCase(Locale.ROOT);
       boolean noticesWanted =
@@ -894,6 +921,28 @@ public class PostgresServer implements AutoCloseable {
                 .i8(0));
       }
       send('C', new Msg().str(processor.lastCommandTag()));
+      return null;
+    }
+
+    private void sendRow(
+        Map<String, DataType> columns, Map<String, Object> row, int[] oids, short[] formats)
+        throws IOException {
+      Msg m = new Msg().i16(columns.size());
+      int i = 0;
+      for (String column : columns.keySet()) {
+        Object value = row.get(column);
+        if (value == null) {
+          m.i32(-1);
+        } else {
+          byte[] bytes =
+              format(formats, i) == 1
+                  ? binary(oids[i], value)
+                  : text(value).getBytes(StandardCharsets.UTF_8);
+          m.i32(bytes.length).bytes(bytes);
+        }
+        i++;
+      }
+      send('D', m);
     }
 
     private void bind(ByteBuffer msg) throws IOException {
@@ -953,7 +1002,10 @@ public class PostgresServer implements AutoCloseable {
         size += v instanceof ByteBuffer ? ((ByteBuffer) v).remaining() : String.valueOf(v).length();
       }
       reserve(portalBytes, portal, size);
-      portals.put(portal, new Portal(sql, values, resultFormats));
+      Portal replaced = portals.put(portal, new Portal(sql, values, resultFormats));
+      if (replaced != null) {
+        replaced.close();
+      }
       send('2', new Msg()); // BindComplete
     }
 
@@ -1007,7 +1059,16 @@ public class PostgresServer implements AutoCloseable {
       if (portal == null) {
         throw new IllegalArgumentException("Unknown portal");
       }
-      // The maximum row count is ignored: all rows are always sent
+      int maxRows = msg.getInt();
+      QueryProcessor.Rows suspended = portal.rows;
+      if (suspended != null) {
+        // A suspended portal: the next rows of the same run
+        portal.rows = null;
+        suspended.resume();
+        portal.oids = sendRows(processor, suspended, portal.oids, false, portal.formats, maxRows);
+        portal.rows = portal.oids == null ? null : suspended;
+        return;
+      }
       if (portal.sql.trim().isEmpty()) {
         send('I', new Msg());
         return;
@@ -1024,7 +1085,18 @@ public class PostgresServer implements AutoCloseable {
         processor.execute("BEGIN");
         implicit = true;
       }
-      run(processor, portal.sql, portal.parameters, false, portal.formats);
+      // A write runs to completion whatever the row limit, as in PostgreSQL, which holds its
+      // RETURNING rows; so it sends them all
+      QueryProcessor.Rows rows = processor.open(portal.sql, portal.parameters);
+      portal.oids = sendRows(processor, rows, null, false, portal.formats, write ? 0 : maxRows);
+      portal.rows = portal.oids == null ? null : rows;
+    }
+
+    /** Ends the runs of suspended portals, as PostgreSQL drops its portals with the transaction. */
+    private void closeSuspended() {
+      for (Portal portal : portals.values()) {
+        portal.close();
+      }
     }
 
     private void sendRowDescription(List<String> labels, int[] oids, short[] formats)
@@ -1203,6 +1275,9 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void readyForQuery(QueryProcessor processor) throws IOException {
+      if (!processor.inTransaction()) {
+        closeSuspended();
+      }
       reportSettings(processor);
       send('Z', new Msg().i8(processor.isAborted() ? 'E' : processor.inTransaction() ? 'T' : 'I'));
       out.flush();
@@ -1310,17 +1385,26 @@ public class PostgresServer implements AutoCloseable {
     return out; // a Query of comments alone is empty, as in PostgreSQL
   }
 
-  /** Replaces {@code $n} placeholders outside quotes with quoted literals (or NULL). */
   /** A bound statement: its SQL with {@code $n} placeholders, their values, and result formats. */
   private static final class Portal {
     final String sql;
     final List<Object> parameters;
     final short[] formats;
+    // A suspended run (Execute stopped at its row limit) and its column types, until it completes
+    @Nullable QueryProcessor.Rows rows;
+    @Nullable int[] oids;
 
     Portal(String sql, List<Object> parameters, short[] formats) {
       this.sql = sql;
       this.parameters = parameters;
       this.formats = formats;
+    }
+
+    void close() {
+      if (rows != null) {
+        rows.close();
+        rows = null;
+      }
     }
   }
 

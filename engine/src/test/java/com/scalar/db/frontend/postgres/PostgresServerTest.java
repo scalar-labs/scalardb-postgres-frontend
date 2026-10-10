@@ -863,6 +863,81 @@ public class PostgresServerTest {
     }
   }
 
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void protocol_ExecuteRowLimit_ShouldSuspendThePortal() throws Exception {
+    when(manager.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b"), row(3, "c")));
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out =
+            new java.io.DataOutputStream(
+                new java.io.BufferedOutputStream(socket.getOutputStream()));
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      // The subquery's rows and the reader that fetches them belong to the plan, not to a run's
+      // operators, so a run of the same plan that finishes first must not take them away
+      parse(out, "s", "SELECT id FROM t WHERE id + 0 <= (SELECT count(*) FROM t)");
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      bind(out, "p1");
+      execute(out, "p1", 1); // one row, then suspended
+      bind(out, "p2");
+      execute(out, "p2", 0); // the same statement in full, while p1 is suspended
+      execute(out, "p1", 0); // the rest of p1
+      out.writeByte('S');
+      out.writeInt(4);
+      out.flush();
+      StringBuilder types = new StringBuilder();
+      int type;
+      do {
+        type = in.read();
+        in.readFully(new byte[in.readInt() - 4]);
+        types.append((char) type);
+      } while (type != 'Z');
+      // BindComplete, a row, PortalSuspended; p2 whole; p1's other two rows and CommandComplete
+      assertThat(types.toString()).isEqualTo("2Ds" + "2DDDC" + "DDC" + "Z");
+    }
+  }
+
+  private static void bind(java.io.DataOutputStream out, String portal) throws java.io.IOException {
+    byte[] names = (portal + "\0s\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    out.writeByte('B');
+    out.writeInt(4 + names.length + 6);
+    out.write(names);
+    out.writeShort(0); // no parameter formats
+    out.writeShort(0); // no parameters
+    out.writeShort(0); // no result formats
+  }
+
+  private static void execute(java.io.DataOutputStream out, String portal, int maxRows)
+      throws java.io.IOException {
+    byte[] name = (portal + "\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    out.writeByte('E');
+    out.writeInt(4 + name.length + 4);
+    out.write(name);
+    out.writeInt(maxRows);
+  }
+
+  @Test
+  public void fetchSize_ShouldPageThroughTheRows() throws Exception {
+    when(transaction.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b"), row(3, "c")));
+    try (Connection connection = connect("")) {
+      connection.setAutoCommit(false); // pgjdbc uses the row limit only in a transaction
+      try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM t")) {
+        statement.setFetchSize(1);
+        List<Integer> ids = new java.util.ArrayList<>();
+        try (ResultSet rs = statement.executeQuery()) {
+          while (rs.next()) {
+            ids.add(rs.getInt(1));
+          }
+        }
+        assertThat(ids).containsExactly(1, 2, 3);
+      }
+      connection.commit();
+    }
+  }
+
   private static void parse(java.io.DataOutputStream out, String name, String sql)
       throws java.io.IOException {
     byte[] body = (name + "\0" + sql + "\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);

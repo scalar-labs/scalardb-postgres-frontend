@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "031"
 tags: [code-review, protocol, hardening]
@@ -97,3 +97,15 @@ is a separate small change in execute().
 
 **Remaining:**
 - The Execute row limit is still ignored: results are right, but pgjdbc's setFetchSize in a transaction receives all rows at once.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- Execute's row limit now suspends the portal: at most that many DataRows, then PortalSuspended, and the run stays open for the portal's next Execute (with a fresh statement_timeout) until it completes; it is closed by Close, a new Bind of the same name, the end of the transaction (or the Sync outside one) and disconnect. A write still runs to completion and sends all its RETURNING rows, as PostgreSQL holds them.
+- A plan whose run is open is not handed out again by the session's plan cache: the subquery rows and reader live in the plan, so a second run of the same statement finishing first broke the suspended one (`…DE` instead of `…DDC` in the raw-protocol test without the guard).
+- Probed: pgjdbc with fetchSize 0, 1, 100, 4999, 5000 and 7000 over 5,000 rows of a real ScalarDB table returns every row, with the same query run in full mid-fetch.
+
+**Remaining:**
+- The final CommandComplete counts all the portal's rows; PostgreSQL counts those of the last Execute. No driver reads it for a SELECT.

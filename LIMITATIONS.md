@@ -28,6 +28,11 @@ at the end of this section.
   `anchor UNION [ALL] step`.
 - **Key conditions written with arithmetic** (`order_id >= $1 - 20`) are evaluated in the
   frontend instead of being pushed down to ScalarDB.
+- **Which key columns are the partition key** is not part of PostgreSQL's catalog: a query
+  reads one partition only when it fixes the whole partition key, and scans the table otherwise.
+  The table comment says which they are, as `\dt+` and `obj_description(oid, 'pg_class')` show
+  (`ScalarDB partition key (w_id, d_id), clustering key (o_id DESC)`). Table sizes are unknown
+  and show empty.
 - **Large sorts and aggregations run in the frontend's memory.** A query that sorts or groups a
   very large table without a key holds all its rows in the frontend.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "042"
 tags: [code-review, catalog, discoverability]
@@ -82,3 +82,11 @@ _pkey indexdef.
 
 **Verdict:**
 - STILL REAL (discoverability). The catalog does not tell partition from clustering keys or show DESC order; obj_description is hard-wired to NULL.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- Option 1: each table has a pg_description row, which obj_description(oid, 'pg_class') and psql's \dt+ show: "ScalarDB partition key (w_id, d_id), clustering key (o_id DESC)". The primary key's pg_get_indexdef shows a DESC clustering column as DESC. \dt+ itself failed on pg_table_size before; the size functions now return NULL (ScalarDB does not tell sizes) and pg_size_pretty(NULL) is NULL.
+- \d+ shows no table comment in PostgreSQL either, so \dt+ is where it appears.

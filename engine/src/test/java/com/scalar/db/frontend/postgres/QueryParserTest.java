@@ -892,6 +892,48 @@ public class QueryParserTest {
   }
 
   @Test
+  public void catalog_ShouldTellThePartitionKeyAndClusteringOrder() throws Exception {
+    when(admin.getTableMetadata(NS, "o"))
+        .thenReturn(
+            TableMetadata.newBuilder()
+                .addColumn("w", DataType.INT)
+                .addColumn("d", DataType.INT)
+                .addColumn("o", DataType.INT)
+                .addColumn("n", DataType.INT)
+                .addPartitionKey("w")
+                .addPartitionKey("d")
+                .addClusteringKey("o", Scan.Ordering.Order.DESC)
+                .addClusteringKey("n")
+                .build());
+    when(admin.getNamespaceTableNames(NS))
+        .thenReturn(new java.util.TreeSet<>(Arrays.asList("o", "t")));
+    List<Map<String, Object>> rows =
+        parser
+            .parse(
+                "SELECT c.relname, obj_description(c.oid, 'pg_class') AS d, "
+                    + "pg_get_indexdef(i.indexrelid) AS def FROM pg_class c "
+                    + "JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary "
+                    + "WHERE c.relname IN ('o', 't') ORDER BY 1")
+            .execute(transaction);
+    assertThat(rows)
+        .containsExactly(
+            map(
+                "relname",
+                "o",
+                "d",
+                "ScalarDB partition key (w, d), clustering key (o DESC, n)",
+                "def",
+                "CREATE UNIQUE INDEX o_pkey ON public.o USING btree (w, d, o DESC, n)"),
+            map(
+                "relname",
+                "t",
+                "d",
+                "ScalarDB partition key (id), clustering key (seq)",
+                "def",
+                "CREATE UNIQUE INDEX t_pkey ON public.t USING btree (id, seq)"));
+  }
+
+  @Test
   public void parse_CatalogQueryBeyondEngine_ShouldReturnNothing() throws Exception {
     // a UNION over catalog tables now runs for real
     QueryParser.Plan union =
