@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "033"
 tags: [code-review, performance, pushdown]
@@ -81,3 +81,10 @@ key columns.
 
 **Verdict:**
 - STILL REAL (performance). count(*) projects every column; projecting the key columns is a one-line fix.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- A read that needs no column (count(*), EXISTS, SELECT 1) projects the partition key only. Measured: SELECT count(*) FROM items (10,000 rows) 77.5 ms to 70.5 ms; bench/results/perf-20261010.

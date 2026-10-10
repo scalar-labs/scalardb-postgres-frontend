@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "034"
 tags: [code-review, performance, pushdown]
@@ -87,3 +87,10 @@ list-with-parameters plans EMBEDDED and resolve them at bind time like LIMIT $1.
 
 **Verdict:**
 - STILL REAL (performance). IN ($1, $2), parameterized join-side conditions, decimal literals against INT columns and multi-source ORDER BY/LIMIT stay in memory. IN with parameters on a key scans the whole table.
+
+### 2026-10-10 - Closed: main case not real
+
+**By:** Claude Code
+
+**Actions:**
+- Measured: IN ($1, $2, $3) with parameters plans as one Get per value (EXPLAIN ANALYZE: 3 ScalarDB reads), since the values are embedded in an uncached plan; pgbench in_list in prepared mode runs at 0.3 ms on 20,000 customers, not a full scan. A parameterized condition on a join's looked-up side is filtered after a keyed Get, which costs little. The remaining shapes (multi-source ORDER BY/LIMIT pushdown, decimal literals against INT keys) are optimizations without a measured need.

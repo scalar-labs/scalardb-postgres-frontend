@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "035"
 tags: [code-review, performance, io]
@@ -82,3 +82,10 @@ flush.
 
 **Verdict:**
 - STILL REAL (performance). One flush per message and no TCP_NODELAY; a two-line fix.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- No flush per message: ReadyForQuery and Flush send what is buffered, so a Bind/Execute/Sync is answered in one write; TCP_NODELAY is set on every connection. Measured on loopback: point_get 0.158 ms to 0.124 ms; bench/results/perf-20261010. The gain under a real network round trip was not measured.

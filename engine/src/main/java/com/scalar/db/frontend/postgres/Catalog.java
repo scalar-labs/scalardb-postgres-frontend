@@ -428,6 +428,26 @@ final class Catalog {
     namespaceOids.clear();
   }
 
+  // ponytail: a one-second freshness window for DDL from other processes; a cluster-wide schema
+  // version would let the catalog live until the schema actually changes
+  private static final long FRESH_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(1);
+  private long generation = -1;
+  private long invalidatedAt;
+
+  /**
+   * Drops the loaded catalog when DDL ran in this process since (its generation moved) or it is
+   * older than a second, so a burst of catalog queries (psql's \d, an ORM's introspection) loads
+   * every table's metadata once rather than once per statement (todo 039).
+   */
+  void invalidateIfStale(long ddlGeneration) {
+    long now = System.nanoTime();
+    if (ddlGeneration != generation || now - invalidatedAt > FRESH_NANOS) {
+      invalidate();
+      generation = ddlGeneration;
+      invalidatedAt = now;
+    }
+  }
+
   /** The schema name a namespace is shown under: the connected one is {@code public}. */
   String schemaName(String namespace) {
     return namespace.equals(database) ? "public" : namespace;

@@ -2042,7 +2042,7 @@ public class QueryParser {
    * per execution.
    */
   public Plan parse(String sql, List<Object> parameters) throws ExecutionException {
-    catalog.invalidate();
+    catalog.invalidateIfStale(DDL_GENERATION.get());
     ctes = Collections.emptyMap();
     int needed = parameterCount(sql);
     if (needed > parameters.size()) {
@@ -4877,6 +4877,11 @@ public class QueryParser {
       int limit) {
     Target t = s.table();
     List<String> projections = s.star ? Collections.emptyList() : new ArrayList<>(s.projections);
+    if (!s.star && projections.isEmpty()) {
+      // count(*), EXISTS, SELECT 1: no column is read, but an empty projection list means every
+      // column to ScalarDB, so ask for the partition key alone (todo 033)
+      projections.addAll(t.metadata.getPartitionKeyNames());
+    }
     Key partitionKey = equalsKey(pushed, t.metadata.getPartitionKeyNames());
     Scan base;
     if (partitionKey != null) {

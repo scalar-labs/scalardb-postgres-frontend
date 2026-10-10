@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "039"
 tags: [code-review, performance, caching, catalog]
@@ -84,3 +84,10 @@ equal to the metadata cache expiry; reuse metadataCache inside Catalog.load().
 
 **Verdict:**
 - STILL REAL (performance). Every statement invalidates the catalog, so each catalog query reloads all table metadata.
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- The catalog is kept until DDL in this process moves the generation, or for one second (DDL from other processes), instead of being reloaded for every statement. Measured: psql's first \d query 1.89 ms to 0.20 ms with five tables; bench/results/perf-20261010.

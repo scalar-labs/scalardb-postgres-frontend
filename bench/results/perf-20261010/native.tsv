@@ -1,0 +1,5 @@
+native	point_get	0.031 ms	32463.390436 tps
+native	in_list	0.044 ms	22936.430076 tps
+native	scan_filter	0.096 ms	10364.078428 tps
+native	count_items	0.328 ms	3045.741243 tps
+native	catalog	0.140 ms	7164.690402 tps

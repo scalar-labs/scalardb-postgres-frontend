@@ -419,6 +419,9 @@ public class PostgresServer implements AutoCloseable {
     private final Map<String, String> reported = new java.util.LinkedHashMap<>();
 
     Connection(Socket socket) throws IOException {
+      // Replies are flushed whole at ReadyForQuery; Nagle would hold the next one back for the
+      // client's delayed ACK (tens of milliseconds) on a real network
+      socket.setTcpNoDelay(true);
       this.socket = socket;
       this.accepted = socket;
       this.in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
@@ -685,7 +688,8 @@ public class PostgresServer implements AutoCloseable {
             failed = true;
           }
         }
-        out.flush();
+        // No flush per message: ReadyForQuery (after a Query or a Sync) and Flush send what is
+        // buffered, as PostgreSQL does, so a pgjdbc Bind/Execute/Sync is answered in one write
       }
     }
 

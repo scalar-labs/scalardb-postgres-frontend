@@ -2846,4 +2846,13 @@ public class QueryParserTest {
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("2201B"));
   }
+
+  @Test
+  public void parse_ColumnlessRead_ShouldProjectThePartitionKeyOnly() throws Exception {
+    // count(*) and EXISTS read no column; an empty projection list would fetch them all
+    assertThat(String.join("\n", parser.explain(parser.parse("SELECT count(*) FROM t"))))
+        .contains("projections=[id]");
+    assertThat(String.join("\n", parser.explain(parser.parse("SELECT * FROM t"))))
+        .contains("projections=[all]");
+  }
 }
