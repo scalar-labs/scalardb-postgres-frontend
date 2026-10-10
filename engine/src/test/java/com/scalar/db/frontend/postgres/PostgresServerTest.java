@@ -432,6 +432,16 @@ public class PostgresServerTest {
       assertSqlState(statement, "SELECT (SELECT id FROM t), 1", "21000");
       assertSqlState(statement, "SELECT id FROM t LIMIT -1", "2201W");
       assertSqlState(statement, "SELECT (SELECT id, name FROM t)", "42601");
+      // a quoted literal takes the type of the number next to it; a text column does not
+      assertSqlState(statement, "SELECT '1.5' * 2", "22P02");
+      assertSqlState(statement, "SELECT '2147483647' + 1", "22003");
+      assertSqlState(statement, "SELECT name + 1 FROM t", "42883");
+      try (ResultSet rs = statement.executeQuery("SELECT '5' + 1, abs('-3'), mod('7', 3)")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(1)).isEqualTo("6");
+        assertThat(rs.getString(2)).isEqualTo("3");
+        assertThat(rs.getString(3)).isEqualTo("1");
+      }
       assertSqlState(statement, "SELECT id FROM t WHERE count(*) > 1", "42803");
       assertSqlState(statement, "SELECT id, count(*) FROM t GROUP BY name", "42803");
       assertSqlState(statement, "SELECT id FROM t ORDER BY 2", "42P10");

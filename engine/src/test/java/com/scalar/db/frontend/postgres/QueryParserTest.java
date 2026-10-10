@@ -1567,7 +1567,7 @@ public class QueryParserTest {
     assertThatThrownBy(() -> parser.parse("SELECT id FROM t UNION SELECT name FROM t"))
         .hasMessageContaining("UNION types integer and text cannot be matched");
     assertThatThrownBy(() -> parser.parse("SELECT 1 UNION SELECT 'a'").execute(transaction))
-        .hasMessageContaining("Cannot cast 'a' to integer");
+        .hasMessageContaining("invalid input syntax for type integer: \"a\"");
   }
 
   @Test

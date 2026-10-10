@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "052"
 tags: [code-review, correctness, pushdown, type-system]
@@ -94,3 +94,15 @@ removing the sniffing would regress them. Writes are fine: `columnFromText` conv
 
 **Learnings:**
 - The OID-0 sniffing in `typed()` is load-bearing until this lands
+
+### 2026-10-10 - Resolved
+
+**By:** Claude Code
+
+**Actions:**
+- Probed against native PostgreSQL first: comparisons, keyed reads, LIMIT/OFFSET with quoted literals and every untyped-parameter case already matched (31215bc and the P2 fixes). What remained were errors, no wrong results: a quoted literal in arithmetic and in numeric functions.
+- Fixed in the commit after bfeee75 on `main`: a quoted literal next to a number takes that number's type ('5' + 1 is 6, '1.5' * 2 is 22P02, '2147483647' + 1 is 22003); in abs, round, floor, ceil, power, sqrt and sign it is double precision, in round(x, n) numeric, in mod the other argument's type. Text to integer is strict, as in PostgreSQL (CAST('1.5' AS INT) was 2, now 22P02). Arithmetic on a text column and a non-numeric function argument are 42883.
+
+**Remaining:**
+- round('2.5') is 3 where PostgreSQL's float8 round gives 2: the known half-up rounding of todo 027.
+- The OID-0 parameter guessing (todo 001) stays; typing parameters from context would let it go.

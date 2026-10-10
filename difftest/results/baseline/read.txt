@@ -265,3 +265,9 @@ string_substring_negative_length BOTH_ERR
 regex_posix_classes OK
 outer_join_bare_date_not_pushed OK
 json_timestamp_formatting OK
+unknown_literal_arithmetic OK
+unknown_literal_numeric_functions OK
+unknown_literal_not_an_integer BOTH_ERR
+unknown_literal_integer_overflow BOTH_ERR
+cast_text_to_int_is_strict BOTH_ERR
+text_column_arithmetic_refused BOTH_ERR

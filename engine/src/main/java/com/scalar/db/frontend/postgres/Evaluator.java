@@ -1752,8 +1752,16 @@ final class Evaluator {
     if (temporal != null) {
       return temporal;
     }
+    // A quoted literal has no type of its own: next to a number it takes that number's type, as in
+    // PostgreSQL ('5' + 1 is 6, '1.5' + 1 is 22P02). A text column stays text and is refused
+    if (e.getLeftExpression() instanceof StringValue && r instanceof Number) {
+      l = cast(isInt(r, e.getRightExpression()) ? "integer" : numericTypeName(r), l);
+    } else if (e.getRightExpression() instanceof StringValue && l instanceof Number) {
+      r = cast(isInt(l, e.getLeftExpression()) ? "integer" : numericTypeName(l), r);
+    }
     if (!(l instanceof Number) || !(r instanceof Number)) {
-      throw new IllegalArgumentException("Arithmetic on non-numeric values: " + e);
+      throw new PgException.Argument( // undefined_function, as PostgreSQL's text + integer
+          "42883", "operator does not exist: " + e);
     }
     boolean division = e instanceof Division || e instanceof Modulo;
     if (division && ((Number) r).doubleValue() == 0) {
@@ -2232,6 +2240,68 @@ final class Evaluator {
     return false;
   }
 
+  private static final Pattern INTEGER_TEXT = Pattern.compile("[+-]?\\d+");
+
+  /**
+   * Integer input as PostgreSQL reads it: digits with a sign, surrounding spaces allowed; '1.5' and
+   * '1e3' are 22P02, not rounded (a number, as opposed to text, is rounded by the caller).
+   */
+  private static BigDecimal integerText(String s, String type) {
+    String trimmed = s.trim();
+    if (!INTEGER_TEXT.matcher(trimmed).matches()) {
+      throw new PgException.Argument(
+          "22P02", "invalid input syntax for type " + type + ": \"" + s + "\"");
+    }
+    return decimal(trimmed);
+  }
+
+  /** The SQL name of a number's type, for typing a quoted literal from it. */
+  private static String numericTypeName(Object n) {
+    if (n instanceof Integer) {
+      return "integer";
+    }
+    if (n instanceof Long) {
+      return "bigint";
+    }
+    if (n instanceof Short) {
+      return "smallint";
+    }
+    if (n instanceof Float) {
+      return "real";
+    }
+    return n instanceof Double ? "double precision" : "numeric";
+  }
+
+  private static final java.util.Set<String> NUMERIC_FUNCTIONS =
+      new java.util.HashSet<>(
+          Arrays.asList(
+              "ABS", "ROUND", "FLOOR", "CEIL", "CEILING", "MOD", "POWER", "POW", "SQRT", "SIGN"));
+
+  /**
+   * Types the quoted literals among a numeric function's arguments as PostgreSQL resolves them: mod
+   * takes its other argument's type, round(x, n) is numeric's, and the others double precision,
+   * PostgreSQL's preferred numeric type (abs('-3') is 3, round('2.5') is 2).
+   */
+  private static void typeLiteralArguments(
+      String name, @Nullable List<?> parameters, List<Object> args) {
+    if (parameters == null || !NUMERIC_FUNCTIONS.contains(name)) {
+      return;
+    }
+    for (int i = 0; i < args.size() && i < parameters.size(); i++) {
+      if (!(parameters.get(i) instanceof StringValue) || args.get(i) == null) {
+        continue;
+      }
+      String type = "double precision";
+      if (name.equals("ROUND") && args.size() == 2) {
+        type = "numeric";
+      } else if (name.equals("MOD")) {
+        Object other = args.size() == 2 ? args.get(1 - i) : null;
+        type = other instanceof Number ? numericTypeName(other) : "integer";
+      }
+      args.set(i, cast(type, args.get(i)));
+    }
+  }
+
   @Nullable static Object cast(String type, @Nullable Object v) {
     if (v == null) {
       return null;
@@ -2285,7 +2355,7 @@ final class Evaluator {
         try {
           return v instanceof Number
               ? rounded((Number) v)
-              : decimal(s).setScale(0, RoundingMode.HALF_UP).longValueExact();
+              : integerText(s, "bigint").longValueExact();
         } catch (ArithmeticException e) {
           throw new ArithmeticException("bigint out of range");
         }
@@ -2297,7 +2367,7 @@ final class Evaluator {
           n =
               v instanceof Number
                   ? rounded((Number) v)
-                  : decimal(s).setScale(0, RoundingMode.HALF_UP).longValueExact();
+                  : integerText(s, small ? "smallint" : "integer").longValueExact();
         } catch (ArithmeticException e) {
           n = Long.MAX_VALUE; // beyond bigint: out of range below
         }
@@ -2366,8 +2436,8 @@ final class Evaluator {
                 ? LocalDateTime.ofInstant((Instant) v, zone())
                 : QueryParser.localDateTime(s);
       }
-    } catch (ArithmeticException e) {
-      throw e; // out of range: 22003, not invalid text
+    } catch (ArithmeticException | PgException.Argument e) {
+      throw e; // out of range (22003), or already PostgreSQL's wording
     } catch (RuntimeException e) {
       throw new PgException.Argument("22P02", "Cannot cast '" + s + "' to " + type, e);
     }
@@ -2459,6 +2529,7 @@ final class Evaluator {
         Collections.reverse(args); // the same arguments as strpos(s, sub)
       }
     }
+    typeLiteralArguments(name, f.getParameters(), args);
     Object catalogResult = catalogFunction(name, args, ctx);
     if (catalogResult != NOT_A_CATALOG_FUNCTION) {
       return catalogResult;
@@ -2844,7 +2915,8 @@ final class Evaluator {
 
   private static Number num(List<Object> args, int i) {
     if (i >= args.size() || !(args.get(i) instanceof Number)) {
-      throw new IllegalArgumentException("Expected a numeric argument at position " + (i + 1));
+      throw new PgException.Argument(
+          "42883", "function argument " + (i + 1) + " is not a number"); // undefined_function
     }
     return (Number) args.get(i);
   }

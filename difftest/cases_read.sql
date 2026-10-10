@@ -535,3 +535,15 @@ SELECT name ~ '^[[:alpha:]]+$' AS a, name ~* '\\ya' AS b FROM emp WHERE id <= 5 
 SELECT count(*) FROM dept d LEFT JOIN proj p ON p.dept_id = d.id WHERE p.started >= '2023-07-21' OR d.id = -1;
 -- @json_timestamp_formatting
 SET TIME ZONE 'Asia/Tokyo'; SELECT to_json(timestamp '2024-01-01 00:00:00') AS a, to_json(timestamp '2024-01-01 00:00:00.5') AS b, to_json(timestamptz '2024-01-01 00:00:00.123+00') AS c, json_build_object('t', timestamp '2024-06-01 12:00:00') AS d;
+-- @unknown_literal_arithmetic
+SELECT '5' + 1 AS a, 1 + '5' AS b, '7' / 2 AS c, '7.0' * 2.5 AS d, salary + '10' AS e, bonus * '2' AS f FROM emp WHERE id = 1;
+-- @unknown_literal_numeric_functions
+SELECT abs('-3') AS a, power('2', 3) AS b, sqrt('16') AS c, sign('-2') AS d, floor('2.7') AS e, ceil('2.1') AS f, round('2.345', 2) AS g, mod(7, '3') AS h, mod('7', 3) AS i;
+-- @unknown_literal_not_an_integer
+SELECT '1.5' * 2;
+-- @unknown_literal_integer_overflow
+SELECT '2147483647' + 1;
+-- @cast_text_to_int_is_strict
+SELECT CAST('1.5' AS INT);
+-- @text_column_arithmetic_refused
+SELECT name + 1 FROM emp WHERE id = 1;
