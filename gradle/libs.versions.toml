@@ -1,5 +1,5 @@
 [versions]
-# Not published: install it from a ScalarDB checkout with ./gradlew :core:publishToMavenLocal
+# From ScalarDB's snapshot repository, or a checkout's ./gradlew :core:publishToMavenLocal
 scalardb = "4.0.0-SNAPSHOT"
 jsqlparser = "5.4"
 # Runtime libraries ScalarDB itself also uses; kept at ScalarDB's versions

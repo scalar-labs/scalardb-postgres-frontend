@@ -17,14 +17,11 @@ results that can differ from PostgreSQL without an error.
 
 ## Quick start
 
-Requires JDK 25 to build (Java 17 or later to run) and a checkout of ScalarDB. The frontend builds against ScalarDB `4.0.0-SNAPSHOT`,
-which is not published, so install it into your local Maven repository first:
+Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `4.0.0-SNAPSHOT`,
+which the build fetches from ScalarDB's snapshot repository; a core you install from a ScalarDB checkout with
+`./gradlew :core:publishToMavenLocal` takes precedence.
 
 ```sh
-# in the ScalarDB checkout
-./gradlew :core:publishToMavenLocal
-
-# in this repository
 ./gradlew shadowJar
 java -jar server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
 ```

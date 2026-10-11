@@ -16,23 +16,16 @@ connects with psql and JDBC. `tour.sql` then shows what the frontend does, secti
 
 - **JDK 25** to build the frontend (the build's toolchain) and **Java 17** or
   later to run it: the jar targets Java 17.
-- **A checkout of [ScalarDB](https://github.com/scalar-labs/scalardb)** (`master`): the frontend
-  builds against ScalarDB `4.0.0-SNAPSHOT`, which is not published, so it is installed into your
-  local Maven repository first.
 - **A PostgreSQL server** to hold ScalarDB's data, with an empty database for it, e.g.
   `createdb scalardb`. Any database ScalarDB supports works; PostgreSQL is used here.
 - **psql** (any recent version), and optionally a Java application with the PostgreSQL JDBC driver.
 
 ## 1. Build
 
-Install ScalarDB core into your local Maven repository (`~/.m2`), from the ScalarDB checkout:
-
-```sh
-./gradlew :core:publishToMavenLocal
-```
-
-Repeat this whenever you update the ScalarDB checkout. Then build the frontend, from the root of
-this repository:
+The frontend builds against ScalarDB `4.0.0-SNAPSHOT`, which the build downloads from ScalarDB's
+snapshot repository. To build against your own ScalarDB checkout instead, run
+`./gradlew :core:publishToMavenLocal` there first: a core in your local Maven repository wins. Build
+the frontend from the root of this repository:
 
 ```sh
 ./gradlew shadowJar
@@ -105,8 +98,7 @@ first and run the copy: a running jar that gets rewritten fails with class loadi
 ### Or run it in a container
 
 The image holds the frontend and the Cluster client SDK, on a Java 25 runtime, so the same image
-serves every mode, authentication included. Build it from the root of this repository, after step
-1's `publishToMavenLocal`:
+serves every mode, authentication included. Build it from the root of this repository:
 
 ```sh
 ./gradlew :server:dockerBuild    # scalardb-postgres-frontend:4.0.0-SNAPSHOT, in the local Docker
@@ -148,9 +140,10 @@ psql -h localhost -p 15432 -d demo -f schema.sql -f data.sql
 
 The database name in the connection (`demo`) is the ScalarDB namespace. `schema.sql` creates
 ScalarDB's coordinator tables and the namespace if needed, and it drops and recreates the three
-tables, so running this step again starts over. Loading takes 5 to 10 seconds on a local database, longer against a container or a remote one.
+tables, so running this step again starts over. Loading takes 10 to 15 seconds on a local database, longer against a container or a remote one.
 
-The frontend does not authenticate yet: any user name works, and no password is asked for.
+With the default `scalar.db.postgres.auth=none`, any user name works and no password is asked
+for; [Connect as a user](#connect-as-a-user) turns authentication on.
 
 ## 5. Connect
 

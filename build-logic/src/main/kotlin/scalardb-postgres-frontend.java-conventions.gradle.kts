@@ -32,9 +32,14 @@ tasks.named<JavaCompile>("compileJava") {
 }
 
 repositories {
-    // ScalarDB 4.0.0-SNAPSHOT is not published; it comes from ./gradlew :core:publishToMavenLocal
+    // A local ./gradlew :core:publishToMavenLocal wins; otherwise ScalarDB's nightly snapshots, which
+    // CI builds against until 4.0.0 is released
     mavenLocal()
     mavenCentral()
+    maven("https://central.sonatype.com/repository/maven-snapshots/") {
+        mavenContent { snapshotsOnly() }
+        content { includeGroup("com.scalar-labs") }
+    }
 }
 
 configurations.all {
