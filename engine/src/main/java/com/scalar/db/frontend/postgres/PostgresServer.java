@@ -1188,115 +1188,6 @@ public class PostgresServer implements AutoCloseable {
     }
 
     /**
-     * The SQLSTATE for a failure. The frontend's own errors are told apart by their message
-     * prefixes.
-     */
-    // ponytail: prefix matching on our own messages; a typed exception per error class if this
-    // grows
-    private String sqlState(Throwable e) {
-      String m = e.getMessage() == null ? "" : e.getMessage();
-      if (e instanceof StackOverflowError) {
-        return "54001"; // statement_too_complex, PostgreSQL's "stack depth limit exceeded"
-      }
-      if (e instanceof Error) {
-        return "XX000"; // internal_error
-      }
-      // The frontend's own errors carry their code; the rules below are for what comes from
-      // ScalarDB (by error code) and the JDK (by type), whose messages are not ours (todo 026)
-      if (e instanceof PgException) {
-        return ((PgException) e).sqlState();
-      }
-      // Cluster's auth module: the credentials at login, a token that died mid-session, and every
-      // other refusal, which is a missing privilege
-      if (m.contains("DB-AUTH-10005")) {
-        return "28P01"; // invalid_password
-      }
-      if (m.contains("DB-AUTH-10006")) {
-        return "28000"; // invalid_authorization_specification: the session closes
-      }
-      if (m.contains("DB-AUTH-10000") || m.contains("DB-AUTH-10021")) {
-        return "42710"; // duplicate_object: the user or role exists
-      }
-      if (m.contains("DB-AUTH-10001") || m.contains("DB-AUTH-10022")) {
-        return "42704"; // undefined_object: no such user or role
-      }
-      if (m.contains("DB-AUTH-10003")) {
-        return "3F000"; // invalid_schema_name
-      }
-      if (m.contains("DB-AUTH-10004")) {
-        return "42P01"; // undefined_table
-      }
-      if (m.contains("DB-AUTH-10023")) {
-        return "0LP01"; // invalid_grant_operation: a role cycle
-      }
-      if (m.contains("DB-AUTH-10013") || m.contains("DB-AUTH-10014")) {
-        return "55006"; // object_in_use: your own SUPERUSER attribute, or dropping yourself
-      }
-      if (m.contains("DB-AUTH-3")) {
-        return "XX000"; // internal_error: Cluster failed, not the client
-      }
-      if (m.contains("DB-AUTH-")) {
-        return "42501"; // insufficient_privilege
-      }
-      if (m.contains("DB-CORE-10026")) {
-        return "22025"; // invalid_escape_sequence
-      }
-      if (m.contains("DB-CORE-10211")) {
-        return "25006"; // read_only_sql_transaction
-      }
-      if (m.contains("DB-CORE-10020") || m.contains("DB-CORE-10017")) {
-        return "22023"; // invalid_parameter_value: a key or value ScalarDB does not accept
-      }
-      if (m.contains("DB-CORE-10052")) {
-        return "42P07"; // duplicate_table: CREATE TABLE of an existing table
-      }
-      if (m.contains("DB-CORE-10053")) {
-        return "2BP01"; // dependent_objects_still_exist: DROP SCHEMA with tables in it
-      }
-      if (e instanceof QueryParser.UniqueViolationException) {
-        return "23505"; // unique_violation
-      }
-      if (e instanceof QueryProcessor.AbortedTransactionException) {
-        return "25P02"; // in_failed_sql_transaction
-      }
-      if (e instanceof CrudConflictException || e instanceof CommitConflictException) {
-        return "40001"; // serialization_failure: the client may retry
-      }
-      if (e instanceof UnknownTransactionStatusException) {
-        return "40003"; // statement_completion_unknown
-      }
-      if (e instanceof ArithmeticException) {
-        return m.contains("by zero") ? "22012" : "22003"; // division_by_zero, out of range
-      }
-      if (e instanceof DateTimeException) {
-        return "22007"; // invalid_datetime_format
-      }
-      if (e instanceof NumberFormatException) {
-        return "22P02"; // invalid_text_representation
-      }
-      // A failure in the backing database (a CREATE TABLE it refused, a value it rejected) carries
-      // its own SQLSTATE, which says more than internal_error; HY000 is a vendor's "other"
-      Throwable root = rootCause(e);
-      if (root instanceof java.sql.SQLException) {
-        String state = ((java.sql.SQLException) root).getSQLState();
-        if (state != null && state.length() == 5 && !state.startsWith("HY")) {
-          return state;
-        }
-      }
-      // a statement the engine could not make sense of is a syntax error; anything else, such as a
-      // failed metadata read, is internal
-      return e instanceof IllegalArgumentException ? "42601" : "XX000";
-    }
-
-    private static Throwable rootCause(Throwable e) {
-      Throwable root = e;
-      while (root.getCause() != null && root.getCause() != root) {
-        root = root.getCause();
-      }
-      return root;
-    }
-
-    /**
      * Tells the client about each reported setting whose value changed since it was last told, as
      * PostgreSQL does before ReadyForQuery: at startup, and after SET, RESET or a transaction end.
      */
@@ -1385,6 +1276,114 @@ public class PostgresServer implements AutoCloseable {
     }
     return new String(
         b.array(), b.arrayOffset() + start, b.position() - start - 1, StandardCharsets.UTF_8);
+  }
+
+  /**
+   * The SQLSTATE for a failure. The frontend's own errors are told apart by their message prefixes.
+   */
+  // ponytail: prefix matching on our own messages; a typed exception per error class if this
+  // grows
+  static String sqlState(Throwable e) {
+    String m = e.getMessage() == null ? "" : e.getMessage();
+    if (e instanceof StackOverflowError) {
+      return "54001"; // statement_too_complex, PostgreSQL's "stack depth limit exceeded"
+    }
+    if (e instanceof Error) {
+      return "XX000"; // internal_error
+    }
+    // The frontend's own errors carry their code; the rules below are for what comes from
+    // ScalarDB (by error code) and the JDK (by type), whose messages are not ours (todo 026)
+    if (e instanceof PgException) {
+      return ((PgException) e).sqlState();
+    }
+    // Cluster's auth module: the credentials at login, a token that died mid-session, and every
+    // other refusal, which is a missing privilege
+    if (m.contains("DB-AUTH-10005")) {
+      return "28P01"; // invalid_password
+    }
+    if (m.contains("DB-AUTH-10006")) {
+      return "28000"; // invalid_authorization_specification: the session closes
+    }
+    if (m.contains("DB-AUTH-10000") || m.contains("DB-AUTH-10021")) {
+      return "42710"; // duplicate_object: the user or role exists
+    }
+    if (m.contains("DB-AUTH-10001") || m.contains("DB-AUTH-10022")) {
+      return "42704"; // undefined_object: no such user or role
+    }
+    if (m.contains("DB-AUTH-10003")) {
+      return "3F000"; // invalid_schema_name
+    }
+    if (m.contains("DB-AUTH-10004")) {
+      return "42P01"; // undefined_table
+    }
+    if (m.contains("DB-AUTH-10023")) {
+      return "0LP01"; // invalid_grant_operation: a role cycle
+    }
+    if (m.contains("DB-AUTH-10013") || m.contains("DB-AUTH-10014")) {
+      return "55006"; // object_in_use: your own SUPERUSER attribute, or dropping yourself
+    }
+    if (m.contains("DB-AUTH-3")) {
+      return "XX000"; // internal_error: Cluster failed, not the client
+    }
+    if (m.contains("DB-AUTH-")) {
+      return "42501"; // insufficient_privilege
+    }
+    if (m.contains("DB-CORE-10026")) {
+      return "22025"; // invalid_escape_sequence
+    }
+    if (m.contains("DB-CORE-10211")) {
+      return "25006"; // read_only_sql_transaction
+    }
+    if (m.contains("DB-CORE-10020") || m.contains("DB-CORE-10017")) {
+      return "22023"; // invalid_parameter_value: a key or value ScalarDB does not accept
+    }
+    if (m.contains("DB-CORE-10052")) {
+      return "42P07"; // duplicate_table: CREATE TABLE of an existing table
+    }
+    if (m.contains("DB-CORE-10053")) {
+      return "2BP01"; // dependent_objects_still_exist: DROP SCHEMA with tables in it
+    }
+    if (e instanceof QueryParser.UniqueViolationException) {
+      return "23505"; // unique_violation
+    }
+    if (e instanceof QueryProcessor.AbortedTransactionException) {
+      return "25P02"; // in_failed_sql_transaction
+    }
+    if (e instanceof CrudConflictException || e instanceof CommitConflictException) {
+      return "40001"; // serialization_failure: the client may retry
+    }
+    if (e instanceof UnknownTransactionStatusException) {
+      return "40003"; // statement_completion_unknown
+    }
+    if (e instanceof ArithmeticException) {
+      return m.contains("by zero") ? "22012" : "22003"; // division_by_zero, out of range
+    }
+    if (e instanceof DateTimeException) {
+      return "22007"; // invalid_datetime_format
+    }
+    if (e instanceof NumberFormatException) {
+      return "22P02"; // invalid_text_representation
+    }
+    // A failure in the backing database (a CREATE TABLE it refused, a value it rejected) carries
+    // its own SQLSTATE, which says more than internal_error; HY000 is a vendor's "other"
+    Throwable root = rootCause(e);
+    if (root instanceof java.sql.SQLException) {
+      String state = ((java.sql.SQLException) root).getSQLState();
+      if (state != null && state.length() == 5 && !state.startsWith("HY")) {
+        return state;
+      }
+    }
+    // a statement the engine could not make sense of is a syntax error; anything else, such as a
+    // failed metadata read, is internal
+    return e instanceof IllegalArgumentException ? "42601" : "XX000";
+  }
+
+  private static Throwable rootCause(Throwable e) {
+    Throwable root = e;
+    while (root.getCause() != null && root.getCause() != root) {
+      root = root.getCause();
+    }
+    return root;
   }
 
   /** Splits a simple-query string into statements on semicolons outside quotes. */

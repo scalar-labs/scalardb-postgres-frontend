@@ -112,3 +112,17 @@ static helpers; protocol tests for todo 002.
 **Remaining:**
 - The in-memory fake ScalarDB, shared fixtures, and a test per SQLSTATE branch. Low value per
   effort while difftest covers write-then-read semantics; do it when a bug slips past both.
+
+### 2026-10-11 - Helper and SQLSTATE tests
+
+**By:** Claude Code
+
+**Actions:**
+- HelpersTest: every branch of `PostgresServer.sqlState` (moved out of the session class, unchanged,
+  so it can be called directly), `split`, `Interval.parse`, `Json.contains/same/delete/path`,
+  `QueryParser.escapeStringQuotes/unescape`, `Evaluator.similarPattern/compare`. A mutated
+  mapping (25006 to 25007) fails the test.
+- `Catalog.relationOid` is covered by the JDBC metadata and DBeaver tests in PostgresServerTest.
+
+**Remaining:**
+- The in-memory fake ScalarDB and shared fixtures, as judged on 2026-10-11 above.
