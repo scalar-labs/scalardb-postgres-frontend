@@ -834,6 +834,19 @@ final class Evaluator {
             && ((RowGetExpression) e).getExpression() instanceof CollateExpression)) {
       return eval(QueryParser.unwrap(e), group, ctx);
     }
+    if (e instanceof RowGetExpression) {
+      // (record).field, also over a set-returning function's list of records
+      Object base = eval(((RowGetExpression) e).getExpression(), group, ctx);
+      String field = ((RowGetExpression) e).getColumnName().toLowerCase(Locale.ROOT);
+      if (base instanceof List) {
+        List<Object> fields = new ArrayList<>();
+        for (Object r : (List<?>) base) {
+          fields.add(field(r, field, e));
+        }
+        return fields;
+      }
+      return base == null ? null : field(base, field, e);
+    }
     if (e instanceof RegExpMatchOperator) {
       RegExpMatchOperator re = (RegExpMatchOperator) e;
       Object v = eval(re.getLeftExpression(), group, ctx);
@@ -1163,7 +1176,7 @@ final class Evaluator {
         if (i == null) {
           return null;
         }
-        long k = integral(i, e);
+        long k = integral(i, e) + (array instanceof Catalog.Int2Vector ? 1 : 0); // it counts from 0
         return k < 1 || k > items.size() ? null : items.get((int) k - 1);
       }
       // a slice [from:to], 1-based and inclusive, clipped to the array as PostgreSQL does
@@ -1514,7 +1527,8 @@ final class Evaluator {
     if (!(subscript instanceof Number)) {
       return null;
     }
-    int index = ((Number) subscript).intValue();
+    // int2vector (pg_index.indkey, indoption) counts from 0
+    int index = ((Number) subscript).intValue() + (value instanceof Catalog.Int2Vector ? 1 : 0);
     List<?> array = value instanceof List ? (List<?>) value : null;
     return array == null || index < 1 || index > array.size() ? null : array.get(index - 1);
   }
@@ -2903,6 +2917,18 @@ final class Evaluator {
         return arg(args, 0) == null
             ? Collections.emptyList()
             : new ArrayList<>(elements(args.get(0)));
+      case "_PG_EXPANDARRAY":
+        {
+          // pgjdbc's key-column queries: one (x, n) record per element, read as (... ).x and .n
+          List<Object> records = new ArrayList<>();
+          for (Object x : arg(args, 0) == null ? Collections.emptyList() : elements(args.get(0))) {
+            Record r = new Record();
+            r.put("x", x);
+            r.put("n", (long) records.size() + 1);
+            records.add(r);
+          }
+          return records;
+        }
       case "GENERATE_SUBSCRIPTS":
         {
           List<Object> subscripts = new ArrayList<>();
@@ -2941,6 +2967,28 @@ final class Evaluator {
   }
 
   private static final Object NOT_A_CATALOG_FUNCTION = new Object();
+
+  /** A composite value, such as a row of _pg_expandarray(); its text is PostgreSQL's (a,b). */
+  static final class Record extends LinkedHashMap<String, Object> {
+    @Override
+    public String toString() {
+      StringJoiner fields = new StringJoiner(",", "(", ")");
+      for (Object v : values()) {
+        fields.add(v == null ? "" : text(v));
+      }
+      return fields.toString();
+    }
+  }
+
+  @Nullable private static Object field(@Nullable Object record, String field, Expression e) {
+    if (record == null) {
+      return null;
+    }
+    if (!(record instanceof Record) || !((Record) record).containsKey(field)) {
+      throw new PgException.Argument("42703", "could not identify column \"" + field + "\": " + e);
+    }
+    return ((Record) record).get(field);
+  }
 
   /** The pg_catalog functions psql uses when describing objects. */
   @Nullable private static Object catalogFunction(String name, List<Object> args, Context ctx) {
@@ -2999,8 +3047,11 @@ final class Evaluator {
             return schemas;
           }
         case "PG_GET_INDEXDEF":
-          return ctx.catalog == null || !(arg(args, 0) instanceof Number)
-              ? null
+          if (ctx.catalog == null || !(arg(args, 0) instanceof Number)) {
+            return null;
+          }
+          return args.size() > 1 && arg(args, 1) instanceof Number && num(args, 1).longValue() > 0
+              ? ctx.catalog.indexColumn(num(args, 0).longValue(), num(args, 1).longValue())
               : ctx.catalog.indexDef(num(args, 0).longValue());
         case "PG_GET_CONSTRAINTDEF":
           return ctx.catalog == null || !(arg(args, 0) instanceof Number)
@@ -3027,7 +3078,10 @@ final class Evaluator {
         case "COL_DESCRIPTION":
         case "SHOBJ_DESCRIPTION":
         case "PG_DATABASE_SIZE":
+        case "PG_GET_PARTKEYDEF": // ScalarDB tables are not partitioned in PostgreSQL's sense
           return null;
+        case "PG_STAT_GET_NUMSCANS": // DBeaver's index list; ScalarDB keeps no statistics
+          return 0L;
         case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
         case "PG_TYPE_IS_VISIBLE":
         case "PG_OPCLASS_IS_VISIBLE":

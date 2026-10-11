@@ -33,6 +33,20 @@ final class Catalog {
   private static final long BTREE_AM = 403;
   private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
   private static final long DEFAULT_TABLESPACE = 1663;
+  private static final long PG_CATALOG_NAMESPACE = 11;
+  // pg_settings: name, setting, vartype; what pgjdbc and DBeaver read when connecting
+  private static final String[][] SETTINGS = {
+    {"block_size", "8192", "integer"},
+    {"integer_datetimes", "on", "bool"},
+    {"max_function_args", "100", "integer"},
+    {"max_identifier_length", "63", "integer"},
+    {"max_index_keys", "32", "integer"},
+    {"server_encoding", "UTF8", "string"},
+    {"server_version", "16.0", "string"},
+    {"server_version_num", "160000", "integer"},
+    {"standard_conforming_strings", "on", "bool"},
+    {"search_path", "\"$user\", public", "string"}
+  };
   // tableoid, the system column every catalog row has: the catalog table's own pg_class OID
   private static final Map<String, Long> CATALOG_OIDS = new HashMap<>();
 
@@ -68,7 +82,10 @@ final class Catalog {
             "daticulocale",
             "daticurules",
             "datacl",
-            "dattablespace"));
+            "dattablespace",
+            "datallowconn",
+            "datistemplate",
+            "datconnlimit"));
     PG_CATALOG.put("pg_namespace", cols("oid", "nspname", "nspowner", "nspacl"));
     PG_CATALOG.put(
         "pg_class",
@@ -94,8 +111,11 @@ final class Catalog {
             "reloptions",
             "relpartbound",
             "reltuples",
-            "relacl"));
-    PG_CATALOG.put("pg_am", cols("oid", "amname", "amtype"));
+            "relacl",
+            "relpages",
+            "reltype",
+            "relhassubclass"));
+    PG_CATALOG.put("pg_am", cols("oid", "amname", "amtype", "amhandler"));
     PG_CATALOG.put(
         "pg_attribute",
         cols(
@@ -113,7 +133,11 @@ final class Catalog {
             "attstorage",
             "attcompression",
             "attstattarget",
-            "attacl"));
+            "attacl",
+            "attlen",
+            "attndims",
+            "attinhcount",
+            "attislocal"));
     PG_CATALOG.put(
         "pg_type",
         cols(
@@ -133,7 +157,19 @@ final class Catalog {
             "typnotnull",
             "typtypmod",
             "typowner",
-            "typdefault"));
+            "typdefault",
+            // what DBeaver reads too
+            "typbyval",
+            "typalign",
+            "typstorage",
+            "typndims",
+            "typispreferred",
+            "typoutput",
+            "typreceive",
+            "typsend",
+            "typmodin",
+            "typmodout",
+            "typanalyze"));
     PG_CATALOG.put(
         "pg_range",
         cols(
@@ -177,7 +213,14 @@ final class Catalog {
             "indisclustered",
             "indisvalid",
             "indisreplident",
-            "indkey"));
+            "indkey",
+            "indoption",
+            "indpred",
+            "indexprs",
+            "indisexclusion",
+            "indimmediate",
+            "indcheckxmin",
+            "indisready"));
     PG_CATALOG.put(
         "pg_constraint",
         cols(
@@ -196,8 +239,13 @@ final class Catalog {
             "conislocal",
             "coninhcount",
             "convalidated",
-            "contypid"));
-    PG_CATALOG.put("pg_attrdef", cols("adrelid", "adnum", "adbin"));
+            "contypid",
+            "confkey",
+            "confupdtype",
+            "confdeltype",
+            "confmatchtype",
+            "connamespace"));
+    PG_CATALOG.put("pg_attrdef", cols("oid", "adrelid", "adnum", "adbin"));
     PG_CATALOG.put(
         "pg_collation",
         cols(
@@ -242,7 +290,8 @@ final class Catalog {
             "rolconnlimit",
             "rolvaliduntil",
             "rolreplication",
-            "rolbypassrls"));
+            "rolbypassrls",
+            "rolpassword"));
     PG_CATALOG.put(
         "pg_auth_members",
         cols("oid", "roleid", "member", "grantor", "admin_option", "inherit_option", "set_option"));
@@ -262,8 +311,42 @@ final class Catalog {
     PG_CATALOG.put("pg_publication_rel", cols("prpubid", "prrelid", "prqual", "prattrs"));
     PG_CATALOG.put("pg_publication_namespace", cols("pnpubid", "pnnspid"));
     PG_CATALOG.put("pg_rewrite", cols("oid", "rulename", "ev_class", "ev_enabled"));
-    PG_CATALOG.put("pg_trigger", cols("oid", "tgname", "tgrelid", "tgenabled", "tgisinternal"));
+    PG_CATALOG.put(
+        "pg_trigger", cols("oid", "tgname", "tgrelid", "tgenabled", "tgisinternal", "tgfoid"));
+    // empty: ScalarDB has no functions, dependencies, policies or shared comments
+    PG_CATALOG.put(
+        "pg_proc",
+        cols(
+            "oid",
+            "proname",
+            "pronamespace",
+            "prokind",
+            "prorettype",
+            "proretset",
+            "proargtypes",
+            "proargnames",
+            "proargmodes",
+            "proallargtypes"));
+    PG_CATALOG.put("pg_language", cols("oid", "lanname"));
+    PG_CATALOG.put(
+        "pg_depend",
+        cols("classid", "objid", "objsubid", "refclassid", "refobjid", "refobjsubid", "deptype"));
+    PG_CATALOG.put("pg_shdescription", cols("objoid", "classoid", "description"));
+    PG_CATALOG.put(
+        "pg_policies",
+        cols(
+            "schemaname",
+            "tablename",
+            "policyname",
+            "permissive",
+            "roles",
+            "cmd",
+            "qual",
+            "with_check"));
     PG_CATALOG.put("pg_description", cols("objoid", "classoid", "objsubid", "description"));
+    PG_CATALOG.put(
+        "pg_settings",
+        cols("name", "setting", "unit", "vartype", "context", "reset_val", "short_desc"));
     PG_CATALOG.put("pg_tablespace", cols("oid", "spcname", "spcowner", "spcacl", "spcoptions"));
     PG_CATALOG.put(
         "pg_indexes", cols("schemaname", "tablename", "indexname", "tablespace", "indexdef"));
@@ -303,6 +386,50 @@ final class Catalog {
     type(1043, "varchar", "character varying");
     type(114, "json", "json");
     type(3802, "jsonb", "jsonb");
+    type(19, "name", "name");
+    type(22, "int2vector", "int2vector"); // pg_index.indkey, which drivers look up by OID
+  }
+
+  /** pg_get_keywords(): PostgreSQL's SQL keywords, from keywords.txt, read on first use. */
+  static List<Map<String, Object>> keywords() {
+    return Keywords.ROWS;
+  }
+
+  private static final class Keywords {
+    static final List<Map<String, Object>> ROWS = load();
+
+    private static List<Map<String, Object>> load() {
+      List<Map<String, Object>> rows = new ArrayList<>();
+      try (java.io.BufferedReader in =
+          new java.io.BufferedReader(
+              new java.io.InputStreamReader(
+                  Objects.requireNonNull(
+                      Catalog.class.getResourceAsStream("keywords.txt"), "keywords.txt"),
+                  java.nio.charset.StandardCharsets.UTF_8))) {
+        for (String line = in.readLine(); line != null; line = in.readLine()) {
+          String[] f = line.split(" "); // word, catcode, barelabel
+          Map<String, Object> row = new LinkedHashMap<>();
+          row.put("word", f[0]);
+          row.put("catcode", f[1]);
+          row.put("barelabel", f[2].equals("t"));
+          row.put("catdesc", KEYWORD_CATEGORIES.get(f[1]));
+          row.put("baredesc", f[2].equals("t") ? "can be bare label" : "requires AS");
+          rows.add(row);
+        }
+      } catch (java.io.IOException e) {
+        throw new java.io.UncheckedIOException(e);
+      }
+      return Collections.unmodifiableList(rows);
+    }
+  }
+
+  private static final Map<String, String> KEYWORD_CATEGORIES = new HashMap<>();
+
+  static {
+    KEYWORD_CATEGORIES.put("U", "unreserved");
+    KEYWORD_CATEGORIES.put("C", "unreserved (cannot be function or type name)");
+    KEYWORD_CATEGORIES.put("T", "reserved (can be function or type name)");
+    KEYWORD_CATEGORIES.put("R", "reserved");
   }
 
   /** PostgreSQL's int2vector, as pg_index.indkey: a list whose text is space-separated. */
@@ -392,9 +519,16 @@ final class Catalog {
         return 8;
       case 1186:
         return 16;
+      case 19:
+        return 64;
       default:
         return -1;
     }
+  }
+
+  /** pg_type.typalign from typlen: c, s, i or d; variable-length types align as int. */
+  private static String typeAlign(long length) {
+    return length == 1 ? "c" : length == 2 ? "s" : length == 8 ? "d" : "i";
   }
 
   private static String typeCategory(long oid) {
@@ -403,6 +537,7 @@ final class Catalog {
         return "B";
       case 17:
         return "U";
+      case 19:
       case 25:
       case 1043:
         return "S";
@@ -413,6 +548,8 @@ final class Catalog {
         return "D";
       case 1186:
         return "T";
+      case 22:
+        return "A";
       default:
         return "N";
     }
@@ -436,6 +573,7 @@ final class Catalog {
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
+  private final Map<Long, List<String>> indexColumns = new HashMap<>();
   private final Map<Long, String> descriptions = new HashMap<>(); // table oid -> its comment
   private final Map<String, Long> relationOids = new HashMap<>(); // namespace.name -> oid
   private final Map<String, Long> namespaceOids = new HashMap<>();
@@ -559,6 +697,10 @@ final class Catalog {
       }
     }
     if (oid == null) {
+      // a catalog table itself, as in pgjdbc's d.classoid = 'pg_class'::regclass
+      oid = CATALOG_OIDS.get(n.startsWith("pg_catalog.") ? n.substring(11) : n);
+    }
+    if (oid == null) {
       throw new IllegalArgumentException("relation \"" + n + "\" does not exist");
     }
     return oid;
@@ -593,6 +735,13 @@ final class Catalog {
   @Nullable String indexDef(long oid) throws ExecutionException {
     load();
     return indexDefs.get(oid);
+  }
+
+  /** pg_get_indexdef(oid, n, pretty): the index's n-th column, counting from 1. */
+  @Nullable String indexColumn(long oid, long n) throws ExecutionException {
+    load();
+    List<String> columns = indexColumns.get(oid);
+    return columns == null || n < 1 || n > columns.size() ? null : columns.get((int) n - 1);
   }
 
   /** A table's comment: which of its key columns are the partition key and the clustering key. */
@@ -637,10 +786,26 @@ final class Catalog {
     for (String name : INFORMATION_SCHEMA.keySet()) {
       t.put("information_schema." + name, new ArrayList<>());
     }
-    row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t");
-    row(t, "pg_catalog.pg_am", BTREE_AM, "btree", "i");
+    row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t", "heap_tableam_handler");
+    row(t, "pg_catalog.pg_am", BTREE_AM, "btree", "i", "bthandler");
     row(t, "pg_catalog.pg_tablespace", DEFAULT_TABLESPACE, "pg_default", OWNER_OID, null, null);
     row(t, "pg_catalog.pg_tablespace", 1664L, "pg_global", OWNER_OID, null, null);
+    // the schema of the built-in types, which drivers join pg_type with
+    row(t, "pg_catalog.pg_namespace", PG_CATALOG_NAMESPACE, "pg_catalog", OWNER_OID, null);
+    // the defaults of the settings drivers and GUI tools read here; SHOW and current_setting()
+    // give a session's own values
+    for (String[] setting : SETTINGS) {
+      row(
+          t,
+          "pg_catalog.pg_settings",
+          setting[0],
+          setting[1],
+          null,
+          setting[2],
+          "internal",
+          setting[1],
+          "");
+    }
     if (!clusterUsers) {
       role(t, OWNER_OID, OWNER, true, true);
     }
@@ -653,7 +818,7 @@ final class Catalog {
           "pg_catalog.pg_type",
           oid,
           name,
-          11L,
+          PG_CATALOG_NAMESPACE,
           oid == 25 || oid == 1043 ? 100L : 0L,
           0L,
           ",",
@@ -667,7 +832,18 @@ final class Catalog {
           false,
           -1L,
           OWNER_OID,
-          null);
+          null,
+          typeLength(oid) > 0,
+          typeAlign(typeLength(oid)),
+          typeLength(oid) > 0 ? "p" : "x",
+          0L,
+          false,
+          name + "out",
+          name + "recv",
+          name + "send",
+          "-",
+          "-",
+          "-");
       if (arrayOid != 0) {
         // the array type of each base type, which drivers look up by typelem
         row(
@@ -675,7 +851,7 @@ final class Catalog {
             "pg_catalog.pg_type",
             arrayOid,
             "_" + name,
-            11L,
+            PG_CATALOG_NAMESPACE,
             0L,
             oid,
             ",",
@@ -689,7 +865,18 @@ final class Catalog {
             false,
             -1L,
             OWNER_OID,
-            null);
+            null,
+            false,
+            typeAlign(typeLength(oid)),
+            "x",
+            0L,
+            false,
+            "array_out",
+            "array_recv",
+            "array_send",
+            "-",
+            "-",
+            "array_typanalyze");
       }
     }
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
@@ -725,7 +912,10 @@ final class Catalog {
           null,
           null,
           null,
-          DEFAULT_TABLESPACE);
+          DEFAULT_TABLESPACE,
+          true,
+          false,
+          -1L);
       row(t, "information_schema.schemata", database, schema);
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
         TableMetadata metadata = admin.getTableMetadata(namespace, table);
@@ -748,15 +938,22 @@ final class Catalog {
         row(t, "information_schema.tables", database, schema, table, "BASE TABLE");
         List<String> keys = new ArrayList<>(metadata.getPartitionKeyNames());
         keys.addAll(metadata.getClusteringKeyNames());
+        // indkey and conkey in index order, the partition key then the clustering key
+        List<String> columnNames = new ArrayList<>(metadata.getColumnNames());
         List<Object> keyNumbers = new ArrayList<>();
+        List<Object> keyOptions = new ArrayList<>(); // pg_index.indoption: 1 for DESC
+        for (String key : keys) {
+          keyNumbers.add((long) columnNames.indexOf(key) + 1);
+          boolean descending =
+              metadata.getClusteringKeyNames().contains(key)
+                  && metadata.getClusteringOrder(key) == com.scalar.db.api.Scan.Ordering.Order.DESC;
+          keyOptions.add(descending ? 1L : 0L);
+        }
         int attnum = 0;
         for (String column : metadata.getColumnNames()) {
           attnum++;
           DataType type = metadata.getColumnDataType(column);
           boolean key = keys.contains(column);
-          if (key) {
-            keyNumbers.add((long) attnum);
-          }
           row(
               t,
               "pg_catalog.pg_attribute",
@@ -774,7 +971,11 @@ final class Catalog {
               "p",
               "",
               -1L,
-              null);
+              null,
+              typeLength(typeOid(type)),
+              0L,
+              0L,
+              true);
           row(
               t,
               "information_schema.columns",
@@ -848,7 +1049,14 @@ final class Catalog {
             false,
             true,
             false,
-            new Int2Vector(keyNumbers));
+            new Int2Vector(keyNumbers),
+            new Int2Vector(keyOptions),
+            null,
+            null,
+            false,
+            true,
+            false,
+            true);
         String pkeyDef =
             "CREATE UNIQUE INDEX "
                 + table
@@ -860,6 +1068,7 @@ final class Catalog {
                 + String.join(", ", ordered)
                 + ")";
         indexDefs.put(pkeyOid, pkeyDef);
+        indexColumns.put(pkeyOid, keys);
         relationOids.put(namespace + "." + table + "_pkey", pkeyOid);
         relationOids.put(schema + "." + table + "_pkey", pkeyOid);
         row(t, "pg_catalog.pg_indexes", schema, table, table + "_pkey", null, pkeyDef);
@@ -882,7 +1091,12 @@ final class Catalog {
             true,
             0L,
             true,
-            0L);
+            0L,
+            null,
+            " ",
+            " ",
+            " ",
+            namespaceOid);
         constraintDefs.put(constraintOid, "PRIMARY KEY (" + columnList + ")");
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
@@ -900,7 +1114,14 @@ final class Catalog {
               false,
               true,
               false,
-              new Int2Vector(Collections.singletonList((Object) indexAttnum)));
+              new Int2Vector(Collections.singletonList((Object) indexAttnum)),
+              new Int2Vector(Collections.singletonList((Object) 0L)),
+              null,
+              null,
+              false,
+              true,
+              false,
+              true);
           String indexDef =
               "CREATE INDEX "
                   + indexName
@@ -912,6 +1133,7 @@ final class Catalog {
                   + index
                   + ")";
           indexDefs.put(indexOid, indexDef);
+          indexColumns.put(indexOid, Collections.singletonList(index));
           relationOids.put(namespace + "." + indexName, indexOid);
           relationOids.put(schema + "." + indexName, indexOid);
           row(t, "pg_catalog.pg_indexes", schema, table, indexName, null, indexDef);
@@ -1067,7 +1289,8 @@ final class Catalog {
         -1L,
         null,
         false,
-        false);
+        false,
+        "********");
   }
 
   private static void member(
@@ -1112,7 +1335,10 @@ final class Catalog {
         null,
         null,
         -1.0,
-        acl);
+        acl,
+        0L,
+        0L,
+        false);
   }
 
   private static void row(

@@ -940,6 +940,99 @@ public class PostgresServerTest {
   }
 
   @Test
+  public void jdbcMetadata_ShouldDescribeTablesAsPostgreSqlDoes() throws Exception {
+    // what JDBC-based GUI tools and BI clients browse with: a key in index order, not table order
+    when(admin.getNamespaceNames()).thenReturn(Collections.singleton("ns"));
+    when(admin.getNamespaceTableNames("ns")).thenReturn(Collections.singleton("u"));
+    when(admin.getTableMetadata("ns", "u"))
+        .thenReturn(
+            TableMetadata.newBuilder()
+                .addColumn("a", DataType.TEXT)
+                .addColumn("k", DataType.INT)
+                .addColumn("c", DataType.BIGINT)
+                .addPartitionKey("k")
+                .addClusteringKey("c", com.scalar.db.api.Scan.Ordering.Order.DESC)
+                .addSecondaryIndex("a")
+                .build());
+    try (Connection connection = connect("")) {
+      java.sql.DatabaseMetaData m = connection.getMetaData();
+      assertThat(rows(m.getTables(null, "public", "%", new String[] {"TABLE"}), "TABLE_NAME"))
+          .containsExactly("u");
+      assertThat(
+              rows(m.getColumns(null, "public", "u", "%"), "COLUMN_NAME", "TYPE_NAME", "NULLABLE"))
+          .containsExactly("a|text|1", "k|int4|0", "c|int8|0");
+      assertThat(rows(m.getPrimaryKeys(null, "public", "u"), "COLUMN_NAME", "KEY_SEQ", "PK_NAME"))
+          .containsExactly("k|1|u_pkey", "c|2|u_pkey");
+      assertThat(
+              rows(
+                  m.getIndexInfo(null, "public", "u", false, true),
+                  "INDEX_NAME",
+                  "ORDINAL_POSITION",
+                  "COLUMN_NAME",
+                  "ASC_OR_DESC"))
+          .containsExactly("u_pkey|1|k|A", "u_pkey|2|c|D", "u_a_idx|1|a|A");
+      assertThat(rows(m.getBestRowIdentifier(null, "public", "u", 1, true), "COLUMN_NAME"))
+          .containsExactly("k", "c");
+      assertThat(rows(m.getImportedKeys(null, "public", "u"), "FK_NAME")).isEmpty();
+      assertThat(rows(m.getCatalogs(), "TABLE_CAT")).containsExactly("ns");
+      assertThat(rows(m.getSchemas(), "TABLE_SCHEM")).containsExactly("pg_catalog", "public");
+      assertThat(m.getSQLKeywords()).contains("analyze").doesNotContain("select");
+      assertThat(rows(m.getTypeInfo(), "TYPE_NAME")).contains("int4", "text", "_int4");
+      // DBeaver reads index columns by the type name of pg_index.indkey, which pgjdbc looks up
+      try (Statement statement = connection.createStatement();
+          ResultSet rs = statement.executeQuery("SELECT indkey AS keys FROM pg_catalog.pg_index")) {
+        assertThat(rs.getMetaData().getColumnTypeName(1)).isEqualTo("int2vector");
+      }
+    }
+  }
+
+  @Test
+  public void dbeaverCatalogQueries_ShouldAllRun() throws Exception {
+    // what DBeaver's PostgreSQL driver sends on connecting and browsing a table, from its source
+    when(admin.getNamespaceNames()).thenReturn(Collections.singleton("ns"));
+    when(admin.getNamespaceTableNames("ns")).thenReturn(Collections.singleton("t"));
+    String sql;
+    try (java.io.InputStream in = getClass().getResourceAsStream("/dbeaver/catalog.sql")) {
+      sql = new String(Objects.requireNonNull(in).readAllBytes(), StandardCharsets.UTF_8);
+    }
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      List<String> failures = new ArrayList<>();
+      List<Integer> rows = new ArrayList<>();
+      for (String query : sql.split("\n-----\n")) {
+        try (ResultSet rs = statement.executeQuery(query)) {
+          int n = 0;
+          while (rs.next()) {
+            n++;
+          }
+          rows.add(n);
+        } catch (SQLException e) {
+          failures.add(e.getMessage() + "\n" + query);
+        }
+      }
+      assertThat(failures).isEmpty();
+      // the navigator's table list, its size statistics (table and index), the table's columns
+      // and its primary key
+      assertThat(rows.subList(13, 17)).containsExactly(1, 2, 2, 1);
+    }
+  }
+
+  /** The named columns of each row, joined with {@code |}. */
+  private static List<String> rows(ResultSet rs, String... columns) throws SQLException {
+    List<String> out = new ArrayList<>();
+    try (ResultSet r = rs) {
+      while (r.next()) {
+        List<String> values = new ArrayList<>();
+        for (String c : columns) {
+          values.add(r.getString(c));
+        }
+        out.add(String.join("|", values));
+      }
+    }
+    return out;
+  }
+
+  @Test
   public void du_ShouldListClusterUsersAndRoles() throws Exception {
     AuthAdmin.User bob = mock(AuthAdmin.User.class);
     when(bob.getName()).thenReturn("bob");

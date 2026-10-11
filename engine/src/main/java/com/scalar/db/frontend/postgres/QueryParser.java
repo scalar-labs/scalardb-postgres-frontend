@@ -3817,6 +3817,9 @@ public class QueryParser {
 
   /** {@code unnest(array)} or {@code generate_subscripts(array, 1)} as a select item. */
   private static boolean isSetReturning(Expression e) {
+    if (e instanceof RowGetExpression) {
+      return isSetReturning(unwrap(((RowGetExpression) e).getExpression())); // (f(x)).field
+    }
     if (!(e instanceof Function)) {
       return false;
     }
@@ -3824,6 +3827,7 @@ public class QueryParser {
     name = name.substring(name.lastIndexOf('.') + 1);
     return name.equals("unnest")
         || name.equals("generate_subscripts")
+        || name.equals("_pg_expandarray")
         || JSON_TABLE_FUNCTIONS.contains(name);
   }
 
@@ -4640,6 +4644,23 @@ public class QueryParser {
         body.setSelectItems(
             Collections.<SelectItem<?>>singletonList(SelectItem.from(function, new Alias(column))));
         return derived(select(body, outer), item);
+      }
+      if (name.equals("pg_get_keywords") || name.equals("pg_catalog.pg_get_keywords")) {
+        // what pgjdbc's getSQLKeywords() reads
+        String qualifier = alias != null ? alias : "pg_get_keywords";
+        List<String> columns = Arrays.asList("word", "catcode", "barelabel", "catdesc", "baredesc");
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> keyword : Catalog.keywords()) {
+          Map<String, Object> row = new LinkedHashMap<>();
+          for (String column : columns) {
+            row.put(qualifier + "." + column, keyword.get(column));
+          }
+          rows.add(row);
+        }
+        LogicalPlan.Source source = new LogicalPlan.Source(qualifier, columns, null, null);
+        source.catalogTable = "Function pg_get_keywords";
+        source.catalogRows = rows;
+        return source;
       }
       if (!name.endsWith("generate_series")) {
         if (!name.startsWith("pg_catalog.")) {
@@ -5998,6 +6019,10 @@ public class QueryParser {
             String name = unquote(column.getColumnName());
             if (!(column.getTable() == null && (isBooleanLiteral(name) || isKeyword(name)))) {
               out.add(column);
+            }
+            if (column.getArrayConstructor() != null) {
+              // JSQLParser reads a[b.i] as one column; its subscript refers to columns too
+              column.getArrayConstructor().getExpressions().accept(this, context);
             }
             return null;
           }

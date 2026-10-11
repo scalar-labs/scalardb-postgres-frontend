@@ -56,6 +56,15 @@ at the end of this section.
   `\dp` and the rest (with `+`) work; database and table sizes show empty, and ScalarDB has no
   domains, collations, publications or tablespaces beyond PostgreSQL's two built-in ones, so those
   lists come back empty.
+- **JDBC metadata and DBeaver's PostgreSQL driver read the same catalog.** pgjdbc's
+  `DatabaseMetaData` (tables, columns, primary keys, indexes, keywords, type info) and the queries
+  DBeaver's PostgreSQL mode sends to connect and browse a table are tested against the frontend,
+  and DBeaver 26.2 browses tables, columns, keys and indexes and edits rows in its data grid;
+  pgAdmin and DataGrip have not been tried. A result set does not say which table its columns
+  come from (`ResultSetMetaData.getTableName` is empty, as for a computed column); DBeaver finds
+  the table from the query instead, but a tool that relies on the driver for it treats a result
+  grid as read-only. `pg_settings`
+  shows the server's defaults, not a session's `SET` values, which `SHOW` gives.
 - **Large sorts and aggregations run in the frontend's memory.** A query that sorts or groups a
   very large table without a key holds all its rows in the frontend.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**
