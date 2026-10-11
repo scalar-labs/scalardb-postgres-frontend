@@ -24,6 +24,45 @@ final class Dcl {
   static final Pattern STATEMENT =
       Pattern.compile("(?is)(GRANT|REVOKE|(CREATE|ALTER|DROP)\\s+(USER|ROLE))\\b.*");
 
+  /**
+   * Whether this class plans the trimmed statement. Leading comments are skipped, nested ones too:
+   * a statement that slipped past here would reach JSQLParser, whose errors quote the statement,
+   * password included.
+   */
+  static boolean matches(String sql) {
+    return STATEMENT.matcher(sql.substring(skipSpace(sql, 0))).matches();
+  }
+
+  /** Where the next token starts: past whitespace and comments, nested ones as in PostgreSQL. */
+  static int skipSpace(String sql, int from) {
+    int i = from;
+    int n = sql.length();
+    while (i < n) {
+      if (Character.isWhitespace(sql.charAt(i))) {
+        i++;
+      } else if (sql.startsWith("--", i)) {
+        int eol = sql.indexOf('\n', i);
+        i = eol < 0 ? n : eol + 1;
+      } else if (sql.startsWith("/*", i)) {
+        int depth = 0;
+        do {
+          if (sql.startsWith("/*", i)) {
+            depth++;
+            i += 2;
+          } else if (sql.startsWith("*/", i)) {
+            depth--;
+            i += 2;
+          } else {
+            i++;
+          }
+        } while (depth > 0 && i < n);
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
   /** The privileges as ScalarDB SQL names them; GRANT is the grant option. */
   enum Privilege {
     SELECT,
@@ -661,17 +700,9 @@ final class Dcl {
     Lexer(String sql) {
       int i = 0;
       int n = sql.length();
-      while (i < n) {
+      while ((i = skipSpace(sql, i)) < n) {
         char c = sql.charAt(i);
-        if (Character.isWhitespace(c)) {
-          i++;
-        } else if (sql.startsWith("--", i)) {
-          int eol = sql.indexOf('\n', i);
-          i = eol < 0 ? n : eol + 1;
-        } else if (sql.startsWith("/*", i)) {
-          int close = sql.indexOf("*/", i + 2);
-          i = close < 0 ? n : close + 2;
-        } else if (c == '\'' || c == '"') {
+        if (c == '\'' || c == '"') {
           StringBuilder value = new StringBuilder();
           int j = i + 1;
           while (true) {

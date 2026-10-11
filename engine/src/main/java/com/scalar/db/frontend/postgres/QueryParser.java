@@ -2625,7 +2625,7 @@ public class QueryParser {
   private Plan plan(String sql) throws ExecutionException {
     // Statements JSQLParser does not accept, matched on the trimmed text (see trimStatement)
     String trimmed = trimStatement(sql);
-    if (Dcl.STATEMENT.matcher(trimmed).matches()) {
+    if (Dcl.matches(trimmed)) {
       if (!userManagement) {
         throw new PgException.Argument(
             "0A000",

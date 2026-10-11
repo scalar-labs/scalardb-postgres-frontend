@@ -781,6 +781,15 @@ public class PostgresServerTest {
       assertRefused(statement, "CREATE USER x PASSWORD 'topsecret' 'other'", "42601", "other");
       assertRefused(statement, "CREATE USER x PASSWORD 'topsecret' PASSWORD", "42601", "topsecret");
       assertRefused(statement, "EXPLAIN CREATE USER x PASSWORD 'topsecret'", "0A000", "topsecret");
+      // a leading comment, nested or not, must not send the statement past Dcl to JSQLParser,
+      // whose errors quote it
+      assertRefused(
+          statement,
+          "/* a /* nested */ comment */ -- and a line\n CREATE USER x PASSWORD 'topsecret' 'other'",
+          "42601",
+          "topsecret");
+      statement.execute("/* setup */ CREATE USER h PASSWORD 'pw2'");
+      verify(admin).createUser("h", "pw2");
 
       // Cluster's errors, by code
       doThrow(new IllegalArgumentException("DB-AUTH-10000: The user already exists. Username: e"))
