@@ -1200,6 +1200,27 @@ public class PostgresServer implements AutoCloseable {
       if (m.contains("DB-AUTH-10006")) {
         return "28000"; // invalid_authorization_specification: the session closes
       }
+      if (m.contains("DB-AUTH-10000") || m.contains("DB-AUTH-10021")) {
+        return "42710"; // duplicate_object: the user or role exists
+      }
+      if (m.contains("DB-AUTH-10001") || m.contains("DB-AUTH-10022")) {
+        return "42704"; // undefined_object: no such user or role
+      }
+      if (m.contains("DB-AUTH-10003")) {
+        return "3F000"; // invalid_schema_name
+      }
+      if (m.contains("DB-AUTH-10004")) {
+        return "42P01"; // undefined_table
+      }
+      if (m.contains("DB-AUTH-10023")) {
+        return "0LP01"; // invalid_grant_operation: a role cycle
+      }
+      if (m.contains("DB-AUTH-10013") || m.contains("DB-AUTH-10014")) {
+        return "55006"; // object_in_use: your own SUPERUSER attribute, or dropping yourself
+      }
+      if (m.contains("DB-AUTH-3")) {
+        return "XX000"; // internal_error: Cluster failed, not the client
+      }
       if (m.contains("DB-AUTH-")) {
         return "42501"; // insufficient_privilege
       }

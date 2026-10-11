@@ -267,8 +267,19 @@ user; a wrong password is `28P01` after a one-second delay and the connection cl
 privilege is `42501` and the session goes on; a token that expires mid-session is `28000` and the
 session ends, which pools handle by reconnecting; `SET ROLE` and `SET SESSION AUTHORIZATION` are
 refused. The design is in [docs/auth-design.md](../docs/auth-design.md), and
-[difftest/cluster-auth](../difftest/cluster-auth/README.md) is a working demo against a local Cluster node, with
-a command to create users and grant privileges.
+[difftest/cluster-auth](../difftest/cluster-auth/README.md) is a working demo against a local Cluster node.
+
+A superuser manages users and privileges in SQL; they live in Cluster:
+
+```sql
+CREATE USER carol WITH PASSWORD 'carolpw';
+GRANT SELECT, INSERT, UPDATE ON items TO carol;  -- INSERT and UPDATE go together (ScalarDB's WRITE)
+CREATE ROLE auditors;                             -- no LOGIN: a ScalarDB role
+GRANT SELECT ON ALL TABLES IN SCHEMA sample TO auditors;
+GRANT auditors TO carol;
+ALTER USER carol PASSWORD 'newpw';                -- not psql's \password, which hashes on the client
+DROP USER carol;
+```
 
 ## Limitations to know
 

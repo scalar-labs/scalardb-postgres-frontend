@@ -2583,6 +2583,14 @@ public class QueryParser {
     coordinatorDropAllowed = allowed;
   }
 
+  // Users, roles and privileges live in Cluster, behind an Authenticator: without one, AuthAdmin's
+  // methods throw UnsupportedOperationException
+  private volatile boolean userManagement;
+
+  void setUserManagement(boolean enabled) {
+    userManagement = enabled;
+  }
+
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
 
@@ -2617,6 +2625,14 @@ public class QueryParser {
   private Plan plan(String sql) throws ExecutionException {
     // Statements JSQLParser does not accept, matched on the trimmed text (see trimStatement)
     String trimmed = trimStatement(sql);
+    if (Dcl.STATEMENT.matcher(trimmed).matches()) {
+      if (!userManagement) {
+        throw new PgException.Argument(
+            "0A000",
+            "users, roles and privileges need ScalarDB Cluster with scalar.db.postgres.auth set");
+      }
+      return Dcl.plan(this, admin, trimmed);
+    }
     Matcher schema = CREATE_SCHEMA.matcher(trimmed);
     if (schema.matches()) {
       boolean ifNotExists = schema.group(1) != null;
@@ -2627,7 +2643,7 @@ public class QueryParser {
     if (explain.matches()) {
       Plan inner = plan(explain.group(2));
       if (inner.ddl != null) {
-        throw new PgException.Argument("0A000", "EXPLAIN is not supported for DDL: " + sql);
+        throw new PgException.Argument("0A000", "EXPLAIN is not supported for DDL");
       }
       if (explain.group(1) != null) {
         return Plan.analyze(inner);
@@ -2780,6 +2796,10 @@ public class QueryParser {
     catalog.user = user;
   }
 
+  String sessionUser() {
+    return catalog.user;
+  }
+
   // PostgreSQL's search_path: where an unqualified table is looked up, and where DDL creates;
   // "$user" and public both mean the connected namespace
   private List<String> searchPath = Arrays.asList("$user", "public");
@@ -2812,7 +2832,7 @@ public class QueryParser {
    * The namespace a schema name means: {@code public} is the connected namespace, and none means
    * the first namespace of search_path (for DDL, the first one that exists).
    */
-  private String namespace(@Nullable String schema) {
+  String namespace(@Nullable String schema) {
     if (schema != null) {
       return unquote(schema).equals("public") ? defaultNamespace : unquote(schema);
     }
@@ -5637,7 +5657,7 @@ public class QueryParser {
     }
   }
 
-  private Target target(Table table) throws ExecutionException {
+  Target target(Table table) throws ExecutionException {
     String name = unquote(table.getName());
     List<String> candidates =
         table.getSchemaName() == null

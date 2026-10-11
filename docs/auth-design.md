@@ -144,7 +144,8 @@ DriverManager.getConnection(
 4. **Error mapping:** `28P01`, `28000` and `42501`.
 5. **OIDC mode** (the token as the password).
 6. **Later:**
-   - `CREATE USER`, `ALTER USER`, `GRANT` and `REVOKE` in SQL, mapped onto `AuthAdmin`;
+   - `CREATE USER`, `ALTER USER`, `GRANT` and `REVOKE` in SQL, mapped onto `AuthAdmin` (done 2026-10-11:
+     `docs/plans/2026-10-11-001-feat-sql-user-and-privilege-management-plan.md`);
    - a privilege-filtered catalog;
    - native `OAUTHBEARER` for psql 18.
 

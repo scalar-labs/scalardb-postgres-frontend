@@ -1,0 +1,42 @@
+# run.sh against a standalone ScalarDB Cluster node, 2026-10-11
+# node: Cluster main 6e2cb011 (2026-09-28) built locally, auth enabled, on PostgreSQL 15440/clusterdb
+# frontend: main 2033e8f + SQL user management (uncommitted at the time), cluster mode, userpass, TLS
+PASS alice reads
+PASS alice writes
+PASS alice deletes
+PASS current_user is alice
+PASS a lookup join (pool reads)
+PASS a transaction
+PASS DDL as alice
+PASS bob cannot read
+PASS bob cannot write
+PASS bob cannot create
+PASS bob's session goes on after 42501
+PASS SET ROLE is refused
+PASS a wrong password is refused
+PASS a wrong password waited about a second
+PASS an unknown user is refused the same way
+PASS plaintext is refused
+PASS TLS is in use
+PASS CREATE USER
+PASS a new user logs in
+PASS a new user has no privilege
+PASS CREATE USER twice
+PASS GRANT SELECT
+PASS the grant reads
+PASS the grant does not write
+PASS INSERT without UPDATE
+PASS a user cannot create users
+PASS REVOKE SELECT
+PASS the revoke holds
+PASS CREATE ROLE
+PASS GRANT ON ALL TABLES IN SCHEMA
+PASS GRANT a role
+PASS the role's grant reads
+PASS ALTER USER PASSWORD
+PASS the new password logs in
+PASS an unknown grantee
+PASS dropping yourself
+PASS DROP ROLE
+PASS a dropped user cannot log in
+38 passed, 0 failed

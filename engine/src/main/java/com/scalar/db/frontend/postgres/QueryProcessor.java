@@ -156,6 +156,7 @@ public class QueryProcessor {
     setUser(identity.user());
     defaults.put("is_superuser", identity.superuser() ? "on" : "off");
     parser.setCoordinatorDropAllowed(allowCoordinatorDrop || identity.superuser());
+    parser.setUserManagement(true);
   }
 
   /** The session's current value of a setting, from SET or the defaults. */

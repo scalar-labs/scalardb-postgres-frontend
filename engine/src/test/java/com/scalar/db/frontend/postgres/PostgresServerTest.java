@@ -10,6 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.scalar.db.api.AuthAdmin;
 import com.scalar.db.api.ConditionBuilder;
 import com.scalar.db.api.Delete;
 import com.scalar.db.api.DistributedTransaction;
@@ -35,6 +36,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -702,6 +704,178 @@ public class PostgresServerTest {
       try (ResultSet rs = statement.executeQuery("SELECT 1")) {
         assertThat(rs.next()).isTrue();
       }
+    }
+  }
+
+  // ---- CREATE USER, GRANT and the like, onto AuthAdmin
+
+  private Connection connectForDcl() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    // bob is a user, readers and admins are roles, nobody else exists
+    when(admin.getUser(any())).thenReturn(Optional.empty());
+    when(admin.getRole(any())).thenReturn(Optional.empty());
+    when(admin.getUser("bob")).thenReturn(Optional.of(mock(AuthAdmin.User.class)));
+    when(admin.getRole("readers")).thenReturn(Optional.of(mock(AuthAdmin.Role.class)));
+    when(admin.getRole("admins")).thenReturn(Optional.of(mock(AuthAdmin.Role.class)));
+    return connectAs("alice", "secret");
+  }
+
+  /** The statement fails with {@code sqlState}, and its message never holds {@code secret}. */
+  private static void assertRefused(
+      Statement statement, String sql, String sqlState, String secret) {
+    assertThatThrownBy(() -> statement.execute(sql))
+        .isInstanceOfSatisfying(
+            SQLException.class,
+            e -> {
+              assertThat(e.getSQLState()).as(sql).isEqualTo(sqlState);
+              assertThat(e.getMessage()).as(sql).doesNotContain(secret);
+            });
+  }
+
+  @Test
+  public void dcl_WithoutAuthentication_ShouldBeUnsupported() throws Exception {
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      assertSqlState(statement, "CREATE USER bob", "0A000");
+      assertSqlState(statement, "GRANT SELECT ON t TO bob", "0A000");
+    }
+  }
+
+  @Test
+  public void dcl_Users_ShouldMapOntoAuthAdmin() throws Exception {
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement()) {
+      statement.execute("CREATE USER Carol WITH PASSWORD 'pw'");
+      verify(admin).createUser("carol", "pw");
+      statement.execute("CREATE ROLE \"Ops\"");
+      verify(admin).createRole("Ops");
+      statement.execute("CREATE ROLE dave LOGIN SUPERUSER ENCRYPTED PASSWORD 'it''s'");
+      verify(admin).createUser("dave", "it's", AuthAdmin.UserOption.SUPERUSER);
+      statement.execute("ALTER USER bob PASSWORD NULL");
+      verify(admin).alterUser("bob", "");
+      statement.execute("ALTER ROLE CURRENT_USER WITH PASSWORD 'new' NOSUPERUSER");
+      verify(admin).alterUser("alice", "new", AuthAdmin.UserOption.NO_SUPERUSER);
+      statement.execute("DROP ROLE IF EXISTS bob, readers, ghost;");
+      verify(admin).dropUser("bob");
+      verify(admin).dropRole("readers");
+      assertThat(statement.getWarnings().getMessage())
+          .isEqualTo("role \"ghost\" does not exist, skipping");
+      assertSqlState(statement, "DROP USER ghost", "42704");
+
+      assertSqlState(statement, "CREATE ROLE r PASSWORD 'x'", "0A000");
+      assertSqlState(statement, "CREATE USER x CREATEDB", "0A000");
+      assertSqlState(statement, "ALTER USER bob RENAME TO robert", "0A000");
+      // psql's \\password sends a verifier hashed on the client: Cluster needs the password
+      assertRefused(
+          statement,
+          "ALTER USER bob PASSWORD 'SCRAM-SHA-256$4096:c2FsdA==$a:b'",
+          "0A000",
+          "c2FsdA");
+      assertRefused(
+          statement,
+          "ALTER USER bob PASSWORD 'md5" + "0123456789abcdef0123456789abcdef'",
+          "0A000",
+          "0123456789abcdef");
+      // no message repeats a password, whatever is wrong with the statement
+      assertRefused(statement, "CREATE USER x PASSWORD 'topsecret' 'other'", "42601", "other");
+      assertRefused(statement, "CREATE USER x PASSWORD 'topsecret' PASSWORD", "42601", "topsecret");
+      assertRefused(statement, "EXPLAIN CREATE USER x PASSWORD 'topsecret'", "0A000", "topsecret");
+
+      // Cluster's errors, by code
+      doThrow(new IllegalArgumentException("DB-AUTH-10000: The user already exists. Username: e"))
+          .when(admin)
+          .createUser("e", null);
+      assertSqlState(statement, "CREATE USER e", "42710");
+      doThrow(new com.scalar.db.exception.storage.ExecutionException("DB-AUTH-30002: failed"))
+          .when(admin)
+          .createUser("f", null);
+      assertSqlState(statement, "CREATE USER f", "XX000");
+      doThrow(
+              new com.scalar.db.exception.storage.ExecutionException(
+                  "DB-AUTH-10009: Access denied: You must be a superuser to execute this"
+                      + " operation"))
+          .when(admin)
+          .createUser("g", null);
+      assertSqlState(statement, "CREATE USER g", "42501");
+    }
+  }
+
+  @Test
+  public void dcl_Privileges_ShouldFollowScalarDbSql() throws Exception {
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement()) {
+      when(admin.getPrivileges("bob", "ns", "t")).thenReturn(EnumSet.of(AuthAdmin.Privilege.READ));
+      when(admin.getRolePrivileges(any(), any(), any()))
+          .thenReturn(EnumSet.noneOf(AuthAdmin.Privilege.class));
+
+      statement.execute("GRANT SELECT, INSERT, UPDATE ON t TO bob WITH GRANT OPTION");
+      verify(admin)
+          .grant(
+              "bob",
+              "ns",
+              "t",
+              AuthAdmin.Privilege.READ,
+              AuthAdmin.Privilege.WRITE,
+              AuthAdmin.Privilege.GRANT);
+      // DELETE needs SELECT: bob has it, the role does not
+      statement.execute("GRANT DELETE ON TABLE ns.t TO bob");
+      verify(admin).grant("bob", "ns", "t", AuthAdmin.Privilege.READ, AuthAdmin.Privilege.DELETE);
+      assertSqlState(statement, "GRANT DELETE ON t TO readers", "0LP01");
+      // INSERT and UPDATE are both WRITE
+      assertSqlState(statement, "GRANT INSERT ON t TO bob", "0LP01");
+      assertSqlState(statement, "REVOKE UPDATE ON t FROM bob", "0LP01");
+
+      statement.execute("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO readers");
+      verify(admin)
+          .grantPrivilegeToRole(
+              "readers",
+              "ns",
+              AuthAdmin.Privilege.READ,
+              AuthAdmin.Privilege.WRITE,
+              AuthAdmin.Privilege.DELETE,
+              AuthAdmin.Privilege.CREATE,
+              AuthAdmin.Privilege.DROP,
+              AuthAdmin.Privilege.TRUNCATE,
+              AuthAdmin.Privilege.ALTER);
+      statement.execute("GRANT USAGE, CREATE ON SCHEMA ns TO bob");
+      verify(admin).grant("bob", "ns", AuthAdmin.Privilege.CREATE);
+      assertThat(statement.getWarnings().getMessage()).contains("USAGE");
+      assertSqlState(statement, "GRANT SELECT ON SCHEMA ns TO bob", "0LP01");
+
+      statement.execute("REVOKE SELECT ON t FROM bob");
+      verify(admin).revoke("bob", "ns", "t", AuthAdmin.Privilege.READ);
+      statement.execute("REVOKE GRANT OPTION FOR SELECT ON t FROM bob RESTRICT");
+      verify(admin).revoke("bob", "ns", "t", AuthAdmin.Privilege.GRANT);
+      statement.execute("REVOKE DROP, ALTER ON t FROM readers");
+      verify(admin)
+          .revokePrivilegeFromRole(
+              "readers", "ns", "t", AuthAdmin.Privilege.DROP, AuthAdmin.Privilege.ALTER);
+
+      assertSqlState(statement, "GRANT SELECT ON t TO PUBLIC", "0A000");
+      assertSqlState(statement, "GRANT SELECT (id) ON t TO bob", "0A000");
+      assertSqlState(statement, "GRANT SELECT ON SEQUENCE s TO bob", "0A000");
+      assertSqlState(statement, "GRANT REFERENCES ON t TO bob", "0A000");
+      assertSqlState(statement, "REVOKE SELECT ON t FROM bob CASCADE", "0A000");
+      assertSqlState(statement, "GRANT SELECT ON missing TO bob", "42P01");
+      assertSqlState(statement, "GRANT SELECT ON t TO ghost", "42704");
+    }
+  }
+
+  @Test
+  public void dcl_RoleMembership_ShouldMapOntoAuthAdmin() throws Exception {
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement()) {
+      statement.execute("GRANT readers TO bob WITH ADMIN OPTION");
+      verify(admin).grantRoleToUser("bob", "readers", true);
+      statement.execute("GRANT readers TO admins");
+      verify(admin).grantRoleToRole("admins", "readers", false);
+      statement.execute("REVOKE ADMIN OPTION FOR readers FROM bob");
+      verify(admin).revokeAdminOptionFromUser("bob", "readers");
+      statement.execute("REVOKE readers FROM admins");
+      verify(admin).revokeRoleFromRole("admins", "readers");
+      assertSqlState(statement, "REVOKE ADMIN OPTION FOR SELECT ON t FROM bob", "0A000");
+      assertSqlState(statement, "REVOKE GRANT OPTION FOR readers FROM bob", "0A000");
     }
   }
 

@@ -41,12 +41,15 @@ PGPASSWORD=alicepw psql "host=localhost port=15445 dbname=authdemo user=alice ss
 
 alice sees her name and the rows, and `\conninfo` reports TLS; bob is refused with `42501` and Cluster's message
 naming the missing READ privilege; the wrong password is refused after about a second; the plaintext attempt is
-refused outright. `./run.sh` performs seventeen such checks and prints PASS or FAIL for each.
+refused outright. Then, as the node's superuser `admin`, it creates a user and a role in SQL, grants, revokes and
+drops them, and checks what each step lets the new user do. `./run.sh` performs 38 such checks and prints PASS or
+FAIL for each.
 
 ### Users
 
-The frontend has no `CREATE USER` or `GRANT` yet, so users are managed through the Cluster API as the superuser
-(`admin.properties`), with `users.sh`:
+Log in as a superuser (`admin`, password `admin`, which the node creates) and use SQL: `CREATE USER carol WITH
+PASSWORD 'carolpw'`, `GRANT SELECT ON items TO carol` and so on (see `LIMITATIONS.md`). `users.sh` does the same
+through the Cluster API, with `admin.properties`, and needs no frontend:
 
 ```sh
 ./users.sh create carol carolpw            # add superuser as a third word for a superuser
@@ -56,7 +59,7 @@ The frontend has no `CREATE USER` or `GRANT` yet, so users are managed through t
 ./users.sh drop carol
 ```
 
-A grant is on a namespace and covers every table in it. A user logs in the moment it exists; dropping it refuses
+A `users.sh` grant is on a namespace and covers every table in it; SQL grants on a table too. A user logs in the moment it exists; dropping it refuses
 the next login (open sessions keep their token until it expires).
 
 ## Setup
@@ -100,6 +103,14 @@ alice reads, writes, deletes, runs a transaction, a lookup join (its inner reads
 is `0A000`; a wrong password and an unknown user are refused after about a second; a plaintext connection is
 refused; `\conninfo` shows TLS. Connection-time refusals are matched on their message, since psql prints no
 SQLSTATE before a session exists; the engine's unit tests assert the SQLSTATEs through pgjdbc.
+
+## Results, 2026-10-11
+
+All 38 checks pass (`results-20261011.txt`), twice in a row (the run cleans up its users), same node. The SQL user
+management's **(verify)** items are settled: Cluster's admin calls carry their `DB-AUTH` code in the message
+(`10000` "already exists" reached the client as `42710`, `10014` "drop the current user" as `55006`), and user,
+role and privilege lookups need only a login, so a grantee resolves to a user or a role for anyone. No password
+appeared in the frontend's or the node's log.
 
 ## Results, 2026-10-09
 

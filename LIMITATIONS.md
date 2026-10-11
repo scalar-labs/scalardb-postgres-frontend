@@ -12,9 +12,21 @@ at the end of this section.
   itself does for LDAP and RADIUS, because Cluster must see it; libpq's `require_auth=scram-sha-256`
   refuses that. Without Cluster there is no user store: `auth=none` trusts every connection and
   `current_user` echoes the name the client gave. Still open with authentication on: the catalog lists
-  every table whatever the user's privileges (reading the data is what fails), an OIDC session outlives
-  its token and ends with `28000` when it expires, and `CREATE USER` and `GRANT` are not SQL
-  statements here yet.
+  every table whatever the user's privileges (reading the data is what fails), `\du` and `\dp` do
+  not list Cluster's users and grants, and an OIDC session outlives its token and ends with `28000`
+  when it expires.
+- **Users, roles and privileges are Cluster's.** With authentication on, `CREATE USER`/`ROLE`,
+  `ALTER USER`/`ROLE`, `DROP USER`/`ROLE`, `GRANT` and `REVOKE` act on Cluster's users through
+  `AuthAdmin`; with `auth=none` they fail with `0A000`. Privileges mean what they mean in ScalarDB
+  SQL: `INSERT` and `UPDATE` are one ScalarDB privilege (WRITE) and must be granted and revoked
+  together, `UPDATE` and `DELETE` need `SELECT`, and `CREATE`, `DROP` and `ALTER` may be granted on a
+  table (`0LP01` otherwise). `GRANT ... ON ALL TABLES IN SCHEMA` is a namespace grant, which also
+  covers tables created later; `USAGE` on a schema is accepted and does nothing. A role without
+  `LOGIN` is a ScalarDB role, which cannot have a password or be a superuser. psql's `\password`
+  sends a client-hashed verifier, which is refused: use `ALTER USER name PASSWORD '...'`. Not
+  supported (`0A000`): `PUBLIC`, column privileges, `CASCADE`, `GRANTED BY`, other object kinds than
+  tables and schemas, and role options other than `PASSWORD`, `SUPERUSER` and `LOGIN`. Dropping
+  several names is not atomic.
 - **`COPY` is not supported;** load data with INSERTs.
 - **Resource limits PostgreSQL does not have.** A sort, aggregate, window or join side holds its
   rows in memory, so one of them may hold at most a million rows
@@ -83,8 +95,8 @@ at the end of this section.
   predicates compare case- and accent-insensitively, so `UPDATE ... WHERE k = 'A'` can change the
   row `'a'`. Create the backing database with a binary collation (`C` locale, `utf8mb4_bin`) until
   ScalarDB's collation support lands.
-- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY`, views and `GRANT` are not
-  supported** and fail with a clear error.
+- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
+  fail with a clear error.
 - **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` other than `"C"`/`POSIX`,
   `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
   data-modifying statement inside `WITH`, an expression index (`CREATE INDEX ... ON t (lower(name))`),
