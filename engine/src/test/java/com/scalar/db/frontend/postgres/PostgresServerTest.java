@@ -34,6 +34,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -885,6 +886,80 @@ public class PostgresServerTest {
       verify(admin).revokeRoleFromRole("admins", "readers");
       assertSqlState(statement, "REVOKE ADMIN OPTION FOR SELECT ON t FROM bob", "0A000");
       assertSqlState(statement, "REVOKE GRANT OPTION FOR readers FROM bob", "0A000");
+    }
+  }
+
+  @Test
+  public void du_ShouldListClusterUsersAndRoles() throws Exception {
+    AuthAdmin.User bob = mock(AuthAdmin.User.class);
+    when(bob.getName()).thenReturn("bob");
+    when(bob.isSuperuser()).thenReturn(true);
+    AuthAdmin.User carol = mock(AuthAdmin.User.class);
+    when(carol.getName()).thenReturn("carol");
+    AuthAdmin.GrantedRoleRef readers = mock(AuthAdmin.GrantedRoleRef.class);
+    when(readers.getName()).thenReturn("readers");
+    AuthAdmin.Role leads = mock(AuthAdmin.Role.class);
+    when(leads.getName()).thenReturn("leads");
+    when(leads.getGrantedRoles()).thenReturn(Collections.singletonList(readers));
+    AuthAdmin.Role readersRole = mock(AuthAdmin.Role.class);
+    when(readersRole.getName()).thenReturn("readers");
+    AuthAdmin.RoleForUser carolLeads = mock(AuthAdmin.RoleForUser.class);
+    when(carolLeads.getName()).thenReturn("leads");
+    when(carolLeads.hasAdminOptionOnUser()).thenReturn(true);
+    when(admin.getUsers()).thenReturn(Arrays.asList(bob, carol));
+    when(admin.getRoles()).thenReturn(Arrays.asList(leads, readersRole));
+    when(admin.getRolesForUser("carol")).thenReturn(Collections.singletonList(carolLeads));
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement()) {
+      // psql 18's \du and \drg, verbatim
+      List<String> roles = new ArrayList<>();
+      try (ResultSet rs =
+          statement.executeQuery(
+              "SELECT r.rolname, r.rolsuper, r.rolinherit,\n"
+                  + "  r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,\n"
+                  + "  r.rolconnlimit, r.rolvaliduntil\n"
+                  + ", r.rolreplication\n"
+                  + ", r.rolbypassrls\n"
+                  + "FROM pg_catalog.pg_roles r\n"
+                  + "WHERE r.rolname !~ '^pg_'\n"
+                  + "ORDER BY 1;")) {
+        while (rs.next()) {
+          roles.add(rs.getString(1) + " " + rs.getBoolean(2) + " " + rs.getBoolean(6));
+        }
+      }
+      assertThat(roles)
+          .containsExactly(
+              "bob true true", "carol false true", "leads false false", "readers false false");
+      List<String> grants = new ArrayList<>();
+      try (ResultSet rs =
+          statement.executeQuery(
+              "SELECT m.rolname AS \"Role name\", r.rolname AS \"Member of\",\n"
+                  + "  pg_catalog.concat_ws(', ',\n"
+                  + "    CASE WHEN pam.admin_option THEN 'ADMIN' END,\n"
+                  + "    CASE WHEN pam.inherit_option THEN 'INHERIT' END,\n"
+                  + "    CASE WHEN pam.set_option THEN 'SET' END\n"
+                  + "  ) AS \"Options\",\n"
+                  + "  g.rolname AS \"Grantor\"\n"
+                  + "FROM pg_catalog.pg_roles m\n"
+                  + "     JOIN pg_catalog.pg_auth_members pam ON (pam.member = m.oid)\n"
+                  + "     LEFT JOIN pg_catalog.pg_roles r ON (pam.roleid = r.oid)\n"
+                  + "     LEFT JOIN pg_catalog.pg_roles g ON (pam.grantor = g.oid)\n"
+                  + "WHERE m.rolname !~ '^pg_'\n"
+                  + "ORDER BY 1, 2, 4;\n")) {
+        while (rs.next()) {
+          grants.add(
+              rs.getString(1)
+                  + " "
+                  + rs.getString(2)
+                  + " "
+                  + rs.getString(3)
+                  + " "
+                  + rs.getString(4));
+        }
+      }
+      assertThat(grants)
+          .containsExactly(
+              "carol leads ADMIN, INHERIT, SET null", "leads readers INHERIT, SET null");
     }
   }
 

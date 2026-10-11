@@ -2589,6 +2589,8 @@ public class QueryParser {
 
   void setUserManagement(boolean enabled) {
     userManagement = enabled;
+    catalog.clusterUsers = enabled;
+    catalog.invalidate();
   }
 
   private static final Pattern COORDINATOR_TABLES =
@@ -4205,6 +4207,7 @@ public class QueryParser {
       case "UPPER":
       case "LOWER":
       case "CONCAT":
+      case "CONCAT_WS":
       case "SUBSTRING":
       case "SUBSTR":
       case "TRIM":

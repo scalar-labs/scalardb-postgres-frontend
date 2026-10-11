@@ -1,5 +1,6 @@
 package com.scalar.db.frontend.postgres;
 
+import com.scalar.db.api.AuthAdmin;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.TableMetadata;
 import com.scalar.db.exception.storage.ExecutionException;
@@ -19,9 +20,10 @@ import javax.annotation.Nullable;
 /**
  * Virtual {@code pg_catalog} and {@code information_schema} tables built from ScalarDB metadata,
  * enough for hand-written catalog queries and for psql's {@code \l}, {@code \dn}, {@code \dt},
- * {@code \d}, {@code \d table}, and {@code \di}. Namespaces appear as both schemas and databases;
- * every table gets a {@code <table>_pkey} primary-key index and a {@code <table>_<column>_idx}
- * index per secondary index. Rows are rebuilt lazily after each {@link #invalidate()}.
+ * {@code \du}, {@code \d}, {@code \d table}, and {@code \di}. Namespaces appear as both schemas and
+ * databases; every table gets a {@code <table>_pkey} primary-key index and a {@code
+ * <table>_<column>_idx} index per secondary index. Rows are rebuilt lazily after each {@link
+ * #invalidate()}.
  */
 final class Catalog {
   static final String OWNER = "scalardb";
@@ -191,7 +193,23 @@ final class Catalog {
         "pg_statistic_ext",
         cols("oid", "stxrelid", "stxnamespace", "stxname", "stxkind", "stxstattarget"));
     PG_CATALOG.put("pg_inherits", cols("inhrelid", "inhparent", "inhseqno", "inhdetachpending"));
-    PG_CATALOG.put("pg_roles", cols("oid", "rolname"));
+    PG_CATALOG.put(
+        "pg_roles",
+        cols(
+            "oid",
+            "rolname",
+            "rolsuper",
+            "rolinherit",
+            "rolcreaterole",
+            "rolcreatedb",
+            "rolcanlogin",
+            "rolconnlimit",
+            "rolvaliduntil",
+            "rolreplication",
+            "rolbypassrls"));
+    PG_CATALOG.put(
+        "pg_auth_members",
+        cols("oid", "roleid", "member", "grantor", "admin_option", "inherit_option", "set_option"));
     PG_CATALOG.put("pg_publication", cols("oid", "pubname", "puballtables"));
     PG_CATALOG.put("pg_publication_rel", cols("prpubid", "prrelid", "prqual", "prattrs"));
     PG_CATALOG.put("pg_publication_namespace", cols("pnpubid", "pnnspid"));
@@ -362,6 +380,7 @@ final class Catalog {
   private final DistributedTransactionAdmin admin;
   final String database;
   String user = OWNER; // the connecting user, for current_user
+  boolean clusterUsers; // pg_roles lists Cluster's users and roles, not the OWNER placeholder
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
@@ -551,7 +570,9 @@ final class Catalog {
     }
     row(t, "pg_catalog.pg_am", HEAP_AM, "heap");
     row(t, "pg_catalog.pg_am", BTREE_AM, "btree");
-    row(t, "pg_catalog.pg_roles", OWNER_OID, OWNER);
+    if (!clusterUsers) {
+      role(t, OWNER_OID, OWNER, true, true);
+    }
     for (Map.Entry<Long, String> type : INTERNAL_TYPE_NAMES.entrySet()) {
       long oid = type.getKey();
       String name = type.getValue();
@@ -804,7 +825,71 @@ final class Catalog {
         }
       }
     }
+    if (clusterUsers) {
+      roles(t, oid);
+    }
     tables = t;
+  }
+
+  /**
+   * pg_roles and pg_auth_members from Cluster's users (who can log in) and roles (who cannot), for
+   * psql's {@code \du} and {@code \drg}. Grantors are not recorded, so {@code grantor} is 0.
+   */
+  // ponytail: one getRolesForUser call per user on each catalog load; a bulk call would scale
+  // better
+  private void roles(Map<String, List<Map<String, Object>>> t, long oid) throws ExecutionException {
+    List<AuthAdmin.User> users = admin.getUsers();
+    List<AuthAdmin.Role> roles = admin.getRoles();
+    Map<String, Long> oids = new HashMap<>();
+    for (AuthAdmin.User u : users) {
+      oids.put(u.getName(), oid);
+      role(t, oid++, u.getName(), u.isSuperuser(), true);
+    }
+    for (AuthAdmin.Role r : roles) {
+      oids.put(r.getName(), oid);
+      role(t, oid++, r.getName(), false, false);
+    }
+    for (AuthAdmin.User u : users) {
+      for (AuthAdmin.RoleForUser r : admin.getRolesForUser(u.getName())) {
+        member(t, oid++, oids.get(r.getName()), oids.get(u.getName()), r.hasAdminOptionOnUser());
+      }
+    }
+    for (AuthAdmin.Role r : roles) {
+      for (AuthAdmin.GrantedRoleRef g : r.getGrantedRoles()) {
+        member(t, oid++, oids.get(g.getName()), oids.get(r.getName()), g.hasAdminOption());
+      }
+    }
+  }
+
+  private static void role(
+      Map<String, List<Map<String, Object>>> t,
+      long oid,
+      String name,
+      boolean superuser,
+      boolean login) {
+    row(
+        t,
+        "pg_catalog.pg_roles",
+        oid,
+        name,
+        superuser,
+        true,
+        false,
+        false,
+        login,
+        -1L,
+        null,
+        false,
+        false);
+  }
+
+  private static void member(
+      Map<String, List<Map<String, Object>>> t,
+      long oid,
+      @Nullable Long role,
+      @Nullable Long member,
+      boolean admin) {
+    row(t, "pg_catalog.pg_auth_members", oid, role, member, 0L, admin, true, true);
   }
 
   private static void relation(

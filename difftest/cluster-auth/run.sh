@@ -82,6 +82,10 @@ check "REVOKE ON ALL TABLES IN SCHEMA from a role" '^REVOKE$' "$(su 'REVOKE SELE
 su 'GRANT auditors TO erin' >/dev/null
 check "a grant through two roles reads" '^2$' "$(as erin erinpw 'SELECT count(*) FROM items')"
 check "a role cycle" '0LP01' "$(su 'GRANT auditors TO leads')"
+check "\\du shows a superuser" '^admin\|Superuser$' "$(as carol carolpw2 '\du')"
+check "\\du shows a role" '^leads\|Cannot login$' "$(as carol carolpw2 '\du')"
+check "\\drg shows a role granted to a user" '^erin\|auditors\|INHERIT, SET\|$' "$(as carol carolpw2 '\drg')"
+check "\\drg shows a role granted to a role" '^auditors\|leads\|INHERIT, SET\|$' "$(as carol carolpw2 '\drg')"
 check "REVOKE a role from a role" 'REVOKE ROLE' "$(su 'REVOKE leads FROM auditors')"
 check "the inner role's grant is gone" '42501' "$(as erin erinpw 'SELECT count(*) FROM items')"
 

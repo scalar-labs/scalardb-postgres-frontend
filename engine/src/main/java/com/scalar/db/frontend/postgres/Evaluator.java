@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import net.sf.jsqlparser.expression.AnalyticExpression;
@@ -2629,6 +2630,17 @@ final class Evaluator {
           }
         }
         return sb.toString();
+      case "CONCAT_WS":
+        if (arg(args, 0) == null) {
+          return null;
+        }
+        StringJoiner joined = new StringJoiner(text(args.get(0)));
+        for (Object a : args.subList(1, args.size())) {
+          if (a != null) {
+            joined.add(text(a));
+          }
+        }
+        return joined.toString();
       case "NULLIF":
         return arg(args, 0) != null
                 && arg(args, 1) != null
