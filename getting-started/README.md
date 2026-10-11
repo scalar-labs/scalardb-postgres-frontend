@@ -72,6 +72,11 @@ The same file takes the frontend's own settings, all optional:
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | none | PEM certificate chain and key, to accept TLS |
 | `scalar.db.postgres.ssl.require` | `true` with `auth` on | Refuse clients that do not use TLS |
 
+Two ScalarDB settings get different defaults from the frontend, unless the file sets them:
+`scalar.db.metadata.cache_expiration_time_secs` is `1` (not 60), so sessions see DDL from others
+quickly, and `scalar.db.scan_fetch_size` is `1000` (not 10), so a scan fetches 1000 rows per round
+trip to the database instead of 10.
+
 The frontend also enforces fixed limits that protect it from a single client:
 
 | Limit | Value | Past it |

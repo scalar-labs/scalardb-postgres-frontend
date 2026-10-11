@@ -97,7 +97,8 @@ in `results/latency-*.txt` and `results/lat<delay>-*.tsv`.
 
 Count round trips before anything else. A ScalarDB Get on the JDBC storage is one round trip
 (autocommit), but a Scan is four: `BEGIN READ ONLY`, the cursor's execute, a second fetch when
-the first returned exactly `scalar.db.scan_fetch_size` rows (default 10), and `COMMIT`. A
+the first returned exactly `scalar.db.scan_fetch_size` rows (ScalarDB's default 10; the frontend's
+1000 since 2026-10-11), and `COMMIT`. A
 Consensus Commit update is a pre-read plus the conditional update. A lookup join reads its outer
 rows ahead (16, doubling to 128) and issues their lookups together: lookups by full key into one
 partition become a single Scan with an OR of the keys, which also works inside `BEGIN` because the
@@ -160,4 +161,20 @@ co-located frontend matches native PostgreSQL on point reads (2935 vs 2949 tps) 
 (719 vs 635 tps), because 8 clients are latency-bound on both sides.
 
 The TPC-C comparison, on localhost and under the same delays, is in `tpcc/README.md`.
+
+## Rerun, 2026-10-11
+
+The whole suite again on `main` (fbac5a1), same data, delays and procedure: at 0.7 ms round trip
+every script is within 4% of the 2026-10-02 figures above (`scan_filter`, noisy, +25%); at 2.6 ms
+the run drifted 10-20% high on the frontend side, and an isolated rerun of `range_scan`,
+`update_key`, `cte` and `point_get` came in at or under the old figures, so nothing regressed.
+The result files above are kept as the baseline.
+
+The frontend now sets `scalar.db.scan_fetch_size=1000` unless the properties file sets it. At
+0.7 ms round trip, frontend next to the app, p50 before and after: `scan_filter` 20.2 to 3.75 ms,
+`join_hash` 40.8 to 6.90, `index_multi` 4.22 to 2.84, `set_op` 4.15 to 2.85, `join_fanout` 3.32 to
+2.70, `join_lookup` 2.85 to 2.17, `aggregate` and `sort_memory` 2.2 to 1.5; point reads, single
+scans and index lookups unchanged. What remains is ScalarDB's own round trips: two per scan and
+four per secondary-index lookup, written up for the core team in
+[scalardb-core-issue-scan-round-trips.md](scalardb-core-issue-scan-round-trips.md).
 
