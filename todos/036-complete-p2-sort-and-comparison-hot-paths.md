@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "036"
 tags: [code-review, performance, algorithmic]
@@ -86,3 +86,14 @@ BigDecimal.
 
 **Verdict:**
 - STILL REAL (performance). Sort keys are recomputed per comparison, and numbers compare and normalize through BigDecimal strings.
+
+### 2026-10-11 - Closed without a code change
+
+**By:** Claude Code
+
+**Reason:**
+- The latency benchmark (bench/README.md, "Rerun, 2026-10-11") shows the frontend's CPU work
+  disappearing behind network round trips: at a 0.7 ms round trip to PostgreSQL every script's
+  cost is its ScalarDB round trips. This saving would not show in any OLTP measurement there.
+- Reopen if a profile of a CPU-bound workload (large in-memory sorts or wide result sets on a
+  local database) points here.
