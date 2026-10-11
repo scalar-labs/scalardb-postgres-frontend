@@ -669,6 +669,11 @@ public class PostgresServer implements AutoCloseable {
           out.flush();
           continue;
         }
+        if ("QPBDECFdcf".indexOf(type) < 0) {
+          // not a PostgreSQL message at all: as PostgreSQL does, end the session rather than guess
+          fatal("08P01", "invalid frontend message type " + type);
+          return;
+        }
         if (failed) {
           continue;
         }
@@ -1147,6 +1152,11 @@ public class PostgresServer implements AutoCloseable {
 
     /** Reports a statement's failure to the client and returns its SQLSTATE. */
     private String sendError(Throwable failure) throws IOException {
+      if (failure instanceof java.nio.BufferUnderflowException) {
+        // a message body that ends early (a string without its zero byte, a missing count): the
+        // client's fault, as PostgreSQL reports it, not an internal error
+        failure = new PgException.Argument("08P01", SHORT_MESSAGE);
+      }
       Throwable cause = failure.getCause();
       Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);

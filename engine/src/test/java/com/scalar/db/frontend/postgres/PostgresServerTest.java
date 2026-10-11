@@ -1125,6 +1125,53 @@ public class PostgresServerTest {
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "UNENCRYPTED_SOCKET",
       justification = "A test speaking the plaintext protocol to a local server")
+  public void protocol_MalformedMessages_ShouldBeRefused() throws Exception {
+    // an unknown message type
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      socket.setSoTimeout(5000);
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      out.writeByte('!');
+      out.writeInt(4);
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+      assertThat(in.read()).isEqualTo(-1); // FATAL: the connection closes
+    }
+    // a length shorter than the length field itself
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      socket.setSoTimeout(5000);
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      out.writeByte('Q');
+      out.writeInt(3);
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+      assertThat(in.read()).isEqualTo(-1);
+    }
+    // a query string without its terminating zero byte
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out = new java.io.DataOutputStream(socket.getOutputStream());
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      socket.setSoTimeout(5000);
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      out.writeByte('Q');
+      out.writeInt(4 + 8);
+      out.writeBytes("SELECT 1");
+      out.flush();
+      assertThat(readUntil(in, 'Z')).isEqualTo("08P01");
+      assertThat(readUntil(in, 'Z')).isEmpty(); // an ERROR: the session goes on
+    }
+  }
+
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
   public void protocol_ExecuteRowLimit_ShouldSuspendThePortal() throws Exception {
     when(manager.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b"), row(3, "c")));
     try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());

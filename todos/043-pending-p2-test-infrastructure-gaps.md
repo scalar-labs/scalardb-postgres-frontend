@@ -97,3 +97,18 @@ static helpers; protocol tests for todo 002.
 
 **Verdict:**
 - PARTLY REAL. Raw-socket tests and SQLSTATE checks were added since; the key-only stub table, missing CancelRequest and unknown-message tests, and wording-pinned assertions remain.
+
+### 2026-10-11 - Protocol robustness, partly fixed
+
+**By:** Claude Code
+
+**Actions:**
+- protocol_MalformedMessages_ShouldBeRefused: an unknown message type, a length under 4, and a
+  query string without its zero byte. It found two differences from PostgreSQL, now fixed: an
+  unknown type got a buffered 0A000 and the session went on (now FATAL 08P01, connection closed),
+  and a body that ends early was XX000 (now 08P01 "insufficient data left in message").
+- CancelRequest and oversized lengths were already covered.
+
+**Remaining:**
+- The in-memory fake ScalarDB, shared fixtures, and a test per SQLSTATE branch. Low value per
+  effort while difftest covers write-then-read semantics; do it when a bug slips past both.
