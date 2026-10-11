@@ -14,7 +14,11 @@ at the end of this section.
   `current_user` echoes the name the client gave. Still open with authentication on: the catalog lists
   every table whatever the user's privileges (reading the data is what fails), `\du` and `\dp` do
   not list Cluster's users and grants, and an OIDC session outlives its token and ends with `28000`
-  when it expires.
+  when it expires. A Cluster bug lets an old password keep logging in for up to the token lifetime
+  (`scalar.db.cluster.auth.auth_token_expiration_time_minutes`, a day by default) after `ALTER USER
+  ... PASSWORD` or after the user is dropped and re-created, as long as it logged in through this
+  frontend process before: shorten that setting on the nodes, or restart the frontend after such a
+  change ([details](difftest/cluster-auth/cluster-issue-stale-passwords.md)).
 - **Users, roles and privileges are Cluster's.** With authentication on, `CREATE USER`/`ROLE`,
   `ALTER USER`/`ROLE`, `DROP USER`/`ROLE`, `GRANT` and `REVOKE` act on Cluster's users through
   `AuthAdmin`; with `auth=none` they fail with `0A000`. Privileges mean what they mean in ScalarDB
