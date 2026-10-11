@@ -294,6 +294,7 @@ final class Catalog {
       {25, 1009},
       {700, 1021},
       {701, 1022},
+      {1042, 1014},
       {1043, 1015},
       {1082, 1182},
       {1083, 1183},
@@ -324,7 +325,8 @@ final class Catalog {
     return 0;
   }
 
-  private static long typeLength(long oid) {
+  /** pg_type.typlen, which RowDescription reports too. */
+  static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
         return 1;

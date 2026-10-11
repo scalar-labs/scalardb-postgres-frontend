@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "040"
 tags: [code-review, duplication, type-system]
@@ -109,3 +109,14 @@ column.
 
 **Remaining:**
 - The type tables are still duplicated between Catalog and PostgresServer (harmless typlen drift).
+
+### 2026-10-11 - Fixed
+
+**By:** Claude Code
+
+**Actions:**
+- PostgresServer takes a ScalarDB type's OID from Catalog.typeOid and RowDescription's typlen from
+  Catalog.typeLength, so int2 and interval now report 2 and 16, as pg_type does.
+- Binary array parameters are recognised by Catalog.elementOid instead of a case list; bpchar[]
+  (1014) joined ARRAY_OIDS so it stays accepted.
+- `./gradlew check` passes. No difftest set was rerun: psql does not show typlen.

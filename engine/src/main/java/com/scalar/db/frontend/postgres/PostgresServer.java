@@ -1671,23 +1671,10 @@ public class PostgresServer implements AutoCloseable {
       case 1042:
       case 1043:
         return new String(value, StandardCharsets.UTF_8);
-      case 1000: // bool[]
-      case 1001: // bytea[]
-      case 1005: // int2[]
-      case 1007: // int4[]
-      case 1016: // int8[]
-      case 1021: // float4[]
-      case 1022: // float8[]
-      case 1009: // text[]
-      case 1014: // bpchar[]
-      case 1015: // varchar[]
-      case 1182: // date[]
-      case 1183: // time[]
-      case 1115: // timestamp[]
-      case 1185: // timestamptz[]
-      case 1231: // numeric[]
-        return arrayText(b);
       default:
+        if (Catalog.elementOid(oid) != 0) {
+          return arrayText(b);
+        }
         throw new PgException.Argument(
             "0A000", "Binary parameters of type " + oid + " are not supported");
     }
@@ -1865,32 +1852,7 @@ public class PostgresServer implements AutoCloseable {
   private static int oid(
       @Nullable DataType type, String column, @Nullable List<Map<String, Object>> rows) {
     if (type != null) {
-      switch (type) {
-        case BOOLEAN:
-          return 16;
-        case INT:
-          return 23;
-        case BIGINT:
-          return 20;
-        case FLOAT:
-          return 700;
-        case DOUBLE:
-          return 701;
-        case TEXT:
-          return TEXT_OID;
-        case BLOB:
-          return 17;
-        case DATE:
-          return 1082;
-        case TIME:
-          return 1083;
-        case TIMESTAMP:
-          return 1114;
-        case TIMESTAMPTZ:
-          return 1184;
-        default:
-          return TEXT_OID;
-      }
+      return (int) Catalog.typeOid(type);
     }
     if (rows != null) {
       for (Map<String, Object> row : rows) {
@@ -1948,21 +1910,6 @@ public class PostgresServer implements AutoCloseable {
   }
 
   private static int size(int oid) {
-    switch (oid) {
-      case 16:
-        return 1;
-      case 23:
-      case 700:
-      case 1082:
-        return 4;
-      case 20:
-      case 701:
-      case 1083:
-      case 1114:
-      case 1184:
-        return 8;
-      default:
-        return -1;
-    }
+    return (int) Catalog.typeLength(oid);
   }
 }
