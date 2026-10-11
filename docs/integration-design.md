@@ -95,7 +95,7 @@ Handle `SSLRequest` (code 80877103): today the server answers `N`. Answer `S`, w
 ### Authorization
 
 - DML and DDL are enforced by `AuthDistributedTransactionManager` and `AuthDistributedTransactionAdmin`; nothing is added in the frontend. Map the auth exceptions to SQLSTATE 42501 (insufficient_privilege).
-- The catalog emulation (`Catalog`) is built from admin metadata. With authorization on, `\dt` and `\d` should show only what the user may read; whether the admin decorator already filters or the frontend must is open question 4.
+- The catalog emulation (`Catalog`) is built from admin metadata. With authorization on, `\dt` and `\d` list every table, whatever the user may read, as PostgreSQL does (decided 2026-10-11, closing open question 4).
 - Database name is the namespace: `\l` lists namespaces, and connecting to a missing one returns 3D000 (invalid_catalog_name).
 - Frontend session settings such as `scalardb.max_rows_per_write` stay as they are.
 
@@ -180,6 +180,6 @@ Items 1 and 2 together turn a four-hop call into a one-hop call in indirect mode
 1. Module placement: core repository artifact or cluster repository. A product decision.
 2. Password mechanism: cleartext over TLS, or SCRAM with verifiers stored in the auth tables.
 3. Token lifetime versus session lifetime: re-login silently, which means keeping the password in memory for the session, or terminate the session when the token expires.
-4. Catalog visibility under authorization: does the admin decorator filter, or must the frontend.
+4. Catalog visibility under authorization: does the admin decorator filter, or must the frontend. **Decided 2026-10-11:** neither; every table is listed, as in PostgreSQL.
 5. SQLSTATE mapping while the gate keeper is paused.
 6. Whether the gRPC path should adopt the hybrid ownership rule and, later, a stream per transaction (see the communication section). A separate decision from this design.

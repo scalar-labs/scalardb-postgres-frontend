@@ -27,10 +27,26 @@ import javax.annotation.Nullable;
  */
 final class Catalog {
   static final String OWNER = "scalardb";
+  static final String TABLEOID = "tableoid";
   private static final long OWNER_OID = 10;
   private static final long HEAP_AM = 2;
   private static final long BTREE_AM = 403;
   private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
+  private static final long DEFAULT_TABLESPACE = 1663;
+  // tableoid, the system column every catalog row has: the catalog table's own pg_class OID
+  private static final Map<String, Long> CATALOG_OIDS = new HashMap<>();
+
+  static {
+    CATALOG_OIDS.put("pg_class", PG_CLASS_OID);
+    CATALOG_OIDS.put("pg_type", 1247L);
+    CATALOG_OIDS.put("pg_namespace", 2615L);
+    CATALOG_OIDS.put("pg_constraint", 2606L);
+    CATALOG_OIDS.put("pg_opclass", 2616L);
+    CATALOG_OIDS.put("pg_opfamily", 2753L);
+    CATALOG_OIDS.put("pg_rewrite", 2618L);
+    CATALOG_OIDS.put("pg_trigger", 2620L);
+    CATALOG_OIDS.put("pg_database", 1262L);
+  }
 
   private static final Map<String, List<String>> PG_CATALOG = new LinkedHashMap<>();
   private static final Map<String, List<String>> INFORMATION_SCHEMA = new LinkedHashMap<>();
@@ -51,8 +67,9 @@ final class Catalog {
             "datlocale",
             "daticulocale",
             "daticurules",
-            "datacl"));
-    PG_CATALOG.put("pg_namespace", cols("oid", "nspname", "nspowner"));
+            "datacl",
+            "dattablespace"));
+    PG_CATALOG.put("pg_namespace", cols("oid", "nspname", "nspowner", "nspacl"));
     PG_CATALOG.put(
         "pg_class",
         cols(
@@ -78,7 +95,7 @@ final class Catalog {
             "relpartbound",
             "reltuples",
             "relacl"));
-    PG_CATALOG.put("pg_am", cols("oid", "amname"));
+    PG_CATALOG.put("pg_am", cols("oid", "amname", "amtype"));
     PG_CATALOG.put(
         "pg_attribute",
         cols(
@@ -115,7 +132,8 @@ final class Catalog {
             "typrelid",
             "typnotnull",
             "typtypmod",
-            "typowner"));
+            "typowner",
+            "typdefault"));
     PG_CATALOG.put(
         "pg_range",
         cols(
@@ -177,9 +195,25 @@ final class Catalog {
             "connoinherit",
             "conislocal",
             "coninhcount",
-            "convalidated"));
+            "convalidated",
+            "contypid"));
     PG_CATALOG.put("pg_attrdef", cols("adrelid", "adnum", "adbin"));
-    PG_CATALOG.put("pg_collation", cols("oid", "collname"));
+    PG_CATALOG.put(
+        "pg_collation",
+        cols(
+            "oid",
+            "collname",
+            "collnamespace",
+            "collprovider",
+            "collisdeterministic",
+            "collencoding",
+            "collcollate",
+            "collctype",
+            "colllocale",
+            "colliculocale", // PostgreSQL 16's name, which psql asks a 16 server for
+            "collicurules"));
+    PG_CATALOG.put("pg_opclass", cols("oid", "opcname", "opcmethod", "opcnamespace"));
+    PG_CATALOG.put("pg_opfamily", cols("oid", "opfname", "opfmethod", "opfnamespace"));
     PG_CATALOG.put(
         "pg_policy",
         cols(
@@ -212,13 +246,25 @@ final class Catalog {
     PG_CATALOG.put(
         "pg_auth_members",
         cols("oid", "roleid", "member", "grantor", "admin_option", "inherit_option", "set_option"));
-    PG_CATALOG.put("pg_publication", cols("oid", "pubname", "puballtables"));
+    PG_CATALOG.put(
+        "pg_publication",
+        cols(
+            "oid",
+            "pubname",
+            "pubowner",
+            "puballtables",
+            "pubinsert",
+            "pubupdate",
+            "pubdelete",
+            "pubtruncate",
+            "pubgencols",
+            "pubviaroot"));
     PG_CATALOG.put("pg_publication_rel", cols("prpubid", "prrelid", "prqual", "prattrs"));
     PG_CATALOG.put("pg_publication_namespace", cols("pnpubid", "pnnspid"));
     PG_CATALOG.put("pg_rewrite", cols("oid", "rulename", "ev_class", "ev_enabled"));
     PG_CATALOG.put("pg_trigger", cols("oid", "tgname", "tgrelid", "tgenabled", "tgisinternal"));
     PG_CATALOG.put("pg_description", cols("objoid", "classoid", "objsubid", "description"));
-    PG_CATALOG.put("pg_tablespace", cols("oid", "spcname"));
+    PG_CATALOG.put("pg_tablespace", cols("oid", "spcname", "spcowner", "spcacl", "spcoptions"));
     PG_CATALOG.put(
         "pg_indexes", cols("schemaname", "tablename", "indexname", "tablespace", "indexdef"));
     INFORMATION_SCHEMA.put("schemata", cols("catalog_name", "schema_name"));
@@ -404,7 +450,9 @@ final class Catalog {
     if (schema == null || schema.equals("pg_catalog")) {
       List<String> columns = PG_CATALOG.get(name);
       if (columns != null) {
-        return columns;
+        List<String> withTableOid = new ArrayList<>(columns);
+        withTableOid.add(TABLEOID); // a system column: SELECT * leaves it out
+        return withTableOid;
       }
     }
     return "information_schema".equals(schema) ? INFORMATION_SCHEMA.get(name) : null;
@@ -449,8 +497,9 @@ final class Catalog {
   }
 
   /**
-   * Whether the next load fills pg_class.relacl (psql's {@code \\dp}). It asks Cluster for every
-   * grantee's privileges on every table, so only a statement that names relacl turns it on.
+   * Whether the next load fills pg_class.relacl and pg_namespace.nspacl (psql's {@code \dp} and
+   * {@code \dn+}). It asks Cluster for every grantee's privileges on every table, so only a
+   * statement that names one of them turns it on.
    */
   void setAcls(boolean wanted) {
     if (wanted && clusterUsers && !aclsLoaded) {
@@ -569,6 +618,9 @@ final class Catalog {
       for (Map.Entry<String, Object> e : row.entrySet()) {
         qualified.put(qualifier + "." + e.getKey(), e.getValue());
       }
+      if (!"information_schema".equals(schema)) {
+        qualified.put(qualifier + "." + TABLEOID, CATALOG_OIDS.getOrDefault(name, 0L));
+      }
       out.add(qualified);
     }
     return out;
@@ -585,8 +637,10 @@ final class Catalog {
     for (String name : INFORMATION_SCHEMA.keySet()) {
       t.put("information_schema." + name, new ArrayList<>());
     }
-    row(t, "pg_catalog.pg_am", HEAP_AM, "heap");
-    row(t, "pg_catalog.pg_am", BTREE_AM, "btree");
+    row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t");
+    row(t, "pg_catalog.pg_am", BTREE_AM, "btree", "i");
+    row(t, "pg_catalog.pg_tablespace", DEFAULT_TABLESPACE, "pg_default", OWNER_OID, null, null);
+    row(t, "pg_catalog.pg_tablespace", 1664L, "pg_global", OWNER_OID, null, null);
     if (!clusterUsers) {
       role(t, OWNER_OID, OWNER, true, true);
     }
@@ -612,7 +666,8 @@ final class Catalog {
           0L,
           false,
           -1L,
-          OWNER_OID);
+          OWNER_OID,
+          null);
       if (arrayOid != 0) {
         // the array type of each base type, which drivers look up by typelem
         row(
@@ -633,7 +688,8 @@ final class Catalog {
             0L,
             false,
             -1L,
-            OWNER_OID);
+            OWNER_OID,
+            null);
       }
     }
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
@@ -646,7 +702,15 @@ final class Catalog {
       String schema = schemaName(namespace); // the connected namespace is PostgreSQL's public
       namespaceOids.put(namespace, namespaceOid);
       namespaceOids.put(schema, namespaceOid);
-      row(t, "pg_catalog.pg_namespace", namespaceOid, schema, OWNER_OID);
+      Map<String, java.util.Set<AuthAdmin.Privilege>> namespaceGrants =
+          grantees.isEmpty() ? Collections.emptyMap() : namespaceGrants(grantees, namespace);
+      row(
+          t,
+          "pg_catalog.pg_namespace",
+          namespaceOid,
+          schema,
+          OWNER_OID,
+          namespaceGrants.isEmpty() ? null : namespaceAcl(namespaceGrants));
       row(
           t,
           "pg_catalog.pg_database",
@@ -660,7 +724,8 @@ final class Catalog {
           null,
           null,
           null,
-          null);
+          null,
+          DEFAULT_TABLESPACE);
       row(t, "information_schema.schemata", database, schema);
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
         TableMetadata metadata = admin.getTableMetadata(namespace, table);
@@ -676,7 +741,7 @@ final class Catalog {
             "r",
             HEAP_AM,
             true,
-            grantees.isEmpty() ? null : acl(grantees, namespace, table));
+            grantees.isEmpty() ? null : acl(grantees, namespaceGrants, namespace, table));
         relationOids.put(namespace + "." + table, relOid);
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
@@ -816,7 +881,8 @@ final class Catalog {
             false,
             true,
             0L,
-            true);
+            true,
+            0L);
         constraintDefs.put(constraintOid, "PRIMARY KEY (" + columnList + ")");
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
@@ -873,25 +939,57 @@ final class Catalog {
     return grantees;
   }
 
+  /** Each grantee's grants on a namespace, which apply to all of its tables. */
+  private Map<String, java.util.Set<AuthAdmin.Privilege>> namespaceGrants(
+      Map<String, Boolean> grantees, String namespace) throws ExecutionException {
+    Map<String, java.util.Set<AuthAdmin.Privilege>> held = new java.util.TreeMap<>();
+    for (Map.Entry<String, Boolean> g : grantees.entrySet()) {
+      held.put(
+          g.getKey(),
+          g.getValue()
+              ? admin.getPrivileges(g.getKey(), namespace)
+              : admin.getRolePrivileges(g.getKey(), namespace));
+    }
+    return held;
+  }
+
+  /**
+   * A schema's aclitem[]: {@code C} (CREATE) for whoever may create tables in it, or null. Its
+   * other grants are on its tables, where {@code \dp} shows them; ScalarDB has no USAGE.
+   */
+  @Nullable private static List<String> namespaceAcl(
+      Map<String, java.util.Set<AuthAdmin.Privilege>> namespaceGrants) {
+    List<String> items = new ArrayList<>();
+    for (Map.Entry<String, java.util.Set<AuthAdmin.Privilege>> g : namespaceGrants.entrySet()) {
+      if (g.getValue().contains(AuthAdmin.Privilege.CREATE)) {
+        String grantable = g.getValue().contains(AuthAdmin.Privilege.GRANT) ? "*" : "";
+        items.add(g.getKey() + "=C" + grantable + "/" + OWNER);
+      }
+    }
+    return items.isEmpty() ? null : items;
+  }
+
   /**
    * A table's aclitem[], from each grantee's table and namespace grants (PostgreSQL's GRANT ON ALL
    * TABLES IN SCHEMA lands on every table too), or null when nobody holds any. CREATE, DROP and
    * ALTER have no table letter in PostgreSQL and are left out.
    */
-  // ponytail: two calls per grantee and table, and names are not quoted; a bulk privilege call in
+  // ponytail: one call per grantee and table, and names are not quoted; a bulk privilege call in
   // Cluster's AuthAdmin would make \dp cheap
-  @Nullable private List<String> acl(Map<String, Boolean> grantees, String namespace, String table)
+  @Nullable private List<String> acl(
+      Map<String, Boolean> grantees,
+      Map<String, java.util.Set<AuthAdmin.Privilege>> namespaceGrants,
+      String namespace,
+      String table)
       throws ExecutionException {
     List<String> items = new ArrayList<>();
     for (Map.Entry<String, Boolean> g : grantees.entrySet()) {
       java.util.Set<AuthAdmin.Privilege> held = java.util.EnumSet.noneOf(AuthAdmin.Privilege.class);
-      if (g.getValue()) {
-        held.addAll(admin.getPrivileges(g.getKey(), namespace));
-        held.addAll(admin.getPrivileges(g.getKey(), namespace, table));
-      } else {
-        held.addAll(admin.getRolePrivileges(g.getKey(), namespace));
-        held.addAll(admin.getRolePrivileges(g.getKey(), namespace, table));
-      }
+      held.addAll(namespaceGrants.getOrDefault(g.getKey(), Collections.emptySet()));
+      held.addAll(
+          g.getValue()
+              ? admin.getPrivileges(g.getKey(), namespace, table)
+              : admin.getRolePrivileges(g.getKey(), namespace, table));
       String item = aclItem(g.getKey(), held);
       if (item != null) {
         items.add(item);

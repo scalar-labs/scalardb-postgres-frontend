@@ -112,6 +112,7 @@ check "GRANT DELETE" '^GRANT$' "$(su 'GRANT DELETE ON items TO dave')"
 check "the DELETE grant deletes" 'DELETE 0' "$(as dave davepw2 'DELETE FROM items WHERE id = 99')"
 check "GRANT USAGE, CREATE ON SCHEMA" 'USAGE has no ScalarDB counterpart' "$(su 'GRANT USAGE, CREATE ON SCHEMA authdemo TO dave')"
 check "the CREATE grant creates" 'CREATE TABLE' "$(as dave davepw2 'CREATE TABLE davetab (id INT, PRIMARY KEY (id))')"
+check "\\dn+ shows who may create in a schema" '^public\|scalardb\|dave=C/scalardb\|' "$(as carol carolpw2 '\dn+')"
 su 'DROP TABLE IF EXISTS davetab' >/dev/null 2>&1
 
 # PASSWORD NULL, IF EXISTS, a leading comment

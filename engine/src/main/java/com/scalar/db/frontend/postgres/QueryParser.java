@@ -2043,7 +2043,7 @@ public class QueryParser {
    */
   public Plan parse(String sql, List<Object> parameters) throws ExecutionException {
     catalog.invalidateIfStale(DDL_GENERATION.get());
-    catalog.setAcls(RELACL.matcher(sql).find());
+    catalog.setAcls(ACLS.matcher(sql).find());
     ctes = Collections.emptyMap();
     int needed = parameterCount(sql);
     if (needed > parameters.size()) {
@@ -2594,7 +2594,7 @@ public class QueryParser {
     catalog.invalidate();
   }
 
-  private static final Pattern RELACL = Pattern.compile("(?i)\\brelacl\\b");
+  private static final Pattern ACLS = Pattern.compile("(?i)\\b(relacl|nspacl)\\b");
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
@@ -3662,6 +3662,9 @@ public class QueryParser {
           for (String c : s.columns) {
             if (!(e instanceof AllTableColumns) && s.merged.containsKey(c)) {
               continue; // a USING column comes out once, from the left side
+            }
+            if (s.catalogTable != null && c.equals(Catalog.TABLEOID)) {
+              continue; // a system column
             }
             Expression column = new net.sf.jsqlparser.schema.Column(new Table(s.qualifier), c);
             String name = multi ? s.qualifier + "." + c : c;

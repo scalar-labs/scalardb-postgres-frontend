@@ -52,6 +52,10 @@ at the end of this section.
   The table comment says which they are, as `\dt+` and `obj_description(oid, 'pg_class')` show
   (`ScalarDB partition key (w_id, d_id), clustering key (o_id DESC)`). Table sizes are unknown
   and show empty.
+- **psql's describe commands answer from that catalog.** `\l`, `\dn`, `\dt`, `\d`, `\di`, `\du`,
+  `\dp` and the rest (with `+`) work; database and table sizes show empty, and ScalarDB has no
+  domains, collations, publications or tablespaces beyond PostgreSQL's two built-in ones, so those
+  lists come back empty.
 - **Large sorts and aggregations run in the frontend's memory.** A query that sorts or groups a
   very large table without a key holds all its rows in the frontend.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**

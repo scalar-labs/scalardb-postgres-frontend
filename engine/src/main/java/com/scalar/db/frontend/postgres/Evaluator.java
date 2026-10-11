@@ -3026,7 +3026,20 @@ final class Evaluator {
         case "PG_PARTITION_ANCESTORS":
         case "COL_DESCRIPTION":
         case "SHOBJ_DESCRIPTION":
+        case "PG_DATABASE_SIZE":
           return null;
+        case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
+        case "PG_TYPE_IS_VISIBLE":
+        case "PG_OPCLASS_IS_VISIBLE":
+        case "PG_OPFAMILY_IS_VISIBLE":
+        case "PG_COLLATION_IS_VISIBLE":
+          return true;
+        case "PG_CHAR_TO_ENCODING":
+          return "UTF8".equalsIgnoreCase(String.valueOf(arg(args, 0))) ? 6L : -1L;
+        case "GETDATABASEENCODING":
+          return "UTF8";
+        case "PG_TABLESPACE_LOCATION": // the built-in tablespaces have none
+          return "";
         case "CURRENT_SCHEMA":
           return ctx.catalog == null ? null : "public"; // the connected namespace shows as public
         case "CURRENT_DATABASE":

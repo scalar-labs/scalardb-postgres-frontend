@@ -29,6 +29,7 @@ import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.Key;
 import com.scalar.db.io.TextColumn;
 import com.scalar.db.util.ThrowableSupplier;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -42,6 +43,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -890,6 +892,53 @@ public class PostgresServerTest {
     }
   }
 
+  /** The rows of one of psql's catalog queries, saved verbatim under src/test/resources/psql. */
+  private List<String> psql(Statement statement, String name) throws Exception {
+    String sql;
+    try (java.io.InputStream in = getClass().getResourceAsStream("/psql/" + name + ".sql")) {
+      sql = new String(Objects.requireNonNull(in, name).readAllBytes(), StandardCharsets.UTF_8);
+    }
+    List<String> rows = new ArrayList<>();
+    try (ResultSet rs = statement.executeQuery(sql)) {
+      int n = rs.getMetaData().getColumnCount();
+      while (rs.next()) {
+        List<String> row = new ArrayList<>();
+        for (int i = 1; i <= n; i++) {
+          row.add(rs.getString(i));
+        }
+        rows.add(String.join("|", row));
+      }
+    }
+    return rows;
+  }
+
+  @Test
+  public void psqlMetaCommands_ShouldAnswerAsPostgreSqlDoes() throws Exception {
+    when(admin.getNamespaceNames()).thenReturn(Collections.singleton("ns"));
+    when(admin.getNamespaceTableNames("ns")).thenReturn(Collections.singleton("t"));
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      List<String> failures = new ArrayList<>();
+      for (String name :
+          Arrays.asList(
+              "databases",
+              "schemas",
+              "comments",
+              "access_methods",
+              "domains",
+              "collations",
+              "tablespaces",
+              "publications")) {
+        try {
+          System.out.println(name + ": " + psql(statement, name));
+        } catch (SQLException e) {
+          failures.add(name + ": " + e.getMessage());
+        }
+      }
+      assertThat(failures).isEmpty();
+    }
+  }
+
   @Test
   public void du_ShouldListClusterUsersAndRoles() throws Exception {
     AuthAdmin.User bob = mock(AuthAdmin.User.class);
@@ -1029,6 +1078,8 @@ public class PostgresServerTest {
         .thenReturn(EnumSet.of(AuthAdmin.Privilege.WRITE, AuthAdmin.Privilege.GRANT));
     when(admin.getRolePrivileges("readers", "ns", "t"))
         .thenReturn(EnumSet.of(AuthAdmin.Privilege.READ, AuthAdmin.Privilege.DELETE));
+    when(admin.getRolePrivileges("readers", "ns"))
+        .thenReturn(EnumSet.of(AuthAdmin.Privilege.CREATE));
     try (Connection connection = connectForDcl();
         Statement statement = connection.createStatement()) {
       try (ResultSet rs = statement.executeQuery("SELECT count(*) FROM pg_class")) {
@@ -1041,6 +1092,9 @@ public class PostgresServerTest {
         assertThat(rs.getString(4)).isEqualTo("bob=a*r*w*/scalardb\nreaders=rd/scalardb");
         assertThat(rs.next()).isFalse();
       }
+      // \dn+: who may create tables in the schema
+      assertThat(psql(statement, "schemas"))
+          .containsExactly("public|scalardb|readers=C/scalardb|null");
     }
   }
 
