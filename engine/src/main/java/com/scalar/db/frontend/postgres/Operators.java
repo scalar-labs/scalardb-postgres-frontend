@@ -1343,13 +1343,50 @@ final class Operators {
     /** Reads in flight at once when the reads may run concurrently. */
     static final int PARALLEL = 16;
 
-    private static final java.util.concurrent.ExecutorService LOOKUPS =
-        java.util.concurrent.Executors.newCachedThreadPool(
+    /** Lookup threads across all sessions, unless scalar.db.postgres.max_lookup_threads says. */
+    static final int DEFAULT_MAX_THREADS = 100;
+
+    // Shared by every session and capped: each thread holds one ScalarDB read, so threads beyond
+    // the storage's connections would only wait for one. There is no queue: when every thread is
+    // busy, the session runs the read on its own thread (see run), so a session that fills the
+    // pool with slow reads slows itself, never another session. Idle threads exit after a minute.
+    private static final java.util.concurrent.ThreadPoolExecutor LOOKUPS =
+        new java.util.concurrent.ThreadPoolExecutor(
+            DEFAULT_MAX_THREADS,
+            DEFAULT_MAX_THREADS,
+            60,
+            java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.SynchronousQueue<>(),
             runnable -> {
               Thread t = new Thread(runnable, "lookup");
               t.setDaemon(true);
               return t;
             });
+
+    static {
+      LOOKUPS.allowCoreThreadTimeOut(true);
+    }
+
+    /** Caps the lookup threads of all sessions together. */
+    static void setMaxThreads(int max) {
+      if (max < 1) {
+        throw new IllegalArgumentException(
+            "scalar.db.postgres.max_lookup_threads must be at least 1: " + max);
+      }
+      // raise the maximum first when growing, lower the core first when shrinking: core <= max
+      if (max > LOOKUPS.getMaximumPoolSize()) {
+        LOOKUPS.setMaximumPoolSize(max);
+        LOOKUPS.setCorePoolSize(max);
+      } else {
+        LOOKUPS.setCorePoolSize(max);
+        LOOKUPS.setMaximumPoolSize(max);
+      }
+    }
+
+    /** The lookup threads alive now, for tests. */
+    static int threads() {
+      return LOOKUPS.getPoolSize();
+    }
 
     private final java.util.ArrayDeque<Map<String, Object>> pendingLeft =
         new java.util.ArrayDeque<>();
@@ -1424,16 +1461,20 @@ final class Operators {
       for (int from = 0; from < tasks.size(); from += PARALLEL) {
         List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
         for (Runnable task : tasks.subList(from, Math.min(from + PARALLEL, tasks.size()))) {
-          futures.add(
-              LOOKUPS.submit(
-                  identity == null
-                      ? task
-                      : () ->
-                          identity.<Void, RuntimeException>run(
-                              () -> {
-                                task.run();
-                                return null;
-                              })));
+          try {
+            futures.add(
+                LOOKUPS.submit(
+                    identity == null
+                        ? task
+                        : () ->
+                            identity.<Void, RuntimeException>run(
+                                () -> {
+                                  task.run();
+                                  return null;
+                                })));
+          } catch (java.util.concurrent.RejectedExecutionException full) {
+            task.run(); // every pool thread is busy: read here, in the session's identity already
+          }
         }
         for (java.util.concurrent.Future<?> future : futures) {
           try {

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "032"
 tags: [code-review, concurrency, embedding, architecture]
@@ -97,3 +97,22 @@ ZONE into Evaluator.Context/Execution (~10 call sites). Leave BOUND/EMBEDDED unt
 
 **Verdict:**
 - PARTLY REAL. The lookup pool is an uncapped cached pool (about 16 threads per busy session, so up to about 1,600). The ThreadLocal hazard does not apply today: pool tasks only read and build rows.
+
+### 2026-10-11 - Fixed
+
+**By:** Claude Code
+
+**Actions:**
+- The lookup pool is capped: 100 threads across all sessions by default, set with
+  `scalar.db.postgres.max_lookup_threads`. There is no queue: when every thread is busy, the
+  session reads on its own thread, so a session holding the pool with slow or hung reads slows
+  only itself (a queue would have let it stall every other session's lookup joins; flagged by the
+  commit security review). 100 is half of ScalarDB's
+  default JDBC pool (200), leaving the other half for the sessions' own reads at the default
+  `max_connections` of 100; threads beyond the free connections would only wait inside the pool.
+- Checked that no lookup task waits on another (each is one `reader().read(...)` plus row
+  conversion), so a full pool cannot deadlock.
+- Tests: execute_LookupJoinPastTheThreadCap_ShouldReadOnItsOwnThread (cap 3, 40 lookups; fails
+  when the cap is not applied) and execute_LookupJoinWhilePoolIsHeld_ShouldNotWaitForOtherSessions
+  (cap 1 held by a hung session; fails with a queue).
+- The ThreadLocal part stays as triaged: pool tasks only read and build rows.

@@ -2364,6 +2364,110 @@ public class QueryParserTest {
   }
 
   @Test
+  public void execute_LookupJoinPastTheThreadCap_ShouldReadOnItsOwnThread() throws Exception {
+    // with the pool capped at 3, a join wanting 16 lookups at a time gets 3 pool threads and reads
+    // the rest itself, so it never waits for a thread another session holds
+    List<Result> rows = new ArrayList<>();
+    List<Result> looked = new ArrayList<>();
+    for (int i = 1; i <= 40; i++) {
+      rows.add(row(1, i, "n" + i, 1.0 * i, true));
+      looked.add(row(i, i, "n" + i, 1.0 * i, true));
+    }
+    DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
+    TestScanners.stub(manager);
+    when(manager.scan(any())).thenReturn(rows);
+    java.util.concurrent.atomic.AtomicInteger inFlight =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger maxInFlight =
+        new java.util.concurrent.atomic.AtomicInteger();
+    when(manager.get(any()))
+        .thenAnswer(
+            invocation -> {
+              Get get = invocation.getArgument(0);
+              long seq = get.getClusteringKey().get().getBigIntValue(0);
+              maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
+              Thread.sleep(2);
+              inFlight.decrementAndGet();
+              return java.util.Optional.of(looked.get((int) seq - 1));
+            });
+    Operators.LookupJoin.setMaxThreads(3);
+    try {
+      List<Map<String, Object>> out =
+          parser
+              .parse(
+                  "SELECT a.seq, b.name FROM t a JOIN t b ON b.id = a.seq AND b.seq = a.seq"
+                      + " WHERE a.id = 1")
+              .execute(manager);
+      assertThat(out).hasSize(40);
+      assertThat(out.get(39)).containsEntry("seq", 40L).containsEntry("name", "n40");
+      // the 3 pool threads, plus the session's own thread
+      assertThat(maxInFlight.get()).as("lookups in flight at once").isBetween(2, 4);
+      assertThat(Operators.LookupJoin.threads()).isLessThanOrEqualTo(3);
+    } finally {
+      Operators.LookupJoin.setMaxThreads(Operators.LookupJoin.DEFAULT_MAX_THREADS);
+    }
+    assertThatThrownBy(() -> Operators.LookupJoin.setMaxThreads(0))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void execute_LookupJoinWhilePoolIsHeld_ShouldNotWaitForOtherSessions() throws Exception {
+    // session A's lookups hang and hold the only pool thread; session B's join still finishes
+    List<Result> rows = new ArrayList<>();
+    List<Result> looked = new ArrayList<>();
+    for (int i = 1; i <= 40; i++) {
+      rows.add(row(1, i, "n" + i, 1.0 * i, true));
+      looked.add(row(i, i, "n" + i, 1.0 * i, true));
+    }
+    java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+    java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
+    DistributedTransactionManager hanging = mock(DistributedTransactionManager.class);
+    TestScanners.stub(hanging);
+    when(hanging.scan(any())).thenReturn(rows);
+    when(hanging.get(any()))
+        .thenAnswer(
+            invocation -> {
+              if (Thread.currentThread().getName().equals("lookup")) {
+                held.countDown();
+                release.await();
+              }
+              return java.util.Optional.empty();
+            });
+    DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
+    TestScanners.stub(manager);
+    when(manager.scan(any())).thenReturn(rows);
+    when(manager.get(any()))
+        .thenAnswer(
+            invocation -> {
+              Get get = invocation.getArgument(0);
+              long seq = get.getClusteringKey().get().getBigIntValue(0);
+              return java.util.Optional.of(looked.get((int) seq - 1));
+            });
+    String sql =
+        "SELECT a.seq, b.name FROM t a JOIN t b ON b.id = a.seq AND b.seq = a.seq WHERE a.id = 1";
+    Operators.LookupJoin.setMaxThreads(1);
+    java.util.concurrent.ExecutorService sessions =
+        java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+      QueryParser.Plan a = new QueryParser(admin, NS).parse(sql);
+      java.util.concurrent.Future<?> first = sessions.submit(() -> a.execute(hanging));
+      assertThat(held.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      QueryParser.Plan b = new QueryParser(admin, NS).parse(sql);
+      assertThat(
+              sessions
+                  .submit(() -> b.execute(manager))
+                  .get(10, java.util.concurrent.TimeUnit.SECONDS))
+          .hasSize(40);
+      release.countDown();
+      first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    } finally {
+      release.countDown();
+      sessions.shutdownNow();
+      Operators.LookupJoin.setMaxThreads(Operators.LookupJoin.DEFAULT_MAX_THREADS);
+    }
+  }
+
+  @Test
   public void parse_KeywordColumns_ShouldEvaluateToSessionValues() throws Exception {
     // pgjdbc's metadata queries start with SELECT current_catalog
     assertThat(parser.parse("SELECT current_catalog AS c, current_user AS u").execute(transaction))

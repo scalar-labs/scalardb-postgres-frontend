@@ -204,6 +204,10 @@ public class PostgresServer implements AutoCloseable {
     if (ceiling != null) {
       maxRowsPerWriteCeiling = Integer.parseInt(ceiling.trim());
     }
+    String lookups = properties.getProperty("scalar.db.postgres.max_lookup_threads");
+    if (lookups != null) {
+      Operators.LookupJoin.setMaxThreads(Integer.parseInt(lookups.trim()));
+    }
     String held = properties.getProperty("scalar.db.postgres.max_rows_in_memory");
     if (held != null) {
       QueryParser.setMaxRowsInMemory(Integer.parseInt(held.trim()));
