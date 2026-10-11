@@ -77,6 +77,9 @@ check "the role's grant is gone" '42501' "$(as carol carolpw2 'SELECT count(*) F
 su "CREATE USER erin WITH PASSWORD 'erinpw'" >/dev/null
 check "CREATE ROLE leads" 'CREATE ROLE' "$(su 'CREATE ROLE leads')"
 check "GRANT on a table to a role" '^GRANT$' "$(su 'GRANT SELECT ON items TO leads')"
+check "\\dp shows a user's grants" '^public\|items\|table\|alice=arwd/scalardb$' "$(as carol carolpw2 '\dp items')"
+check "\\dp shows a schema grant on the table" '^auditors=r/scalardb$' "$(as carol carolpw2 '\dp items')"
+check "\\dp shows a role's grant" '^leads=r/scalardb' "$(as carol carolpw2 '\dp items')"
 check "GRANT a role to a role" 'GRANT ROLE' "$(su 'GRANT leads TO auditors')"
 check "REVOKE ON ALL TABLES IN SCHEMA from a role" '^REVOKE$' "$(su 'REVOKE SELECT ON ALL TABLES IN SCHEMA authdemo FROM auditors')"
 su 'GRANT auditors TO erin' >/dev/null

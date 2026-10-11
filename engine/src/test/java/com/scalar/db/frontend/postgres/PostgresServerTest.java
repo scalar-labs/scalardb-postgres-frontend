@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -960,6 +961,86 @@ public class PostgresServerTest {
       assertThat(grants)
           .containsExactly(
               "carol leads ADMIN, INHERIT, SET null", "leads readers INHERIT, SET null");
+    }
+  }
+
+  /** psql 18's {@code \dp t}, verbatim. */
+  private static final String DP =
+      "SELECT n.nspname as \"Schema\",\n"
+          + "  c.relname as \"Name\",\n"
+          + "  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as \"Type\",\n"
+          + "  CASE WHEN pg_catalog.array_length(c.relacl, 1) = 0 THEN '(none)' ELSE pg_catalog.array_to_string(c.relacl, E'\\n') END AS \"Access privileges\",\n"
+          + "  pg_catalog.array_to_string(ARRAY(\n"
+          + "    SELECT attname || E':\\n  ' || pg_catalog.array_to_string(attacl, E'\\n  ')\n"
+          + "    FROM pg_catalog.pg_attribute a\n"
+          + "    WHERE attrelid = c.oid AND NOT attisdropped AND attacl IS NOT NULL\n"
+          + "  ), E'\\n') AS \"Column privileges\",\n"
+          + "  pg_catalog.array_to_string(ARRAY(\n"
+          + "    SELECT polname\n"
+          + "    || CASE WHEN NOT polpermissive THEN\n"
+          + "       E' (RESTRICTIVE)'\n"
+          + "       ELSE '' END\n"
+          + "    || CASE WHEN polcmd != '*' THEN\n"
+          + "           E' (' || polcmd::pg_catalog.text || E'):'\n"
+          + "       ELSE E':'\n"
+          + "       END\n"
+          + "    || CASE WHEN polqual IS NOT NULL THEN\n"
+          + "           E'\\n  (u): ' || pg_catalog.pg_get_expr(polqual, polrelid)\n"
+          + "       ELSE E''\n"
+          + "       END\n"
+          + "    || CASE WHEN polwithcheck IS NOT NULL THEN\n"
+          + "           E'\\n  (c): ' || pg_catalog.pg_get_expr(polwithcheck, polrelid)\n"
+          + "       ELSE E''\n"
+          + "       END    || CASE WHEN polroles <> '{0}' THEN\n"
+          + "           E'\\n  to: ' || pg_catalog.array_to_string(\n"
+          + "               ARRAY(\n"
+          + "                   SELECT rolname\n"
+          + "                   FROM pg_catalog.pg_roles\n"
+          + "                   WHERE oid = ANY (polroles)\n"
+          + "                   ORDER BY 1\n"
+          + "               ), E', ')\n"
+          + "       ELSE E''\n"
+          + "       END\n"
+          + "    FROM pg_catalog.pg_policy pol\n"
+          + "    WHERE polrelid = c.oid), E'\\n')\n"
+          + "    AS \"Policies\"\n"
+          + "FROM pg_catalog.pg_class c\n"
+          + "     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n"
+          + "WHERE c.relkind IN ('r','v','m','S','f','p')\n"
+          + "  AND c.relname OPERATOR(pg_catalog.~) '^(t)$' COLLATE pg_catalog.default\n"
+          + "  AND pg_catalog.pg_table_is_visible(c.oid)\n"
+          + "ORDER BY 1, 2;\n";
+
+  @Test
+  public void dp_ShouldListClusterGrants() throws Exception {
+    when(admin.getNamespaceNames()).thenReturn(Collections.singleton("ns"));
+    when(admin.getNamespaceTableNames("ns")).thenReturn(Collections.singleton("t"));
+    AuthAdmin.User root = mock(AuthAdmin.User.class);
+    when(root.getName()).thenReturn("root");
+    when(root.isSuperuser()).thenReturn(true);
+    AuthAdmin.User bob = mock(AuthAdmin.User.class);
+    when(bob.getName()).thenReturn("bob");
+    AuthAdmin.Role readers = mock(AuthAdmin.Role.class);
+    when(readers.getName()).thenReturn("readers");
+    when(admin.getUsers()).thenReturn(Arrays.asList(root, bob));
+    when(admin.getRoles()).thenReturn(Collections.singletonList(readers));
+    when(admin.getPrivileges("bob", "ns")).thenReturn(EnumSet.of(AuthAdmin.Privilege.READ));
+    when(admin.getPrivileges("bob", "ns", "t"))
+        .thenReturn(EnumSet.of(AuthAdmin.Privilege.WRITE, AuthAdmin.Privilege.GRANT));
+    when(admin.getRolePrivileges("readers", "ns", "t"))
+        .thenReturn(EnumSet.of(AuthAdmin.Privilege.READ, AuthAdmin.Privilege.DELETE));
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement()) {
+      try (ResultSet rs = statement.executeQuery("SELECT count(*) FROM pg_class")) {
+        assertThat(rs.next()).isTrue();
+      }
+      verify(admin, never()).getPrivileges(any(), any(), any()); // only \dp pays for the grants
+      try (ResultSet rs = statement.executeQuery(DP)) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getString(2)).isEqualTo("t");
+        assertThat(rs.getString(4)).isEqualTo("bob=a*r*w*/scalardb\nreaders=rd/scalardb");
+        assertThat(rs.next()).isFalse();
+      }
     }
   }
 

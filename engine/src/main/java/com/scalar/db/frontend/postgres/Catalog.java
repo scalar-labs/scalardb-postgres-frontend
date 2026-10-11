@@ -20,9 +20,9 @@ import javax.annotation.Nullable;
 /**
  * Virtual {@code pg_catalog} and {@code information_schema} tables built from ScalarDB metadata,
  * enough for hand-written catalog queries and for psql's {@code \l}, {@code \dn}, {@code \dt},
- * {@code \du}, {@code \d}, {@code \d table}, and {@code \di}. Namespaces appear as both schemas and
- * databases; every table gets a {@code <table>_pkey} primary-key index and a {@code
- * <table>_<column>_idx} index per secondary index. Rows are rebuilt lazily after each {@link
+ * {@code \du}, {@code \dp}, {@code \d}, {@code \d table}, and {@code \di}. Namespaces appear as
+ * both schemas and databases; every table gets a {@code <table>_pkey} primary-key index and a
+ * {@code <table>_<column>_idx} index per secondary index. Rows are rebuilt lazily after each {@link
  * #invalidate()}.
  */
 final class Catalog {
@@ -76,7 +76,8 @@ final class Catalog {
             "relchecks",
             "reloptions",
             "relpartbound",
-            "reltuples"));
+            "reltuples",
+            "relacl"));
     PG_CATALOG.put("pg_am", cols("oid", "amname"));
     PG_CATALOG.put(
         "pg_attribute",
@@ -94,7 +95,8 @@ final class Catalog {
             "attgenerated",
             "attstorage",
             "attcompression",
-            "attstattarget"));
+            "attstattarget",
+            "attacl"));
     PG_CATALOG.put(
         "pg_type",
         cols(
@@ -383,6 +385,8 @@ final class Catalog {
   final String database;
   String user = OWNER; // the connecting user, for current_user
   boolean clusterUsers; // pg_roles lists Cluster's users and roles, not the OWNER placeholder
+  private boolean acls; // pg_class.relacl holds Cluster's grants: one call per grantee and table
+  private boolean aclsLoaded;
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
@@ -442,6 +446,17 @@ final class Catalog {
   static String typeName(long oid) {
     String name = TYPE_NAMES.get(oid);
     return name == null ? "unknown" : name;
+  }
+
+  /**
+   * Whether the next load fills pg_class.relacl (psql's {@code \\dp}). It asks Cluster for every
+   * grantee's privileges on every table, so only a statement that names relacl turns it on.
+   */
+  void setAcls(boolean wanted) {
+    if (wanted && clusterUsers && !aclsLoaded) {
+      invalidate();
+    }
+    acls = wanted && clusterUsers;
   }
 
   /** Forgets the loaded rows so the next query sees the current ScalarDB metadata. */
@@ -621,6 +636,7 @@ final class Catalog {
             OWNER_OID);
       }
     }
+    Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
     long oid = 16384;
     for (String namespace : new TreeSet<>(admin.getNamespaceNames())) {
       if (namespace.equals("scalardb") || namespace.equals("coordinator")) {
@@ -652,7 +668,15 @@ final class Catalog {
           continue;
         }
         long relOid = oid++;
-        relation(t, relOid, table, namespaceOid, "r", HEAP_AM, true);
+        relation(
+            t,
+            relOid,
+            table,
+            namespaceOid,
+            "r",
+            HEAP_AM,
+            true,
+            grantees.isEmpty() ? null : acl(grantees, namespace, table));
         relationOids.put(namespace + "." + table, relOid);
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
@@ -684,7 +708,8 @@ final class Catalog {
               "",
               "p",
               "",
-              -1L);
+              -1L,
+              null);
           row(
               t,
               "information_schema.columns",
@@ -747,7 +772,7 @@ final class Catalog {
               (long) (k + 1));
         }
         long pkeyOid = oid++;
-        relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false);
+        relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null);
         row(
             t,
             "pg_catalog.pg_index",
@@ -796,7 +821,7 @@ final class Catalog {
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
           String indexName = table + "_" + index + "_idx";
-          relation(t, indexOid, indexName, namespaceOid, "i", BTREE_AM, false);
+          relation(t, indexOid, indexName, namespaceOid, "i", BTREE_AM, false, null);
           int indexPosition = new ArrayList<>(metadata.getColumnNames()).indexOf(index) + 1;
           long indexAttnum = indexPosition;
           row(
@@ -830,7 +855,69 @@ final class Catalog {
     if (clusterUsers) {
       roles(t, oid);
     }
+    aclsLoaded = acls;
     tables = t;
+  }
+
+  /** Who can hold grants, name to whether a user: Cluster's roles and its users but superusers. */
+  private Map<String, Boolean> grantees() throws ExecutionException {
+    Map<String, Boolean> grantees = new java.util.TreeMap<>();
+    for (AuthAdmin.User u : admin.getUsers()) {
+      if (!u.isSuperuser()) {
+        grantees.put(u.getName(), true);
+      }
+    }
+    for (AuthAdmin.Role r : admin.getRoles()) {
+      grantees.put(r.getName(), false);
+    }
+    return grantees;
+  }
+
+  /**
+   * A table's aclitem[], from each grantee's table and namespace grants (PostgreSQL's GRANT ON ALL
+   * TABLES IN SCHEMA lands on every table too), or null when nobody holds any. CREATE, DROP and
+   * ALTER have no table letter in PostgreSQL and are left out.
+   */
+  // ponytail: two calls per grantee and table, and names are not quoted; a bulk privilege call in
+  // Cluster's AuthAdmin would make \dp cheap
+  @Nullable private List<String> acl(Map<String, Boolean> grantees, String namespace, String table)
+      throws ExecutionException {
+    List<String> items = new ArrayList<>();
+    for (Map.Entry<String, Boolean> g : grantees.entrySet()) {
+      java.util.Set<AuthAdmin.Privilege> held = java.util.EnumSet.noneOf(AuthAdmin.Privilege.class);
+      if (g.getValue()) {
+        held.addAll(admin.getPrivileges(g.getKey(), namespace));
+        held.addAll(admin.getPrivileges(g.getKey(), namespace, table));
+      } else {
+        held.addAll(admin.getRolePrivileges(g.getKey(), namespace));
+        held.addAll(admin.getRolePrivileges(g.getKey(), namespace, table));
+      }
+      String item = aclItem(g.getKey(), held);
+      if (item != null) {
+        items.add(item);
+      }
+    }
+    return items.isEmpty() ? null : items;
+  }
+
+  /**
+   * {@code grantee=arwdD/scalardb}, in PostgreSQL's letter order, each with {@code *} if grantable.
+   */
+  @Nullable static String aclItem(String grantee, java.util.Set<AuthAdmin.Privilege> held) {
+    StringBuilder letters = new StringBuilder();
+    String grantable = held.contains(AuthAdmin.Privilege.GRANT) ? "*" : "";
+    for (char c : "arwdD".toCharArray()) {
+      AuthAdmin.Privilege needed =
+          c == 'r'
+              ? AuthAdmin.Privilege.READ
+              : c == 'd'
+                  ? AuthAdmin.Privilege.DELETE
+                  : c == 'D' ? AuthAdmin.Privilege.TRUNCATE : AuthAdmin.Privilege.WRITE;
+      if (held.contains(needed)) {
+        letters.append(c).append(grantable);
+      }
+    }
+    return letters.length() == 0 ? null : grantee + "=" + letters + "/" + OWNER;
   }
 
   /**
@@ -901,7 +988,8 @@ final class Catalog {
       long namespaceOid,
       String kind,
       long am,
-      boolean hasIndex) {
+      boolean hasIndex,
+      @Nullable List<String> acl) {
     row(
         t,
         "pg_catalog.pg_class",
@@ -925,7 +1013,8 @@ final class Catalog {
         0L,
         null,
         null,
-        -1.0);
+        -1.0,
+        acl);
   }
 
   private static void row(

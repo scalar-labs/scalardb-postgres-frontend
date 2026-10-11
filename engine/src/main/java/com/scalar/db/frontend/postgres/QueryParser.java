@@ -2043,6 +2043,7 @@ public class QueryParser {
    */
   public Plan parse(String sql, List<Object> parameters) throws ExecutionException {
     catalog.invalidateIfStale(DDL_GENERATION.get());
+    catalog.setAcls(RELACL.matcher(sql).find());
     ctes = Collections.emptyMap();
     int needed = parameterCount(sql);
     if (needed > parameters.size()) {
@@ -2592,6 +2593,8 @@ public class QueryParser {
     catalog.clusterUsers = enabled;
     catalog.invalidate();
   }
+
+  private static final Pattern RELACL = Pattern.compile("(?i)\\brelacl\\b");
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");

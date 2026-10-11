@@ -13,9 +13,11 @@ at the end of this section.
   see it; libpq's `require_auth=scram-sha-256` refuses that. Without Cluster there is no user store:
   `auth=none` trusts every connection and `current_user` echoes the name the client gave. Still open
   with authentication on: the catalog lists every table whatever the user's privileges (reading the data
-  is what fails), `\dp` does not list Cluster's grants (`\du` and `\drg` do list its users and roles),
-  and an OIDC session outlives its token and ends with `28000` when it expires. A Cluster bug lets an
-  old password keep logging in for up to the token lifetime
+  is what fails), `\du`, `\drg` and `\dp` list Cluster's users, roles and grants, but `\dp` shows only
+  what has a PostgreSQL table privilege letter (not `CREATE`, `DROP` or `ALTER`), merges namespace
+  grants into each table's, names `scalardb` as every grantor, and costs Cluster two calls per grantee
+  and table, and an OIDC session outlives its token and ends with `28000` when it expires. A Cluster bug
+  lets an old password keep logging in for up to the token lifetime
   (`scalar.db.cluster.auth.auth_token_expiration_time_minutes`, a day by default) after `ALTER USER ...
   PASSWORD` or after the user is dropped and re-created, as long as it logged in through this frontend
   process before: shorten that setting on the nodes, or restart the frontend after such a change
