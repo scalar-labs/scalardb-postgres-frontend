@@ -5,6 +5,7 @@ import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
 import com.scalar.db.exception.storage.ExecutionException;
 import com.scalar.db.exception.transaction.TransactionException;
+import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -929,6 +930,10 @@ public class QueryProcessor {
           try {
             written = plan.executeWrite(own, maxRowsPerWrite(), identity);
             own.commit();
+          } catch (UnknownTransactionStatusException e) {
+            // The commit may have landed: as ScalarDB advises, no rollback, and the client checks
+            // the outcome by the transaction ID in the message (40003), as after a COMMIT
+            throw e;
           } catch (RuntimeException | TransactionException e) {
             try {
               own.rollback();

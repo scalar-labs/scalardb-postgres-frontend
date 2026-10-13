@@ -1180,6 +1180,10 @@ public class PostgresServer implements AutoCloseable {
         // JDK's text names classes and variables the client has no use for
         logger.warn("Statement failed with an internal error", e);
         message = "internal error: the server log has the details";
+      } else if (code.equals("40003")) {
+        // Whether the transaction committed is unknown: the operator needs its ID (in ScalarDB's
+        // message) to resolve it, whatever the client does with the error
+        logger.warn("Transaction outcome unknown: {}", message);
       } else {
         logger.debug("Statement failed: {}", message); // the SQL text may hold data: not at INFO
       }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,6 +19,8 @@ import com.scalar.db.api.Result;
 import com.scalar.db.api.Scan;
 import com.scalar.db.api.TableMetadata;
 import com.scalar.db.common.ResultImpl;
+import com.scalar.db.exception.transaction.CommitConflictException;
+import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.Key;
@@ -73,6 +76,21 @@ public class QueryProcessorTest {
     assertThat(processor.lastCommandTag()).isEqualTo("ROLLBACK");
     verify(transaction).commit();
     verify(transaction, never()).rollback();
+  }
+
+  @Test
+  public void autoCommitWrite_CommitFailed_ShouldRollBackOnlyWhenTheOutcomeIsKnown()
+      throws Exception {
+    // a write that reads first runs in a transaction of its own (a key alone is a one-shot mutate)
+    doThrow(new UnknownTransactionStatusException("unknown", "tx1")).when(transaction).commit();
+    assertThatThrownBy(() -> processor.execute("DELETE FROM t WHERE id > 0"))
+        .isInstanceOf(UnknownTransactionStatusException.class);
+    verify(transaction, never()).rollback(); // the commit may have landed
+
+    doThrow(new CommitConflictException("conflict", "tx2")).when(transaction).commit();
+    assertThatThrownBy(() -> processor.execute("DELETE FROM t WHERE id > 0"))
+        .isInstanceOf(CommitConflictException.class);
+    verify(transaction).rollback();
   }
 
   @Test
