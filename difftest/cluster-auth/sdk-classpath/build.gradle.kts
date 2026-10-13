@@ -5,9 +5,13 @@ plugins { java }
 repositories {
     mavenLocal()
     mavenCentral()
+    maven("https://central.sonatype.com/repository/maven-snapshots/") {
+        mavenContent { snapshotsOnly() }
+        content { includeGroup("com.scalar-labs") }
+    }
 }
 
-dependencies { runtimeOnly("com.scalar-labs:scalardb-cluster-java-client-sdk:4.0.0-SNAPSHOT") }
+dependencies { runtimeOnly("com.scalar-labs:scalardb-cluster-java-client-sdk:3.20.0-SNAPSHOT") }
 
 tasks.register<Copy>("lib") {
     from(configurations.runtimeClasspath)

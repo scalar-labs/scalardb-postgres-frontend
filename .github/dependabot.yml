@@ -1,0 +1,21 @@
+# Weekly updates. The Docker base image is pinned by digest, so without this it never moves; the
+# Gradle entry covers libs.versions.toml, where ScalarDB's own version is pinned by hand.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: com.scalar-labs:*
+      # kept at ScalarDB's versions (see libs.versions.toml); slf4j stays on 1.7 for slf4j-simple
+      - dependency-name: com.fasterxml.jackson.core:*
+      - dependency-name: org.slf4j:*
+  - package-ecosystem: docker
+    directory: /server/src/docker
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

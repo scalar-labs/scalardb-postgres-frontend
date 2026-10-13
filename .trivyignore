@@ -1,0 +1,5 @@
+# Read by the image scan in .github/workflows/ci.yml. Each entry says why it is not a finding.
+
+# mssql-jdbc 12.8.2.jre11 is the fixed build (gradle/libs.versions.toml), but its pom.properties says
+# version=12.8.2 without the suffix, so Trivy compares 12.8.2 with the fixed 12.8.2.jre11 and flags it
+CVE-2025-59250

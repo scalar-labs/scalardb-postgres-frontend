@@ -14,7 +14,7 @@ BB=${BENCHBASE:?set BENCHBASE to the benchbase-postgres directory}
 PROXIED=${PROXIED_PROPERTIES:-$S/pgbench/scalardb-proxied.properties}
 PG=/opt/homebrew/opt/postgresql@18/bin
 T=$(cd "$(dirname "$0")" && pwd)
-JAR=$T/../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar
+JAR=$T/../../server/build/libs/scalardb-postgres-frontend.jar
 OUT=$S/tpcc/lat$D${TAG:-}
 mkdir -p "$OUT"
 bb() { (cd "$BB" && $JAVA23 -Dbenchbase.catalog.hsqldb=true -cp "benchbase.jar:hsqldb.jar:lib/*" com.oltpbenchmark.DBWorkload -b tpcc "$@"); }

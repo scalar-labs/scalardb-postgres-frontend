@@ -15,15 +15,19 @@ as `NUMERIC(10,2)` kept only as a `NOTICE`; text comparison following the backin
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.
 
+Without authentication (the default, and the only mode without ScalarDB Cluster), anyone who can reach
+the port has the configured ScalarDB user's full access: keep the frontend on a trusted network, or set
+`scalar.db.postgres.listen_address=127.0.0.1`.
+
 ## Quick start
 
-Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `4.0.0-SNAPSHOT`,
+Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `3.20.0-SNAPSHOT`,
 which the build fetches from ScalarDB's snapshot repository; a core you install from a ScalarDB checkout with
 `./gradlew :core:publishToMavenLocal` takes precedence.
 
 ```sh
 ./gradlew shadowJar
-java -jar server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
+java -jar server/build/libs/scalardb-postgres-frontend.jar scalardb.properties 15432
 ```
 
 `scalardb.properties` is an ordinary ScalarDB configuration. The database name a client connects

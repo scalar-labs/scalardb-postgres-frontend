@@ -16,7 +16,7 @@ import java.util.Properties;
  * the users alice (READ, WRITE and DELETE on the namespace) and bob (nothing). Run with the frontend's fat
  * jar (ScalarDB core) and the Cluster client SDK on the classpath:
  *
- * <pre>java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:<sdk.jar> Setup.java admin.properties</pre>
+ * <pre>java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:<sdk.jar> Setup.java admin.properties</pre>
  */
 public class Setup {
   public static void main(String[] args) throws Exception {

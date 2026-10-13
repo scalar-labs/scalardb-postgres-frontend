@@ -1,6 +1,6 @@
 [versions]
 # From ScalarDB's snapshot repository, or a checkout's ./gradlew :core:publishToMavenLocal
-scalardb = "4.0.0-SNAPSHOT"
+scalardb = "3.20.0-SNAPSHOT"
 jsqlparser = "5.4"
 # Runtime libraries ScalarDB itself also uses; kept at ScalarDB's versions
 jackson = "2.22.3"
@@ -8,6 +8,11 @@ slf4j = "1.7.36"
 # Newer than ScalarDB's 2.9.3, for the standalone server only: Caffeine 2 uses sun.misc.Unsafe, which
 # Java 24 and later warn about and a later release removes. ScalarDB stays on 2 for its Java 8 target
 caffeine = "3.3.0"
+# Newer than ScalarDB's, for the shipped jar and image only: fixes for HIGH and CRITICAL CVEs in jars
+# ScalarDB's storage drivers and the Cluster SDK bring in (drop each once ScalarDB catches up)
+bouncycastle = "1.85"
+micrometer = "1.15.12"
+mssql-jdbc = "12.8.2.jre11"
 postgresql = "42.7.13"
 junit = "5.14.4"
 assertj = "3.27.7"
@@ -36,6 +41,11 @@ jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", ver
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+bcutil = { module = "org.bouncycastle:bcutil-jdk18on", version.ref = "bouncycastle" }
+micrometer-core = { module = "io.micrometer:micrometer-core", version.ref = "micrometer" }
+mssql-jdbc = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssql-jdbc" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }

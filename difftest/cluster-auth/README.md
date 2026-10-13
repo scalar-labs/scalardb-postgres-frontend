@@ -25,7 +25,7 @@ Terminal 2, once the node says it is listening on 60053: the users and table, th
 
 ```sh
 ./users.sh list                       # admin (superuser) is created by the node itself
-java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' Setup.java admin.properties
+java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' Setup.java admin.properties
 ./frontend.sh                         # ./frontend.sh 15446 for another port
 ```
 
@@ -85,13 +85,13 @@ the next login (open sessions keep their token until it expires).
 3. **Users and data.** `Setup.java`, as the superuser, creates `authdemo.items` with two rows, `alice` with READ,
    WRITE and DELETE on the namespace (DELETE is its own privilege) and `bob` with nothing:
    ```sh
-   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' Setup.java admin.properties
+   java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' Setup.java admin.properties
    ```
 4. **The frontend**, with TLS from the engine's test certificate and no service user. Note
    `scalar.db.cluster.auth.enabled=true` in `frontend.properties`: without it the SDK never logs in, and every
    call fails with `DB-AUTH-10006`.
    ```sh
-   java -cp ../../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' \
+   java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' \
         com.scalar.db.frontend.postgres.server.Main frontend.properties 15445
    ```
 5. **The scenario:** `./run.sh` (`PORT` overrides 15445). Each check prints `PASS` or `FAIL`.

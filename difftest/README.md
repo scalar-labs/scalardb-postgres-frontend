@@ -6,7 +6,7 @@ Same schema and data on both sides; every case runs through psql on both and the
 initdb -D pgdata -U postgres --auth=trust -E UTF8 --locale=C && pg_ctl -D pgdata -o "-p 15440 -k ''" start
 psql -h localhost -p 15440 -U postgres -c "alter system set timezone = 'UTC'" -c "select pg_reload_conf()"
 psql -h localhost -p 15440 -U postgres -c "create database native_c template template0 encoding 'UTF8' lc_collate 'C' lc_ctype 'C'" -c "create database sdb"
-java -jar ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15441 &   # the jar needs Java 17
+java -jar ../server/build/libs/scalardb-postgres-frontend.jar scalardb.properties 15441 &   # the jar needs Java 17
 python3 gen.py > data.sql
 psql -h localhost -p 15440 -U postgres -d native_c -f schema.sql -f data.sql
 psql -h localhost -p 15441 -U postgres -d sdb -f fe_init.sql -f schema.sql -f data.sql
@@ -68,9 +68,9 @@ the comparison) and the frontend refuses it (`42622`).
 It needs only the frontend's fat jar, which bundles pgjdbc:
 
 ```sh
-java -cp ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar Concurrency.java 15441 conc_si SNAPSHOT
+java -cp ../server/build/libs/scalardb-postgres-frontend.jar Concurrency.java 15441 conc_si SNAPSHOT
 # a second frontend whose properties add scalar.db.consensus_commit.isolation_level=SERIALIZABLE
-java -cp ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar Concurrency.java 15443 conc_ser SERIALIZABLE
+java -cp ../server/build/libs/scalardb-postgres-frontend.jar Concurrency.java 15443 conc_ser SERIALIZABLE
 ```
 
 It fails on lost updates, duplicate keys, a changed bank total, unexpected SQLSTATEs (conflicts must be

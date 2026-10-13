@@ -33,7 +33,7 @@ tasks.named<JavaCompile>("compileJava") {
 
 repositories {
     // A local ./gradlew :core:publishToMavenLocal wins; otherwise ScalarDB's nightly snapshots, which
-    // CI builds against until 4.0.0 is released
+    // CI builds against until the ScalarDB version in libs.versions.toml is released
     mavenLocal()
     mavenCentral()
     maven("https://central.sonatype.com/repository/maven-snapshots/") {

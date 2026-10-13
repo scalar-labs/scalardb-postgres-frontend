@@ -62,17 +62,24 @@ public final class Main {
     int port = args.length > 1 ? Integer.parseInt(args[1]) : 5432;
     // scalar.db.postgres.listen_address: one interface, such as 127.0.0.1; all of them when unset
     String listen = properties.getProperty("scalar.db.postgres.listen_address");
+    java.net.InetAddress address =
+        listen == null ? null : java.net.InetAddress.getByName(listen.trim());
     PostgresServer server =
         new PostgresServer(
-            factory.getTransactionManager(),
-            factory.getTransactionAdmin(),
-            port,
-            listen == null ? null : java.net.InetAddress.getByName(listen.trim()));
+            factory.getTransactionManager(), factory.getTransactionAdmin(), port, address);
     if (!auth.equals("none")) {
       server.setAuthenticator(
           new ClusterAuthenticator(factory.getTransactionAdmin(), auth.equals("oidc_jwt")));
     }
     server.configure(properties);
+    if (auth.equals("none") && (address == null || !address.isLoopbackAddress())) {
+      logger.warn(
+          "No authentication, and listening on {}: anyone who can reach port {} has full access as"
+              + " the configured ScalarDB user. Set scalar.db.postgres.listen_address=127.0.0.1 or"
+              + " turn on scalar.db.postgres.auth",
+          address == null ? "every interface" : address.getHostAddress(),
+          server.getPort());
+    }
     logger.info(
         "Listening on port {}{}",
         server.getPort(),

@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Weekly, so that a vulnerability published against an unchanged dependency still shows up
+  schedule:
+    - cron: '0 3 * * 1'
 
 permissions:
   contents: read
@@ -14,17 +17,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The build's toolchain; it compiles for Java 17
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
-      - uses: gradle/actions/setup-gradle@v4
-      # ScalarDB 4.0.0-SNAPSHOT comes from ScalarDB's snapshot repository (see the java conventions)
+      - uses: gradle/actions/setup-gradle@v6
+      # ScalarDB 3.20.0-SNAPSHOT comes from ScalarDB's snapshot repository (see the java conventions)
       - run: ./gradlew check :server:shadowJar :server:dockerContext
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: test-reports
           path: '**/build/reports/'
+      - run: docker build -t scalardb-postgres-frontend:ci server/build/docker
+      # The image holds every jar the frontend ships plus the OS packages; fixable HIGH and CRITICAL
+      # findings fail the build. Pinned by commit, since a tag can be moved (v0.36.0)
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: scalardb-postgres-frontend:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          timeout: 15m

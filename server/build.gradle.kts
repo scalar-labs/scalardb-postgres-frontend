@@ -18,11 +18,17 @@ dependencies {
 // Here, not in the engine: in a Cluster node, the node's own build decides the version
 configurations.configureEach {
     resolutionStrategy.force(libs.caffeine)
+    // see libs.versions.toml: CVE fixes ahead of ScalarDB
+    resolutionStrategy.force(
+        libs.bcprov, libs.bcpkix, libs.bcutil, libs.micrometer.core, libs.mssql.jdbc,
+    )
 }
 
-// java -jar build/libs/scalardb-postgres-frontend-<version>.jar <scalardb.properties> [port]
+// java -jar build/libs/scalardb-postgres-frontend.jar <scalardb.properties> [port]; no version in the
+// name, so that scripts and docs need no change on a version bump (the image tag carries it)
 tasks.shadowJar {
     archiveBaseName = "scalardb-postgres-frontend"
+    archiveVersion = ""
     manifest {
         attributes("Main-Class" to "com.scalar.db.frontend.postgres.server.Main")
     }

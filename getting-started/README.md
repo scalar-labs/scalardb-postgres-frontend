@@ -22,7 +22,7 @@ connects with psql and JDBC. `tour.sql` then shows what the frontend does, secti
 
 ## 1. Build
 
-The frontend builds against ScalarDB `4.0.0-SNAPSHOT`, which the build downloads from ScalarDB's
+The frontend builds against ScalarDB `3.20.0-SNAPSHOT`, which the build downloads from ScalarDB's
 snapshot repository. To build against your own ScalarDB checkout instead, run
 `./gradlew :core:publishToMavenLocal` there first: a core in your local Maven repository wins. Build
 the frontend from the root of this repository:
@@ -31,7 +31,7 @@ the frontend from the root of this repository:
 ./gradlew shadowJar
 ```
 
-This creates `server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar`, a self-contained jar.
+This creates `server/build/libs/scalardb-postgres-frontend.jar`, a self-contained jar.
 
 ## 2. Configure
 
@@ -87,7 +87,7 @@ From this directory (`getting-started`), give it the properties file and the
 port to listen on:
 
 ```sh
-java -jar ../server/build/libs/scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar scalardb.properties 15432
+java -jar ../server/build/libs/scalardb-postgres-frontend.jar scalardb.properties 15432
 ```
 
 It logs `Listening on port 15432` when it is ready. Leave it running in its own terminal.
@@ -101,7 +101,7 @@ The image holds the frontend and the Cluster client SDK, on a Java 25 runtime, s
 serves every mode, authentication included. Build it from the root of this repository:
 
 ```sh
-./gradlew :server:dockerBuild    # scalardb-postgres-frontend:4.0.0-SNAPSHOT, in the local Docker
+./gradlew :server:dockerBuild    # scalardb-postgres-frontend:3.20.0-alpha.1-SNAPSHOT, in the local Docker
 ```
 
 `./gradlew :server:dockerContext` alone assembles the build context in `server/build/docker`, for
@@ -117,16 +117,19 @@ scalar.db.password=${env:PG_PASSWORD}
 ```
 
 ```sh
-docker run -d -p 15432:5432 -e PG_HOST=host.docker.internal -e PG_PASSWORD=postgres \
+docker run -d -p 127.0.0.1:15432:5432 -e PG_HOST=host.docker.internal -e PG_PASSWORD=postgres \
   -v "$PWD/scalardb.properties:/scalardb-postgres-frontend/scalardb.properties:ro" \
-  scalardb-postgres-frontend:4.0.0-SNAPSHOT
+  scalardb-postgres-frontend:3.20.0-alpha.1-SNAPSHOT
 ```
 
 `localhost` inside the container is the container itself: `host.docker.internal` reaches a database
-on the host with Docker Desktop. The server listens on 5432 in the container and runs as uid and
-gid 201, which Kubernetes' `runAsNonRoot` accepts. Mount TLS files the same way, readable by uid
-201, and point `scalar.db.postgres.ssl.cert` and `.key` at them. The heap may use 75% of the
-container's memory, and running out of it ends the process. Both come from `JAVA_TOOL_OPTIONS`,
+on the host with Docker Desktop. `-p 127.0.0.1:15432:5432` publishes the port on the host's
+loopback only: plain `-p 15432:5432` would open it, with no authentication, to the whole network.
+The server listens on 5432 in the container, on every interface as a container must, so it logs
+the no-authentication warning even then. It runs as uid and gid 201, which Kubernetes'
+`runAsNonRoot` accepts. Mount TLS files the same way, readable by uid 201, and point
+`scalar.db.postgres.ssl.cert` and `.key` at them. The heap may use 75% of the container's memory,
+and running out of it ends the process. Both come from `JAVA_TOOL_OPTIONS`,
 together with `--enable-native-access=ALL-UNNAMED`: setting it replaces all three, so repeat the ones
 to keep.
 
@@ -239,7 +242,7 @@ testing only. The container image includes the Cluster client SDK. For the jar, 
 dependencies are on the classpath rather than inside it; `difftest/cluster-auth/sdk-classpath/` copies them into one directory:
 
 ```sh
-java -cp scalardb-postgres-frontend-4.0.0-SNAPSHOT.jar:'sdk-classpath/lib/*' \
+java -cp scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' \
      com.scalar.db.frontend.postgres.server.Main scalardb.properties 5432
 ```
 
