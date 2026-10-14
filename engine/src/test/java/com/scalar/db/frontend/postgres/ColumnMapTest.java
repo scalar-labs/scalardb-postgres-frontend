@@ -26,7 +26,6 @@ import com.scalar.db.api.TableMetadata;
 import com.scalar.db.api.Update;
 import com.scalar.db.api.Upsert;
 import com.scalar.db.common.ResultImpl;
-import com.scalar.db.io.BigIntColumn;
 import com.scalar.db.io.Column;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.DoubleColumn;
@@ -351,19 +350,19 @@ public class ColumnMapTest {
             .addColumn("amount", DataType.DOUBLE)
             .addColumn("amount__pg_v10", DataType.TEXT) // the same client name, once decoded
             .addColumn("note__pg_zz", DataType.TEXT) // a code this frontend does not know
-            .addColumn("price__pg_n10_2", DataType.BIGINT) // a code whose values are not wired yet
+            .addColumn("code__pg_c3", DataType.TEXT) // a code whose values are not wired yet
             .addColumn("tag__pg_v5", DataType.TEXT)
             .addPartitionKey("id")
             .build();
     ColumnMap map = ColumnMap.of(NS, "d", stored);
     assertThat(map.clientView().getColumnNames())
-        .containsExactly("id", "amount", "amount__pg_v10", "note__pg_zz", "price__pg_n10_2", "tag");
+        .containsExactly("id", "amount", "amount__pg_v10", "note__pg_zz", "code__pg_c3", "tag");
     for (Column<?> write :
         Arrays.<Column<?>>asList(
             DoubleColumn.of("amount", 1.0),
             TextColumn.of("amount__pg_v10", "x"),
             TextColumn.of("note__pg_zz", "x"),
-            BigIntColumn.of("price__pg_n10_2", 1990))) {
+            TextColumn.of("code__pg_c3", "ab "))) {
       Put put =
           Put.newBuilder()
               .namespace(NS)
@@ -373,12 +372,12 @@ public class ColumnMapTest {
               .build();
       assertThat(state(() -> map.toStorage(put))).as(write.getName()).isEqualTo("0A000");
     }
-    // a raw column reads its stored value as is: 1990, not 19.90
+    // a raw column reads its stored value as is: the trailing space is not trimmed
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("id", IntColumn.of("id", 1));
-    columns.put("price__pg_n10_2", BigIntColumn.of("price__pg_n10_2", 1990));
+    columns.put("code__pg_c3", TextColumn.of("code__pg_c3", "ab "));
     Result result = new ResultImpl(columns, stored);
-    assertThat(map.value("price__pg_n10_2", result, result.getColumns())).isEqualTo(1990L);
+    assertThat(map.value("code__pg_c3", result, result.getColumns())).isEqualTo("ab ");
     // a delete writes no value, and is allowed; the translated column is written
     Delete delete =
         Delete.newBuilder().namespace(NS).table("d").partitionKey(Key.ofInt("id", 1)).build();
@@ -391,30 +390,6 @@ public class ColumnMapTest {
             .textValue("tag", "ab")
             .build();
     assertThat(map.toStorage(tag).getColumns()).containsKey("tag__pg_v5");
-  }
-
-  @Test
-  public void writtenValues_ShouldFollowTheColumnsWriteRules() {
-    ColumnMap map = ColumnMap.of(NS, "e", STORED);
-    Put spaces =
-        Put.newBuilder()
-            .namespace(NS)
-            .table("e")
-            .partitionKey(Key.ofText("k", "a"))
-            .clusteringKey(Key.ofText("c", "x"))
-            .textValue("name", "b" + " ".repeat(30)) // spaces beyond 20 are cut, as PostgreSQL does
-            .build();
-    assertThat(map.toStorage(spaces).getColumns().get("name__pg_v20").getTextValue())
-        .isEqualTo("b" + " ".repeat(19));
-    Put tooLong =
-        Put.newBuilder()
-            .namespace(NS)
-            .table("e")
-            .partitionKey(Key.ofText("k", "a"))
-            .clusteringKey(Key.ofText("c", "x"))
-            .textValue("name", "x".repeat(21))
-            .build();
-    assertThat(state(() -> map.toStorage(tooLong))).isEqualTo("22001");
   }
 
   // ---- statements end to end ----
@@ -482,6 +457,43 @@ public class ColumnMapTest {
         .isEqualTo(2);
     assertStorageNamesOnly();
     assertThat(executed).filteredOn(op -> op instanceof Mutation).hasSize(5);
+  }
+
+  @Test
+  public void writes_ShouldFollowTheVarcharWriteRules() throws Exception {
+    // spaces beyond 20 are cut, as PostgreSQL does; anything else beyond 20 is 22001
+    parser
+        .parse("INSERT INTO e (k, c, name, n) VALUES ('q', 'r', 'b" + " ".repeat(30) + "', 1)")
+        .open(transaction);
+    assertThat(executed)
+        .filteredOn(op -> op instanceof Mutation)
+        .singleElement()
+        .satisfies(
+            op ->
+                assertThat(((Insert) op).getColumns().get("name__pg_v20").getTextValue())
+                    .isEqualTo("b" + " ".repeat(19)));
+    assertThat(
+            state(
+                () ->
+                    parser
+                        .parse(
+                            "INSERT INTO e (k, c, name, n) VALUES ('q', 's', '"
+                                + "x".repeat(21)
+                                + "', 1)")
+                        .open(transaction)))
+        .isEqualTo("22001");
+    // a predicate is not a write: a longer value is compared as text, and matches nothing
+    executed.clear();
+    parser
+        .parse("SELECT n FROM e WHERE k = 'a' AND name = '" + "x".repeat(21) + "'")
+        .execute(transaction);
+    assertThat(executed)
+        .singleElement()
+        .satisfies(
+            op ->
+                assertThat(((Selection) op).getConjunctions().iterator().next().getConditions())
+                    .containsExactly(
+                        ConditionBuilder.column("name__pg_v20").isEqualToText("x".repeat(21))));
   }
 
   @Test

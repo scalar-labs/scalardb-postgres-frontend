@@ -105,6 +105,7 @@ final class LogicalPlan {
   final List<Expression> outputExpressions = new ArrayList<>();
   final List<DataType> outputTypes = new ArrayList<>(); // null for computed columns
   final List<Integer> outputOids = new ArrayList<>(); // inferred PostgreSQL type OIDs; 0 unknown
+  final List<Integer> outputTypmods = new ArrayList<>(); // type modifiers; -1 for none
   final List<String> expanded = new ArrayList<>(); // outputs that are set-returning functions
   @Nullable List<Expression> groupBy; // every grouping expression
   @Nullable List<List<Expression>> groupingSets; // GROUPING SETS/ROLLUP/CUBE: subsets of groupBy

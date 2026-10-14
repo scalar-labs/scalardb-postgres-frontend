@@ -74,9 +74,9 @@ final class ColumnMap {
    * shown under its ScalarDB name with its stored value, and never written, so that a value is
    * never read one way and written another.
    */
-  // ponytail: grows with the plan's phases (numeric scaled, numeric text, char and smallint)
+  // ponytail: grows with the plan's phases (numeric text, char and smallint to come)
   private static final Set<ColumnType.Kind> TRANSLATED =
-      EnumSet.of(ColumnType.Kind.NATIVE, ColumnType.Kind.VARCHAR);
+      EnumSet.of(ColumnType.Kind.NATIVE, ColumnType.Kind.VARCHAR, ColumnType.Kind.NUMERIC_SCALED);
 
   private ColumnMap(String namespace, String table, TableMetadata stored) {
     this.namespace = namespace;
@@ -354,7 +354,7 @@ final class ColumnMap {
       b.clusteringKey(key(put.getClusteringKey().get()));
     }
     for (Column<?> c : put.getColumns().values()) {
-      b.value(written(c));
+      b.value(column(c));
     }
     if (put.getCondition().isPresent()) {
       b.condition(condition(put.getCondition().get()));
@@ -369,7 +369,7 @@ final class ColumnMap {
       b.clusteringKey(key(insert.getClusteringKey().get()));
     }
     for (Column<?> c : insert.getColumns().values()) {
-      b.value(written(c));
+      b.value(column(c));
     }
     return b.build();
   }
@@ -381,7 +381,7 @@ final class ColumnMap {
       b.clusteringKey(key(upsert.getClusteringKey().get()));
     }
     for (Column<?> c : upsert.getColumns().values()) {
-      b.value(written(c));
+      b.value(column(c));
     }
     return b.build();
   }
@@ -393,7 +393,7 @@ final class ColumnMap {
       b.clusteringKey(key(update.getClusteringKey().get()));
     }
     for (Column<?> c : update.getColumns().values()) {
-      b.value(written(c));
+      b.value(column(c));
     }
     if (update.getCondition().isPresent()) {
       b.condition(condition(update.getCondition().get()));
@@ -423,16 +423,6 @@ final class ColumnMap {
 
   private Column<?> column(Column<?> c) {
     return c.copyWith(storageName(c.getName()));
-  }
-
-  /** A value being written, renamed and coerced by its column's write rules. */
-  private Column<?> written(Column<?> c) {
-    String storage = storageName(c.getName());
-    ColumnType type = typeByStorage.get(storage);
-    if (type == null || type.kind == ColumnType.Kind.NATIVE) {
-      return c.copyWith(storage);
-    }
-    return type.exact(storage, type.coerce(c.getValueAsObject()));
   }
 
   private List<String> names(List<String> clients) {

@@ -180,6 +180,9 @@ public class PostgresServer implements AutoCloseable {
 
   private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling
+  // numeric(p,s) up to this many digits is stored as a scaled bigint
+  // (ColumnType.maxScaledPrecision)
+  private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
 
   /**
    * Applies the settings that depend on the ScalarDB configuration the manager was created from:
@@ -226,6 +229,7 @@ public class PostgresServer implements AutoCloseable {
     if (require != null) {
       sslRequire = Boolean.parseBoolean(require);
     }
+    maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -610,6 +614,7 @@ public class PostgresServer implements AutoCloseable {
         processor.setDdlSettleMillis(ddlSettleMillis);
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
+        processor.setMaxScaledPrecision(maxScaledPrecision);
         if (identity != null) {
           processor.setIdentity(identity);
         } else if (!user.isEmpty()) {
@@ -869,7 +874,7 @@ public class PostgresServer implements AutoCloseable {
             oids =
                 oids(columns, first == null ? null : Collections.singletonList(first), rows.oids());
             if (describe) {
-              sendRowDescription(rows.labels(), oids, formats);
+              sendRowDescription(rows.labels(), oids, rows.typmods(), formats);
             }
             if (first != null) {
               sendRow(columns, first, oids, formats);
@@ -1059,7 +1064,10 @@ public class PostgresServer implements AutoCloseable {
         send('n', new Msg()); // NoData
       } else {
         sendRowDescription(
-            processor.describedLabels(), oids(columns, null, processor.describedOids()), formats);
+            processor.describedLabels(),
+            oids(columns, null, processor.describedOids()),
+            processor.describedTypmods(),
+            formats);
       }
     }
 
@@ -1108,7 +1116,7 @@ public class PostgresServer implements AutoCloseable {
       }
     }
 
-    private void sendRowDescription(List<String> labels, int[] oids, short[] formats)
+    private void sendRowDescription(List<String> labels, int[] oids, int[] typmods, short[] formats)
         throws IOException {
       Msg m = new Msg().i16(labels.size());
       for (int i = 0; i < labels.size(); i++) {
@@ -1117,7 +1125,7 @@ public class PostgresServer implements AutoCloseable {
             .i16(0)
             .i32(oids[i])
             .i16(size(oids[i]))
-            .i32(-1)
+            .i32(i < typmods.length ? typmods[i] : -1) // numeric(10,2): drivers read p and s here
             .i16(format(formats, i));
       }
       send('T', m);
@@ -1130,8 +1138,12 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void error(String severity, String code, String message) throws IOException {
-      send(
-          'E',
+      error(severity, code, message, null);
+    }
+
+    private void error(String severity, String code, String message, @Nullable String detail)
+        throws IOException {
+      Msg m =
           new Msg()
               .i8('S')
               .str(severity)
@@ -1140,8 +1152,11 @@ public class PostgresServer implements AutoCloseable {
               .i8('C')
               .str(code)
               .i8('M')
-              .str(message)
-              .i8(0));
+              .str(message);
+      if (detail != null) {
+        m.i8('D').str(detail);
+      }
+      send('E', m.i8(0));
     }
 
     /** A failure that is the server's fault, whose own text means nothing to the client. */
@@ -1187,7 +1202,11 @@ public class PostgresServer implements AutoCloseable {
       } else {
         logger.debug("Statement failed: {}", message); // the SQL text may hold data: not at INFO
       }
-      error(code.equals("28000") ? "FATAL" : "ERROR", code, message); // 28000 closes the session
+      error(
+          code.equals("28000") ? "FATAL" : "ERROR", // 28000 closes the session
+          code,
+          message,
+          e instanceof PgException ? ((PgException) e).detail() : null);
       return code;
     }
 

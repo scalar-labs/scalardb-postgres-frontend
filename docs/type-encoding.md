@@ -1,8 +1,8 @@
 # Declared types in ScalarDB column names
 
-Status: the codec exists (`engine/src/main/java/com/scalar/db/frontend/postgres/ColumnType.java`); the frontend
-does not create encoded columns yet. `NUMERIC(p,s)` with the `n` code comes first, then the others
-(`docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md`, Phases 3 to 5).
+Status: the frontend creates `n` columns for `NUMERIC(p,s)` and `DECIMAL(p,s)`. The other codes are decoded
+and their columns shown, but not created or written yet
+(`docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md`, Phases 4 and 5).
 
 ScalarDB has no decimal type, no type modifiers and no metadata a client can attach to a column. So when a
 PostgreSQL client declares a type ScalarDB cannot hold as is, the frontend records the declaration in the

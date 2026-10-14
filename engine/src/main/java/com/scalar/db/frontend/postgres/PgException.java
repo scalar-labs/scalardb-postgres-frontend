@@ -9,24 +9,41 @@ interface PgException {
   /** The five-character SQLSTATE sent to the client. */
   String sqlState();
 
+  /** PostgreSQL's DETAIL line for this error, or null when it has none. */
+  @javax.annotation.Nullable default String detail() {
+    return null;
+  }
+
   /** A statement or value PostgreSQL would refuse. */
   final class Argument extends IllegalArgumentException implements PgException {
     private static final long serialVersionUID = 1L;
     private final String sqlState;
+    @javax.annotation.Nullable private final String detail;
 
     Argument(String sqlState, String message) {
+      this(sqlState, message, (String) null);
+    }
+
+    Argument(String sqlState, String message, @javax.annotation.Nullable String detail) {
       super(message);
       this.sqlState = sqlState;
+      this.detail = detail;
     }
 
     Argument(String sqlState, String message, Throwable cause) {
       super(message, cause);
       this.sqlState = sqlState;
+      this.detail = null;
     }
 
     @Override
     public String sqlState() {
       return sqlState;
+    }
+
+    @Override
+    @javax.annotation.Nullable public String detail() {
+      return detail;
     }
   }
 

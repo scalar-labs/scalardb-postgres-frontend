@@ -969,7 +969,8 @@ final class Catalog {
           continue;
         }
         // columns, keys and indexes under the names clients use (amount, not amount__pg_n10_2)
-        TableMetadata metadata = ColumnMap.of(namespace, table, stored).clientView();
+        ColumnMap columnMap = ColumnMap.of(namespace, table, stored);
+        TableMetadata metadata = columnMap.clientView();
         long relOid = oid++;
         relation(
             t,
@@ -1001,6 +1002,11 @@ final class Catalog {
         for (String column : metadata.getColumnNames()) {
           attnum++;
           DataType type = metadata.getColumnDataType(column);
+          ColumnType declared = columnMap.type(column);
+          // numeric(10,2) stored as a scaled bigint is numeric(10,2) here, as format_type shows it
+          boolean numeric = declared.kind == ColumnType.Kind.NUMERIC_SCALED;
+          long typeOid = numeric ? declared.oid() : typeOid(type);
+          long typmod = numeric ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
           row(
               t,
@@ -1008,8 +1014,8 @@ final class Catalog {
               relOid,
               (long) attnum,
               column,
-              typeOid(type),
-              -1L,
+              typeOid,
+              typmod,
               key,
               false,
               false,
@@ -1020,7 +1026,7 @@ final class Catalog {
               "",
               -1L,
               null,
-              typeLength(typeOid(type)),
+              typeLength(typeOid),
               0L,
               0L,
               true);
@@ -1032,13 +1038,13 @@ final class Catalog {
               table,
               column,
               (long) attnum,
-              typeName(typeOid(type)),
+              typeName(typeOid),
               key ? "NO" : "YES",
-              INTERNAL_TYPE_NAMES.get(typeOid(type)),
+              INTERNAL_TYPE_NAMES.get(typeOid),
               null,
               null,
-              null,
-              null,
+              numeric ? (long) declared.precision : null,
+              numeric ? (long) declared.scale : null,
               null);
         }
         String columnList = String.join(", ", keys);

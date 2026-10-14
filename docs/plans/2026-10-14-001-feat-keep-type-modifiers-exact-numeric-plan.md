@@ -624,6 +624,21 @@ operation-check codes.
 
 #### Phase 3: NUMERIC(p,s) as scaled BIGINT — first shippable increment
 
+**Status: done 2026-10-14 on branch `type-modifiers-phase0`** (uncommitted): 292 unit tests and `./gradlew check`
+pass (`NumericColumnTest` covers rounding, overflow DETAIL, exact reads, scaled pushdown, unrepresentable keys,
+RETURNING and the catalog). Difftest: the new `cases_numeric.sql` matches PostgreSQL in all 28 cases, RowDescription
+OIDs and typmods match on the wire, six `s01_types` cases improved (baseline updated), every other set as its
+baseline (`difftest/results/2026-10-14-phase3/summary.txt`). Deviations: XX001 has no DETAIL (its message already
+names the table and column); `DEC(p,s)` needed its modifiers rejoined (the parser keeps them apart), found by
+difftest; RENAME of encoded columns was already refused in Phase 2; `scalardb.frontend.type_modifiers` (D1) is
+not implemented yet, the behaviour is `keep`.
+
+Code review fixes (same day): numeric compared with a float as double precision on both paths (a numeric(16..18)
+equality spanning several stored values is refused with 0A000, a `ponytail:` ceiling); a keyed UPDATE / DELETE
+that can match no row plans no mutation; UNION typmods; CASE / COALESCE widening typed once per plan. Left for
+Phase 5: `varchar(n)` shown as `text` in the catalog, and a read-only (unknown or colliding) key column blocking
+every write to its table.
+
 - CREATE TABLE / ADD COLUMN produce `n` codes; NUMERIC notice removed for them; write coercion; RETURNING and
   EXCLUDED decoding, and RETURNING's own OID / typmod lists; exact pushdown with the typed fallbacks, and
   `pushable`'s `DoubleValue` early return no longer applied to NUMERIC_SCALED columns; float comparisons kept in

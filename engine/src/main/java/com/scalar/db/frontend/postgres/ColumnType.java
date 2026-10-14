@@ -51,6 +51,8 @@ final class ColumnType {
   /** The marker between a client name and its code. A client name may not contain it. */
   static final String MARKER = "__pg_";
 
+  // ponytail: fixed limits, chosen at CREATE TABLE from the configured storage; a property when a
+  // deployment needs a different one (docs/type-encoding.md warns about n16-n18 on 2^53 storages)
   /** The most digits a scaled BIGINT holds exactly on every storage but the two below. */
   static final int MAX_SCALED_PRECISION = 18;
 
@@ -384,7 +386,14 @@ final class ColumnType {
         return n;
       }
       if (precision != 0) {
-        throw new PgException.Argument("22003", "numeric field overflow"); // an infinity
+        throw new PgException.Argument(
+            "22003",
+            "numeric field overflow",
+            "A field with precision "
+                + precision
+                + ", scale "
+                + scale
+                + " cannot hold an infinite value.");
       }
       return n;
     }
@@ -461,6 +470,172 @@ final class ColumnType {
       default:
         throw new IllegalStateException("A native column converts through columnFromText");
     }
+  }
+
+  /**
+   * The ScalarDB condition for {@code column op v} on a numeric(p,s) column stored scaled, exact
+   * for every value, or null when the comparison is false for every row (or v is NULL). A value
+   * with more fraction digits than the column keeps becomes the nearest bound on the stored integer
+   * ({@code x > 20.005} on numeric(10,2) is {@code stored >= 2001}); a value beyond the column's
+   * range, NaN, or an unmatched equality decides the comparison by itself (nothing, or every
+   * non-NULL row). So the condition can always be pushed down, and a lookup never mistakes "not
+   * representable" for "no row". A float compares as PostgreSQL compares numeric with double
+   * precision: the stored value converted to double.
+   */
+  @Nullable com.scalar.db.api.ConditionalExpression scaledCondition(
+      String name, com.scalar.db.api.ConditionalExpression.Operator op, @Nullable Object v) {
+    if (kind != Kind.NUMERIC_SCALED) {
+      throw new IllegalStateException("Not a scaled numeric: " + this);
+    }
+    if (v == null) {
+      return null;
+    }
+    if ((v instanceof Double || v instanceof Float)
+        && Double.isFinite(((Number) v).doubleValue())) {
+      return floatCondition(name, op, ((Number) v).doubleValue());
+    }
+    Object n = number(v);
+    if (n instanceof Double) {
+      double d = (Double) n;
+      // NaN sorts above every number in PostgreSQL; an infinity lies beyond every column range
+      return constant(name, op, Double.isNaN(d) ? Boolean.TRUE : d > 0, Double.isNaN(d));
+    }
+    BigDecimal d = (BigDecimal) n;
+    if (!Evaluator.integerDigitsFit(d, precision, scale)) {
+      return constant(name, op, d.signum() > 0, false);
+    }
+    BigDecimal unscaled = d.movePointRight(scale);
+    if (unscaled.signum() == 0 || unscaled.stripTrailingZeros().scale() <= 0) {
+      return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+          BigIntColumn.of(name, unscaled.longValueExact()), op);
+    }
+    long floor = unscaled.setScale(0, java.math.RoundingMode.FLOOR).longValueExact();
+    switch (op) {
+      case EQ:
+        return null; // no stored value equals it
+      case NE:
+        return notNull(name);
+      case GT:
+      case GTE:
+        return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+            BigIntColumn.of(name, floor + 1), com.scalar.db.api.ConditionalExpression.Operator.GTE);
+      case LT:
+      case LTE:
+        return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+            BigIntColumn.of(name, floor), com.scalar.db.api.ConditionalExpression.Operator.LTE);
+      default:
+        throw new IllegalArgumentException("Unsupported comparison: " + op);
+    }
+  }
+
+  /**
+   * {@code column op d} for a finite double d, which PostgreSQL evaluates as {@code column::float8
+   * op d}. Converting to double never reverses an order, so the stored integers it holds for form a
+   * range: from {@code lo}, the least whose double is not below d, to {@code hi}, the greatest
+   * whose double is not above d (several integers share one double beyond 2^53).
+   */
+  @Nullable private com.scalar.db.api.ConditionalExpression floatCondition(
+      String name, com.scalar.db.api.ConditionalExpression.Operator op, double d) {
+    long max = BigDecimal.TEN.pow(precision).longValueExact() - 1;
+    BigDecimal c = new BigDecimal(d).movePointRight(scale); // d exactly, as a stored integer
+    Long lo = null; // none: every stored value converts below d
+    Long hi = null; // none: every stored value converts above d
+    if (c.compareTo(BigDecimal.valueOf(max)) > 0) {
+      hi = max;
+    } else if (c.compareTo(BigDecimal.valueOf(-max)) < 0) {
+      lo = -max;
+    } else {
+      // a value at or below d converts at or below it, as d is a double itself
+      long h = c.setScale(0, java.math.RoundingMode.FLOOR).longValueExact();
+      while (h < max && asDouble(h + 1) <= d) {
+        h++;
+      }
+      long l = c.setScale(0, java.math.RoundingMode.CEILING).longValueExact();
+      while (l > -max && asDouble(l - 1) >= d) {
+        l--;
+      }
+      lo = asDouble(l) >= d ? l : null;
+      hi = asDouble(h) <= d ? h : null;
+    }
+    switch (op) {
+      case GT:
+        return hi == null ? notNull(name) : hi == max ? null : bound(name, hi + 1, true);
+      case GTE:
+        return lo == null ? null : bound(name, lo, true);
+      case LT:
+        return lo == null ? notNull(name) : lo == -max ? null : bound(name, lo - 1, false);
+      case LTE:
+        return hi == null ? null : bound(name, hi, false);
+      case EQ:
+      case NE:
+        if (lo == null || hi == null || lo > hi) {
+          return op == com.scalar.db.api.ConditionalExpression.Operator.EQ ? null : notNull(name);
+        }
+        if (!lo.equals(hi)) {
+          // ponytail: one ScalarDB condition cannot say "between"; only numeric(16..18) columns
+          // hold several values that convert to one double. Push a range when it is needed.
+          throw new PgException.Argument(
+              "0A000",
+              "comparing a column of type "
+                  + sqlName()
+                  + " with a double precision value this large is not supported: cast the column"
+                  + " to double precision, or the value to numeric");
+        }
+        return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+            BigIntColumn.of(name, lo), op);
+      default:
+        throw new IllegalArgumentException("Unsupported comparison: " + op);
+    }
+  }
+
+  /** A stored integer as the double PostgreSQL converts its numeric to. */
+  private double asDouble(long stored) {
+    return BigDecimal.valueOf(stored, scale).doubleValue();
+  }
+
+  private static com.scalar.db.api.ConditionalExpression bound(
+      String name, long stored, boolean lower) {
+    return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+        BigIntColumn.of(name, stored),
+        lower
+            ? com.scalar.db.api.ConditionalExpression.Operator.GTE
+            : com.scalar.db.api.ConditionalExpression.Operator.LTE);
+  }
+
+  /**
+   * A comparison decided by where the value lies: above every stored value, or below. NaN is above
+   * every number but equal to nothing a scaled column can hold.
+   */
+  @Nullable private static com.scalar.db.api.ConditionalExpression constant(
+      String name,
+      com.scalar.db.api.ConditionalExpression.Operator op,
+      boolean above,
+      boolean nan) {
+    boolean true_;
+    switch (op) {
+      case EQ:
+        true_ = false;
+        break;
+      case NE:
+        true_ = true;
+        break;
+      case GT:
+      case GTE:
+        true_ = !above;
+        break;
+      case LT:
+      case LTE:
+        true_ = above || nan;
+        break;
+      default:
+        throw new IllegalArgumentException("Unsupported comparison: " + op);
+    }
+    return true_ ? notNull(name) : null;
+  }
+
+  private static com.scalar.db.api.ConditionalExpression notNull(String name) {
+    return com.scalar.db.api.ConditionBuilder.buildConditionalExpression(
+        BigIntColumn.ofNull(name), com.scalar.db.api.ConditionalExpression.Operator.IS_NOT_NULL);
   }
 
   /** The unscaled long of a numeric(p,s) value, or the typed failure. */

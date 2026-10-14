@@ -79,10 +79,12 @@ at the end of this section.
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
 - **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
   `'ab   '` differ and `code = 'ab   '` does not match a stored `'ab'`; `VARCHAR(n)` lengths are not
-  enforced; `NUMERIC(p,s)` and `DECIMAL` are stored as `double precision`, so a value is neither
-  rounded to its scale nor checked against its precision on write (`1.005` stays `1.005`,
-  `123456789.995` fits in `NUMERIC(10,2)`), prints as `19.9` rather than `19.90`, and arithmetic
-  carries floating-point noise (`19.90 * 3` is `59.699999999999996`); `SMALLINT` is an `integer`
+  enforced; `NUMERIC(p,s)` and `DECIMAL(p,s)` up to 18 digits (15 on Cosmos DB, object storage and
+  in Cluster mode) are kept exactly, as PostgreSQL keeps them (`docs/type-encoding.md`), but
+  `NUMERIC` without a precision, or with more digits, is stored as `double precision`, so a value is
+  neither rounded nor checked, prints without its scale, and arithmetic carries floating-point noise
+  (`19.90 * 3` is `59.699999999999996`). `NaN` cannot be stored in `NUMERIC(p,s)` (`0A000`);
+  `SMALLINT` is an `integer`
   without a range check. Each is reported with a `NOTICE` at `CREATE TABLE`. The declaration has
   nowhere to live outside ScalarDB's own metadata, so enforcing it waits for type modifiers there
   (`core-todo.md` item 11 in the ScalarDB repository). A modifier PostgreSQL itself rejects
@@ -141,8 +143,9 @@ at the end of this section.
 Every other limitation above shows up as an error or a `NOTICE`. These do not: the statement succeeds and
 the result is not what PostgreSQL would return.
 
-- **`NUMERIC` and `DECIMAL` columns**, which is where prices, balances and any exact amount live.
-  The column is a `double precision`, so `SELECT price * qty`
+- **`NUMERIC` and `DECIMAL` columns without a precision, or with more than 18 digits** (15 on Cosmos
+  DB, object storage and in Cluster mode); `NUMERIC(10,2)` and the like are exact. Such a column is
+  a `double precision`, so `SELECT price * qty`
   carries floating-point noise (`19.90 * 3` is `59.699999999999996`), `WHERE price * 3 = 0.3` finds
   nothing, a value is stored unrounded (`1.005` stays `1.005` in `NUMERIC(10,2)`) and prints without
   its scale (`19.9`). `sum()` and `avg()` over any `double precision` column are computed exactly and

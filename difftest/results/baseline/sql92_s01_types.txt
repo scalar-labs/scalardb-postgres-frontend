@@ -5,13 +5,13 @@ s01_6_1_char_n_too_long_trailing_spaces DIFF
 s01_6_1_char_default_length_1 PG_ERR
 s01_6_1_varchar_n_too_long PG_ERR
 s01_6_1_char_pk_padding DIFF
-s01_6_1_numeric_scale_rounding DIFF
-s01_6_1_numeric_precision_overflow PG_ERR
-s01_6_1_decimal_exact_sum NUM_FMT
-s01_6_1_decimal_exact_equality DIFF
+s01_6_1_numeric_scale_rounding OK
+s01_6_1_numeric_precision_overflow BOTH_ERR
+s01_6_1_decimal_exact_sum OK
+s01_6_1_decimal_exact_equality OK
 s01_6_1_decimal_large_exact NUM_FMT
 s01_6_1_decimal_money_total OK
-s01_6_1_decimal_division_scale NUM_FMT
+s01_6_1_decimal_division_scale OK
 s01_6_1_numeric_as_pk BOTH_ERR
 s01_6_1_smallint_range PG_ERR
 s01_6_1_integer_range BOTH_ERR
@@ -20,7 +20,7 @@ s01_6_1_real OK
 s01_6_1_float_p_small_is_real OK
 s01_6_1_float_no_p OK
 s01_6_1_double_precision OK
-s01_6_1_int_keyword_synonym DIFF
+s01_6_1_int_keyword_synonym OK
 s01_6_1_insert_string_into_int BOTH_ERR
 s01_6_1_insert_int_into_char NUM_FMT
 s01_6_1_describe_column_types DIFF

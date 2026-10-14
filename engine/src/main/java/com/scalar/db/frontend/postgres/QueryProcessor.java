@@ -491,6 +491,11 @@ public class QueryProcessor {
       return plan == null ? new int[0] : plan.outputOids();
     }
 
+    /** The type modifiers of the columns (numeric(10,2) and the like); -1 where there is none. */
+    public int[] typmods() {
+      return plan == null ? new int[0] : plan.outputTypmods();
+    }
+
     /** The column names clients see, in the order of {@link #columns()}. */
     public List<String> labels() {
       return plan == null ? Collections.<String>emptyList() : plan.getColumnLabels();
@@ -976,6 +981,11 @@ public class QueryProcessor {
     return describedPlan == null ? new int[0] : describedPlan.outputOids();
   }
 
+  /** The type modifiers of the columns {@link #describe} last returned; -1 where there is none. */
+  public int[] describedTypmods() {
+    return describedPlan == null ? new int[0] : describedPlan.outputTypmods();
+  }
+
   /** The column names clients see for the statement {@link #describe} last returned columns for. */
   public List<String> describedLabels() {
     return describedPlan == null
@@ -1060,6 +1070,15 @@ public class QueryProcessor {
    */
   public void setDdlSettleMillis(long millis) {
     ddlSettleMillis = millis;
+  }
+
+  /**
+   * The most digits a numeric(p,s) column created in this session may have to be stored as a scaled
+   * bigint: 18, or 15 where the storage keeps a bigint exact only up to 2^53 (see {@link
+   * ColumnType#maxScaledPrecision}).
+   */
+  public void setMaxScaledPrecision(int digits) {
+    parser.setMaxScaledPrecision(digits);
   }
 
   private static final java.util.regex.Pattern SETTING_NAME =

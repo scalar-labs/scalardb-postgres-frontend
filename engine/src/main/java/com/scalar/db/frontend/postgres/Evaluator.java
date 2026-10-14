@@ -113,6 +113,8 @@ final class Evaluator {
     @Nullable final Catalog catalog;
     final List<Object> parameters; // the statement's $n values, 1-based
     final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
+    final List<LogicalPlan.Source> sources; // the plan's FROM items, for plan-time types
+    final Map<Expression, Integer> widenings; // CASE, COALESCE, ... -> what it widens to
 
     Context(
         @Nullable Map<String, Object> outer,
@@ -135,11 +137,31 @@ final class Evaluator {
         @Nullable Catalog catalog,
         List<Object> parameters,
         Map<String, com.scalar.db.io.DataType> types) {
+      this(
+          outer,
+          subplans,
+          catalog,
+          parameters,
+          types,
+          Collections.emptyList(),
+          new java.util.IdentityHashMap<>());
+    }
+
+    Context(
+        @Nullable Map<String, Object> outer,
+        Map<Select, QueryParser.Plan> subplans,
+        @Nullable Catalog catalog,
+        List<Object> parameters,
+        Map<String, com.scalar.db.io.DataType> types,
+        List<LogicalPlan.Source> sources,
+        Map<Expression, Integer> widenings) {
       this.outer = outer;
       this.subplans = subplans;
       this.catalog = catalog;
       this.parameters = parameters;
       this.types = types;
+      this.sources = sources;
+      this.widenings = widenings;
     }
 
     /** The declared type of a column of this plan's sources, or null if not known. */
@@ -1370,13 +1392,28 @@ final class Evaluator {
    */
   static BigDecimal applyTypmod(BigDecimal d, int precision, int scale) {
     if (!integerDigitsFit(d, precision, scale)) {
-      throw new PgException.Argument("22003", "numeric field overflow");
+      throw numericOverflow(precision, scale);
     }
     BigDecimal rounded = d.setScale(scale, RoundingMode.HALF_UP);
     if (!integerDigitsFit(rounded, precision, scale)) {
-      throw new PgException.Argument("22003", "numeric field overflow");
+      throw numericOverflow(precision, scale);
     }
     return rounded.scale() < 0 ? rounded.setScale(0) : rounded;
+  }
+
+  /** PostgreSQL's 22003 for a value too large for numeric(p,s), with its DETAIL line. */
+  static PgException.Argument numericOverflow(int precision, int scale) {
+    int digits = precision - scale;
+    return new PgException.Argument(
+        "22003",
+        "numeric field overflow",
+        "A field with precision "
+            + precision
+            + ", scale "
+            + scale
+            + " must round to an absolute value less than "
+            + (digits > 0 ? "10^" + digits : "1")
+            + ".");
   }
 
   /** PostgreSQL's numeric(p,s) range: an absolute value below 10^(precision - scale). */
@@ -1472,6 +1509,13 @@ final class Evaluator {
       if (!isFinite(a) || !isFinite(b)) {
         // PostgreSQL orders NaN above Infinity and treats NaN as equal to itself, as Double does
         return Double.compare(((Number) a).doubleValue(), ((Number) b).doubleValue());
+      }
+      if (a instanceof Double || a instanceof Float || b instanceof Double || b instanceof Float) {
+        // a number next to a float is converted to double precision, as PostgreSQL resolves
+        // numeric = float8 and bigint = float8: 0.30 is not 0.1::float8 + 0.2::float8
+        double x = ((Number) a).doubleValue();
+        double y = ((Number) b).doubleValue();
+        return x < y ? -1 : x > y ? 1 : 0; // -0.0 equals 0.0
       }
       return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString()));
     }
@@ -2277,12 +2321,12 @@ final class Evaluator {
               ? isTrue(condition)
               : subject != null && condition != null && compare(subject, condition) == 0;
       if (matches) {
-        return widened(eval(when.getThenExpression(), group, ctx), branches(c), group, ctx);
+        return widened(eval(when.getThenExpression(), group, ctx), c, branches(c), group, ctx);
       }
     }
     return c.getElseExpression() == null
         ? null
-        : widened(eval(c.getElseExpression(), group, ctx), branches(c), group, ctx);
+        : widened(eval(c.getElseExpression(), group, ctx), c, branches(c), group, ctx);
   }
 
   private static List<Expression> branches(CaseExpression c) {
@@ -2300,21 +2344,27 @@ final class Evaluator {
    * PostgreSQL types CASE, COALESCE, GREATEST, LEAST and NULLIF by all their branches, not by the
    * one taken: an integer result becomes numeric when another branch is numeric (a decimal literal
    * such as {@code 1.5} is numeric), and an integer or numeric result becomes double precision when
-   * another branch is a float, so that a later {@code / 2} divides as PostgreSQL does.
+   * another branch is a float, so that a later {@code / 2} divides as PostgreSQL does. The type
+   * comes from the plan, once per expression (a numeric column is numeric in a row where it is
+   * NULL); only a branch the plan cannot type, such as an outer column, is looked at per row.
    */
   @Nullable private static Object widened(
       @Nullable Object v,
+      Expression owner,
       List<? extends Expression> branches,
       List<Map<String, Object>> group,
       Context ctx) {
     if (!(v instanceof Long) && !(v instanceof Integer) && !(v instanceof BigDecimal)) {
       return v;
     }
-    int widest = NOT_WIDER;
-    for (Expression b : branches) {
-      widest = Math.max(widest, widening(b, group, ctx));
-      if (widest == FLOAT) {
-        break; // nothing is wider
+    int widest = ctx.widenings.computeIfAbsent(owner, o -> planned(branches, ctx));
+    if (widest == UNKNOWN) {
+      widest = NOT_WIDER;
+      for (Expression b : branches) {
+        widest = Math.max(widest, widening(b, group, ctx));
+        if (widest == FLOAT) {
+          break; // nothing is wider
+        }
       }
     }
     if (widest == FLOAT) {
@@ -2325,6 +2375,24 @@ final class Evaluator {
     }
     return v;
   }
+
+  /**
+   * What the branches widen to by their plan-time types, or UNKNOWN when one of them has none and
+   * nothing else already settles it.
+   */
+  private static int planned(List<? extends Expression> branches, Context ctx) {
+    boolean unknown = false;
+    for (Expression b : branches) {
+      unknown |=
+          !(QueryParser.unwrap(b) instanceof NullValue)
+              && QueryParser.inferOid(b, ctx.sources) == 0;
+    }
+    int oid = QueryParser.unifiedOid(branches, ctx.sources);
+    int widest = oid == 700 || oid == 701 ? FLOAT : oid == 1700 ? NUMERIC : NOT_WIDER;
+    return unknown && widest != FLOAT ? UNKNOWN : widest;
+  }
+
+  private static final int UNKNOWN = -1;
 
   /** What a branch widens an integer result to: nothing, numeric or double precision. */
   private static final int NOT_WIDER = 0;
@@ -2392,7 +2460,7 @@ final class Evaluator {
       }
     }
     // avg(), sum(), a scalar subquery and the like: the type the planner reports for it
-    int oid = QueryParser.inferOid(e, Collections.emptyList());
+    int oid = QueryParser.inferOid(e, ctx.sources);
     return oid == 700 || oid == 701 ? FLOAT : oid == 1700 ? NUMERIC : NOT_WIDER;
   }
 
@@ -2670,7 +2738,7 @@ final class Evaluator {
       for (Expression p : f.getParameters()) {
         Object a = eval(p, group, ctx);
         if (a != null) {
-          return widened(a, f.getParameters(), group, ctx);
+          return widened(a, f, f.getParameters(), group, ctx);
         }
       }
       return null;
@@ -2701,7 +2769,7 @@ final class Evaluator {
       case "COALESCE":
         for (Object a : args) {
           if (a != null) {
-            return widened(a, f.getParameters(), group, ctx);
+            return widened(a, f, f.getParameters(), group, ctx);
           }
         }
         return null;
@@ -2729,7 +2797,7 @@ final class Evaluator {
                 && arg(args, 1) != null
                 && compare(args.get(0), args.get(1)) == 0
             ? null
-            : widened(arg(args, 0), f.getParameters(), group, ctx);
+            : widened(arg(args, 0), f, f.getParameters(), group, ctx);
       case "GREATEST":
       case "LEAST":
         {
@@ -2740,7 +2808,7 @@ final class Evaluator {
               best = a;
             }
           }
-          return widened(best, f.getParameters(), group, ctx);
+          return widened(best, f, f.getParameters(), group, ctx);
         }
       case "JSON_BUILD_OBJECT":
       case "JSONB_BUILD_OBJECT":

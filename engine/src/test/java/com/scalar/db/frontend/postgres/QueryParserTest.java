@@ -1513,11 +1513,11 @@ public class QueryParserTest {
         .anyMatch(n -> n.startsWith("UNIQUE on column \"u\""))
         .noneMatch(n -> n.contains("DEFAULT")) // DEFAULT NULL is what an omitted column reads
         .anyMatch(n -> n.startsWith("CHAR on column \"c\""))
-        .anyMatch(n -> n.startsWith("NUMERIC on column \"m\""))
+        .noneMatch(n -> n.startsWith("NUMERIC on column \"m\"")) // kept exactly now
         .anyMatch(n -> n.startsWith("SMALLINT on column \"s\""))
         .anyMatch(n -> n.startsWith("identity on column \"g\""))
         .anyMatch(n -> n.contains("UNIQUE (v, u)"));
-    assertThat(plan.notices).hasSize(8);
+    assertThat(plan.notices).hasSize(7);
     // any other default would be lost: an omitted column reads NULL, so it is refused
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE d (id INT, v INT DEFAULT 7, PRIMARY KEY (id))"))
@@ -1530,7 +1530,16 @@ public class QueryParserTest {
         org.mockito.ArgumentCaptor.forClass(TableMetadata.class);
     verify(admin).createTable(eq(NS), eq("n"), metadata.capture(), eq(false));
     assertThat(metadata.getValue().getColumnDataType("f")).isEqualTo(DataType.FLOAT);
+    // numeric(10,2) is a bigint holding the value times 100, its type recorded in its name
+    assertThat(metadata.getValue().getColumnDataType("m__pg_n10_2")).isEqualTo(DataType.BIGINT);
+    assertThat(metadata.getValue().getColumnNames()).doesNotContain("m");
     assertThat(parser.parse("CREATE TABLE p (id INT, PRIMARY KEY (id))").notices).isEmpty();
+    // DEC(5,1) is the same type, though the parser keeps its modifiers apart from its name
+    QueryParser.Plan dec = parser.parse("CREATE TABLE q (id INT, d DEC(5,1), PRIMARY KEY (id))");
+    assertThat(dec.notices).isEmpty();
+    dec.getDdl().run();
+    verify(admin).createTable(eq(NS), eq("q"), metadata.capture(), eq(false));
+    assertThat(metadata.getValue().getColumnDataType("d__pg_n5_1")).isEqualTo(DataType.BIGINT);
   }
 
   @Test
@@ -3055,6 +3064,12 @@ public class QueryParserTest {
                         + " (coalesce(3, max(1.5)) / 2)::text AS b")
                 .execute(transaction))
         .containsExactly(map("a", "1.5000000000000000", "b", "1.5000000000000000"));
+    // avg over a double precision column is double precision, so 1 / 2 divides as a float
+    assertThat(
+            parser
+                .parse("SELECT ((CASE WHEN true THEN 1 ELSE avg(price) END) / 2)::text AS a FROM t")
+                .execute(transaction))
+        .containsExactly(map("a", "0.5"));
     assertThat(
             parser
                 .parse(
