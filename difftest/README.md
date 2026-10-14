@@ -12,7 +12,7 @@ psql -h localhost -p 15440 -U postgres -d native_c -f schema.sql -f data.sql
 psql -h localhost -p 15441 -U postgres -d sdb -f fe_init.sql -f schema.sql -f data.sql
 python3 run.py cases_read.sql                         # read queries
 STOP=0 python3 run.py cases_types.sql               # time, timestamptz, bytea and real columns (table types)
-psql ... -f numeric_setup.sql (both sides), then STOP=0 python3 run.py cases_numeric.sql   # numeric(p,s) kept exactly
+psql ... -f numeric_setup.sql (both sides), then STOP=0 python3 run.py cases_numeric.sql   # numeric kept exactly (scaled bigint or text)
 STOP=0 python3 run.py cases_write.sql                 # DML inside BEGIN ... ROLLBACK
 STOP=0 SNAP=1 python3 run.py cases_write_ac.sql       # autocommit DML, compares all tables, reloads after each case
 STOP=0 python3 run.py cases_bind.sql cases_bind2.sql  # extended protocol (psql \bind), plan-cache reuse

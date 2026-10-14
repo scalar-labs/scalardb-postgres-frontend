@@ -1566,6 +1566,17 @@ public class PostgresServer implements AutoCloseable {
       case 701:
         return ByteBuffer.allocate(8).putDouble(number(value).doubleValue()).array();
       case 1700:
+        if (value instanceof Number && !Evaluator.isFinite(value)) {
+          // NaN and the infinities: no digits, the sign word says which
+          double d = ((Number) value).doubleValue();
+          int sign = Double.isNaN(d) ? 0xC000 : d > 0 ? 0xD000 : 0xF000;
+          return ByteBuffer.allocate(8)
+              .putShort((short) 0)
+              .putShort((short) 0)
+              .putShort((short) sign)
+              .putShort((short) 0)
+              .array();
+        }
         return numeric(
             value instanceof java.math.BigDecimal
                 ? (java.math.BigDecimal) value

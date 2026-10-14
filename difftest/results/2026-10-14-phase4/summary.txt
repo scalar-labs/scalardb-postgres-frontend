@@ -1,0 +1,27 @@
+Differential run of 2026-10-14 for Phase 4 of docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md
+(branch type-modifiers-phase0): NUMERIC without a precision, and NUMERIC(p,s) with p above the scaled limit, stored
+as exact decimal text in columns named <column>__pg_t and <column>__pg_t<p>_<s>; compared, ordered and grouped in
+memory; refused as a key or index column.
+
+Setup as in results/2026-10-14-phase0/summary.txt; numeric_setup.sql now also creates table nt (numeric and
+numeric(30,10), with NaN, Infinity, NULL, 1.10 next to 1.1, and 29- and 30-digit values).
+
+Results:
+  numeric        OK 51, BOTH_ERR 5 (overflow, value overflows numeric format, LIKE on numeric: same SQLSTATE,
+                 message and DETAIL). 22 new cases, all matching. Baseline updated.
+  sql92 s01      s01_6_1_decimal_large_exact NUM_FMT -> OK (DECIMAL(20,0)); baseline updated. The remaining
+                 differences are CHAR(n) padding and the describe case's char, varchar and smallint rows
+                 (Phase 5) and native integer precisions (deferred).
+  read, types, write, write_ac, bind, session, sql92 s02-s11: as their baselines, except
+                 s02_11_1_create_schema_authorization CODE -> FE_ERR, the fresh-database effect noted for Phase 0.
+  fuzz           seeds 7, 11, 23 x 300: no DIFF (OK 300; OK 297, NUM_FMT 3; OK 296, NUM_FMT 3, FE_ERR 1).
+
+Two cases first written as BEGIN; write; SELECT ... ORDER BY; ROLLBACK failed with DB-CORE-10106 (ScalarDB refuses
+to scan records the same transaction wrote, a known limit); they now read the rows by key.
+
+Rerun after the code review of 2026-10-15, which found: LIKE on current_user and the like failed with 42703 (the
+numeric-LIKE check resolved them as columns); LIKE on a numeric column read through a subquery or CTE matched its
+text instead of raising 42883; the 42883 message always named the right side "unknown". Three cases added
+(LIKE through a CTE, LIKE with a varchar right side, LIKE on current_user).
+  numeric        OK 52, BOTH_ERR 7, all matching PostgreSQL word for word; baseline updated.
+  every other set and fuzz seeds 7, 11, 23: as above.

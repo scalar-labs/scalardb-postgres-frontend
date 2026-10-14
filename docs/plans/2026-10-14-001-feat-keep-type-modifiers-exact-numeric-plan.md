@@ -655,6 +655,20 @@ every write to its table.
 
 #### Phase 4: NUMERIC without precision, and p above the limit, as TEXT
 
+**Status: done 2026-10-14 on branch `type-modifiers-phase0`** (uncommitted): `t` and `t<p>_<s>` columns created by
+CREATE TABLE and ADD COLUMN and translated by `ColumnMap`; refused as partition key, clustering key or index
+(0A000 naming the fix); every comparison on them kept in memory, LIKE on any declared numeric 42883 as
+PostgreSQL; unbounded values limited to 16383 fraction digits (22003 "value overflows numeric format"); numeric
+OID with typmod -1 (unbounded) or (p,s); binary output of NaN and the infinities. `NumericTextColumnTest` (5
+tests); difftest `cases_numeric.sql` now 56 cases, all matching PostgreSQL 18; `s01_6_1_decimal_large_exact`
+NUM_FMT -> OK. `scalardb.frontend.type_modifiers` (D1) is still not implemented.
+
+Code review fixes (2026-10-15): the numeric-LIKE check skips current_user and the like, covers columns read through
+subqueries and CTEs, and names the right side's type as PostgreSQL does; one `ColumnType.isNumeric()`. Not
+changed: `id NUMERIC PRIMARY KEY` is now refused where earlier releases stored a double (LIMITATIONS.md says so).
+Left for the start of Phase 5: let the client view report declared types, so checks against `DataType.TEXT` stop
+needing a numeric guard at each call site.
+
 - `t` codes; canonical text; refusal as key / index / clustering option; pushdown refusal; LIKE 42883; special
   values as `Double`.
 - **Done when** I-NUM-05/06 and the DECIMAL(20,0) / unbounded cases in `s01_types` match PostgreSQL, and a key

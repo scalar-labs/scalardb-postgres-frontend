@@ -1,8 +1,9 @@
 # Declared types in ScalarDB column names
 
-Status: the frontend creates `n` columns for `NUMERIC(p,s)` and `DECIMAL(p,s)`. The other codes are decoded
-and their columns shown, but not created or written yet
-(`docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md`, Phases 4 and 5).
+Status: the frontend creates `n` and `t` columns for `NUMERIC` and `DECIMAL`. The `v`, `c` and `s` codes are
+decoded and their columns shown, but not created or written yet
+(`docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md`, Phase 5). A `t` column cannot be a
+key or index column: ScalarDB would compare its text, not its number.
 
 ScalarDB has no decimal type, no type modifiers and no metadata a client can attach to a column. So when a
 PostgreSQL client declares a type ScalarDB cannot hold as is, the frontend records the declaration in the

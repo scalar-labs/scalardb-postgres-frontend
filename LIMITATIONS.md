@@ -79,16 +79,19 @@ at the end of this section.
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
 - **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
   `'ab   '` differ and `code = 'ab   '` does not match a stored `'ab'`; `VARCHAR(n)` lengths are not
-  enforced; `NUMERIC(p,s)` and `DECIMAL(p,s)` up to 18 digits (15 on Cosmos DB, object storage and
-  in Cluster mode) are kept exactly, as PostgreSQL keeps them (`docs/type-encoding.md`), but
-  `NUMERIC` without a precision, or with more digits, is stored as `double precision`, so a value is
-  neither rounded nor checked, prints without its scale, and arithmetic carries floating-point noise
-  (`19.90 * 3` is `59.699999999999996`). `NaN` cannot be stored in `NUMERIC(p,s)` (`0A000`);
-  `SMALLINT` is an `integer`
+  enforced; `SMALLINT` is an `integer`
   without a range check. Each is reported with a `NOTICE` at `CREATE TABLE`. The declaration has
   nowhere to live outside ScalarDB's own metadata, so enforcing it waits for type modifiers there
   (`core-todo.md` item 11 in the ScalarDB repository). A modifier PostgreSQL itself rejects
   (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
+- **`NUMERIC` and `DECIMAL` are exact, with two limits** (`docs/type-encoding.md`). Up to 18 digits
+  (15 on Cosmos DB, object storage and in Cluster mode) a column is a scaled `BIGINT`, which cannot
+  hold `NaN` (`0A000`). Without a precision, or with more digits, it is stored as text: every
+  comparison, `ORDER BY` and `GROUP BY` on it runs in the frontend rather than in the database, so a
+  filter on it reads the whole partition or table, and it cannot be a key or index column (`0A000`,
+  naming the fix: declare `NUMERIC(p,s)` with p up to 18). Columns created before this release stay
+  `double precision`. This changes earlier releases' behaviour: `id NUMERIC PRIMARY KEY` and
+  `id NUMERIC(20) PRIMARY KEY`, which used to be accepted as `double precision`, are now refused.
 - **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
   precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
   the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.
@@ -143,9 +146,8 @@ at the end of this section.
 Every other limitation above shows up as an error or a `NOTICE`. These do not: the statement succeeds and
 the result is not what PostgreSQL would return.
 
-- **`NUMERIC` and `DECIMAL` columns without a precision, or with more than 18 digits** (15 on Cosmos
-  DB, object storage and in Cluster mode); `NUMERIC(10,2)` and the like are exact. Such a column is
-  a `double precision`, so `SELECT price * qty`
+- **`NUMERIC` and `DECIMAL` columns created by an earlier release**, which are `double precision`
+  (new ones are exact). On such a column `SELECT price * qty`
   carries floating-point noise (`19.90 * 3` is `59.699999999999996`), `WHERE price * 3 = 0.3` finds
   nothing, a value is stored unrounded (`1.005` stays `1.005` in `NUMERIC(10,2)`) and prints without
   its scale (`19.9`). `sum()` and `avg()` over any `double precision` column are computed exactly and

@@ -9,7 +9,7 @@ s01_6_1_numeric_scale_rounding OK
 s01_6_1_numeric_precision_overflow BOTH_ERR
 s01_6_1_decimal_exact_sum OK
 s01_6_1_decimal_exact_equality OK
-s01_6_1_decimal_large_exact NUM_FMT
+s01_6_1_decimal_large_exact OK
 s01_6_1_decimal_money_total OK
 s01_6_1_decimal_division_scale OK
 s01_6_1_numeric_as_pk BOTH_ERR

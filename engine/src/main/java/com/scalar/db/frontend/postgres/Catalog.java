@@ -1004,7 +1004,8 @@ final class Catalog {
           DataType type = metadata.getColumnDataType(column);
           ColumnType declared = columnMap.type(column);
           // numeric(10,2) stored as a scaled bigint is numeric(10,2) here, as format_type shows it
-          boolean numeric = declared.kind == ColumnType.Kind.NUMERIC_SCALED;
+          boolean numeric = declared.isNumeric();
+          boolean bounded = numeric && declared.precision != 0; // numeric alone has neither
           long typeOid = numeric ? declared.oid() : typeOid(type);
           long typmod = numeric ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
@@ -1043,8 +1044,8 @@ final class Catalog {
               INTERNAL_TYPE_NAMES.get(typeOid),
               null,
               null,
-              numeric ? (long) declared.precision : null,
-              numeric ? (long) declared.scale : null,
+              bounded ? (long) declared.precision : null,
+              bounded ? (long) declared.scale : null,
               null);
         }
         String columnList = String.join(", ", keys);

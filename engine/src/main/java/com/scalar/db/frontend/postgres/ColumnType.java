@@ -220,6 +220,30 @@ final class ColumnType {
     return kind != Kind.NUMERIC_TEXT && kind != Kind.UNKNOWN_ENCODING;
   }
 
+  /**
+   * Refuses this type as a key or index column when ScalarDB would compare its stored form
+   * differently from PostgreSQL (a text-stored numeric).
+   */
+  void checkKeyable(String column, int maxScaledPrecision) {
+    if (!comparableWhenStored()) {
+      throw new PgException.Argument(
+          "0A000",
+          "column \""
+              + column
+              + "\" cannot be a key or index column: a NUMERIC without a precision, or with more"
+              + " than "
+              + maxScaledPrecision
+              + " digits, is stored as text here, which ScalarDB would order and match as text."
+              + " Declare it NUMERIC(p,s) with p <= "
+              + maxScaledPrecision);
+    }
+  }
+
+  /** True for a declared numeric, stored as a scaled bigint or as text. */
+  boolean isNumeric() {
+    return kind == Kind.NUMERIC_SCALED || kind == Kind.NUMERIC_TEXT;
+  }
+
   /** True for a type recorded in the column name (any kind but NATIVE). */
   boolean encoded() {
     return kind != Kind.NATIVE;
@@ -398,6 +422,10 @@ final class ColumnType {
       return n;
     }
     BigDecimal d = (BigDecimal) n;
+    if (precision == 0 && d.scale() > 16_383) {
+      // PostgreSQL's limit on a numeric's fraction digits (its integer digits are checked on parse)
+      throw new PgException.Argument("22003", "value overflows numeric format");
+    }
     return precision == 0 ? d : Evaluator.applyTypmod(d, precision, scale);
   }
 

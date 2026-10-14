@@ -1336,7 +1336,9 @@ public class QueryParser {
           for (LogicalPlan.Source s : logical.sources) {
             if (s.target != null) {
               for (String name : s.target.metadata.getColumnNames()) {
-                types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
+                if (!exactlyConverted(s.target.columns.type(name))) {
+                  types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
+                }
               }
             } else if (s.derived != null) {
               for (int i = 0; i < s.columns.size() && i < s.derived.outputTypes.size(); i++) {
@@ -3002,6 +3004,7 @@ public class QueryParser {
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
     Map<String, String> stored = new HashMap<>(); // client name -> ScalarDB name
+    Map<String, ColumnType> declaredTypes = new HashMap<>();
     List<String> primaryKey = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (ColumnDefinition definition : create.getColumnDefinitions()) {
@@ -3030,6 +3033,7 @@ public class QueryParser {
       }
       columns.add(column);
       ColumnType declared = recorded(declaredText(definition.getColDataType()), column, notices);
+      declaredTypes.put(column, declared);
       stored.put(column, declared.storageName(column));
       builder.addColumn(
           stored.get(column),
@@ -3083,6 +3087,8 @@ public class QueryParser {
       if (!columns.contains(column.trim())) {
         throw new IllegalArgumentException("Unknown partition key column: " + column);
       }
+      java.util.Objects.requireNonNull(declaredTypes.get(column.trim()))
+          .checkKeyable(column.trim(), maxScaledPrecision);
       builder.addPartitionKey(stored.getOrDefault(column.trim(), column.trim()));
     }
     for (String spec : clusteringKey) {
@@ -3090,6 +3096,8 @@ public class QueryParser {
       if (!columns.contains(parts[0])) {
         throw new IllegalArgumentException("Unknown clustering key column: " + parts[0]);
       }
+      java.util.Objects.requireNonNull(declaredTypes.get(parts[0]))
+          .checkKeyable(parts[0], maxScaledPrecision);
       boolean desc = parts.length > 1 && parts[1].equalsIgnoreCase("DESC");
       builder.addClusteringKey(
           stored.getOrDefault(parts[0], parts[0]),
@@ -3228,6 +3236,9 @@ public class QueryParser {
         Plan.ddl(
             () -> {
               ColumnMap map = columnMap(namespace, name);
+              if (map != null && map.clientView().getColumnNames().contains(column)) {
+                map.type(column).checkKeyable(column, maxScaledPrecision);
+              }
               admin.createIndex(
                   namespace, name, map == null ? column : map.storageName(column), false);
               if (given != null && !given.equals(generated)) {
@@ -3439,7 +3450,7 @@ public class QueryParser {
    */
   private ColumnType recorded(String declaredType, String column, List<String> notices) {
     ColumnType declared = ColumnType.declared(declaredType, maxScaledPrecision);
-    if (declared.kind != ColumnType.Kind.NUMERIC_SCALED) {
+    if (!declared.isNumeric()) {
       return ColumnType.of(columnType(declaredType));
     }
     notices.removeIf(n -> n.startsWith("NUMERIC on column \"" + column + "\""));
@@ -5126,24 +5137,70 @@ public class QueryParser {
           String name = columnName(c);
           LogicalPlan.Source s = scope.resolve(c);
           return s.target != null
-              ? s.target.metadata.getColumnDataType(name)
+              ? checkedType(s.target, name)
               : s.derived != null && s.columns.contains(name)
                   ? s.derived.outputTypes.get(s.columns.indexOf(name))
                   : null;
+        },
+        c -> {
+          String name = columnName(c);
+          LogicalPlan.Source s = scope.resolve(c);
+          if (s.target != null) {
+            return isDeclaredNumeric(s.target, name);
+          }
+          int i = s.derived == null ? -1 : s.columns.indexOf(name);
+          int[] oids = s.derived == null ? new int[0] : s.derived.outputOids();
+          return i >= 0 && i < oids.length && oids[i] == 1700; // through a subquery or CTE
         });
   }
 
   /** As above, for a single-table UPDATE or DELETE planned by key, without a scope. */
   private static void checkTextAgainstNumber(@Nullable Expression where, Target t) {
     if (where != null) {
-      checkTextAgainstNumber(where, c -> t.metadata.getColumnDataType(columnName(c)));
+      checkTextAgainstNumber(
+          where, c -> checkedType(t, columnName(c)), c -> isDeclaredNumeric(t, columnName(c)));
     }
   }
 
+  /** A column's type for the checks below: a numeric stored as text is no text column. */
+  @Nullable private static DataType checkedType(Target t, String name) {
+    DataType type = t.metadata.getColumnDataType(name);
+    return type == null || isDeclaredNumeric(t, name) ? null : type;
+  }
+
+  /** True for a column declared numeric(p,s) or numeric and stored scaled or as text. */
+  private static boolean isDeclaredNumeric(Target t, String name) {
+    if (!t.metadata.getColumnNames().contains(name)) {
+      return false;
+    }
+    return t.columns.type(name).isNumeric();
+  }
+
   private static void checkTextAgainstNumber(
-      Expression e, java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf) {
+      Expression e,
+      java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf,
+      java.util.function.Predicate<net.sf.jsqlparser.schema.Column> numeric) {
     e.accept(
         new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(LikeExpression like, S context) {
+            Expression left = unwrap(like.getLeftExpression());
+            if (isTableColumn(left) && numeric.test((net.sf.jsqlparser.schema.Column) left)) {
+              // a numeric column has no LIKE in PostgreSQL; its text would match where it errs
+              String op =
+                  like.getLikeKeyWord() == LikeExpression.KeyWord.ILIKE
+                      ? like.isNot() ? "!~~*" : "~~*"
+                      : like.isNot() ? "!~~" : "~~";
+              throw new PgException.Argument(
+                  "42883",
+                  "operator does not exist: numeric "
+                      + op
+                      + " "
+                      + operandType(like.getRightExpression()));
+            }
+            return super.visit(like, context);
+          }
+
           @Override
           protected <S> Void visitBinaryExpression(BinaryExpression expr, S context) {
             if (expr instanceof ComparisonOperator) {
@@ -5173,6 +5230,42 @@ public class QueryParser {
           @Override
           public <S> Void visit(Select select, S context) {
             return null;
+          }
+
+          /** A column reference, not a bare current_user, true or the like. */
+          private boolean isTableColumn(Expression e) {
+            if (!isColumn(e)) {
+              return false;
+            }
+            net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) e;
+            String name = columnName(c);
+            return c.getTable() != null || !(isBooleanLiteral(name) || isKeyword(name));
+          }
+
+          /** The type PostgreSQL names for the right side of an operator it cannot find. */
+          private String operandType(Expression e) {
+            e = unwrap(e);
+            if (isTableColumn(e)) {
+              net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) e;
+              if (numeric.test(c)) {
+                return "numeric";
+              }
+              DataType type = typeOf.apply(c);
+              return type == null ? "unknown" : Catalog.typeName(Catalog.typeOid(type));
+            }
+            if (e instanceof CastExpression) {
+              try {
+                return Catalog.typeName( // character varying, not varchar
+                    Catalog.typeOid(
+                        castTypeLabel(((CastExpression) e).getColDataType().getDataType())));
+              } catch (IllegalArgumentException unknownType) {
+                return "unknown";
+              }
+            }
+            if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
+              return "text";
+            }
+            return "unknown"; // a literal or an untyped parameter
           }
 
           private void check(Expression column, Expression other, String op) {
@@ -6196,7 +6289,7 @@ public class QueryParser {
    */
   @Nullable private static Object forColumn(
       Target t, String name, Expression e, List<Map<String, Object>> rows, Evaluator.Context ctx) {
-    return t.metadata.getColumnDataType(name) == DataType.TEXT
+    return t.metadata.getColumnDataType(name) == DataType.TEXT && !isDeclaredNumeric(t, name)
         ? Evaluator.evalText(e, rows, ctx)
         : Evaluator.eval(e, rows, ctx);
   }
@@ -6249,7 +6342,8 @@ public class QueryParser {
           || !isColumn(like.getLeftExpression())
           || !(like.getRightExpression() instanceof StringValue
               || like.getRightExpression() instanceof JdbcParameter)
-          || (like.getEscape() != null && !(like.getEscape() instanceof StringValue))) {
+          || (like.getEscape() != null && !(like.getEscape() instanceof StringValue))
+          || isDeclaredNumeric(t, columnName(like.getLeftExpression()))) {
         return null;
       }
       Column<?> column =
@@ -6276,6 +6370,9 @@ public class QueryParser {
         return null;
       }
       ColumnType declared = t.columns.type(existing(t.metadata, columnName(c.getLeftExpression())));
+      if (!declared.comparableWhenStored()) {
+        return null; // "1.50" is not "1.5" as text, and "10" sorts before "9": in memory
+      }
       if (declared.kind == ColumnType.Kind.NUMERIC_SCALED) {
         Expression right = c.getRightExpression();
         Object v =
