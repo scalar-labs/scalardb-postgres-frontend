@@ -2698,7 +2698,7 @@ public class QueryParser {
     if (statement instanceof Truncate) {
       Table table = ((Truncate) statement).getTable();
       String namespace = namespaceOf(table);
-      String name = unquote(table.getName());
+      String name = checkedCharacters(unquote(table.getName()));
       return Plan.ddl(() -> admin.truncateTable(namespace, name), "TRUNCATE TABLE");
     }
     if (statement instanceof Alter) {
@@ -2793,7 +2793,7 @@ public class QueryParser {
   // ---- DDL ----
 
   private String namespaceOf(Table table) {
-    return namespace(table.getSchemaName());
+    return checkedCharacters(namespace(table.getSchemaName()));
   }
 
   /** The user the client connected as, for {@code current_user}. */
@@ -3085,7 +3085,7 @@ public class QueryParser {
 
   private Plan createIndex(CreateIndex create) {
     String namespace = namespaceOf(create.getTable());
-    String name = unquote(create.getTable().getName());
+    String name = checkedCharacters(unquote(create.getTable().getName()));
     List<String> columns = create.getIndex().getColumnsNames();
     if (columns.size() != 1) {
       throw new IllegalArgumentException("ScalarDB indexes cover one column: " + create);
@@ -3094,10 +3094,12 @@ public class QueryParser {
       throw new PgException.Argument(
           "0A000", "Expression indexes are not supported: " + columns.get(0));
     }
-    String column = unquote(columns.get(0));
+    String column = checkedCharacters(unquote(columns.get(0)));
     String generated = name + "_" + column + "_idx";
     String given =
-        create.getIndex().getName() == null ? null : unquote(create.getIndex().getName());
+        create.getIndex().getName() == null
+            ? null
+            : checkedCharacters(unquote(create.getIndex().getName()));
     Plan plan =
         Plan.ddl(
             () -> {
@@ -3144,12 +3146,12 @@ public class QueryParser {
       case "TABLE":
         {
           String namespace = namespaceOf(target);
-          String name = unquote(target.getName());
+          String name = checkedCharacters(unquote(target.getName()));
           return Plan.ddl(() -> admin.dropTable(namespace, name, ifExists), "DROP TABLE");
         }
       case "SCHEMA":
         {
-          String namespace = unquote(target.getName());
+          String namespace = checkedCharacters(unquote(target.getName()));
           if (namespace.equals("public")) {
             throw new IllegalArgumentException(
                 "cannot drop schema public: it is the connected database's namespace; drop it by name");
@@ -3208,7 +3210,7 @@ public class QueryParser {
 
   private Plan alter(Alter alter) {
     String namespace = namespaceOf(alter.getTable());
-    String name = unquote(alter.getTable().getName());
+    String name = checkedCharacters(unquote(alter.getTable().getName()));
     List<Ddl> steps = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (AlterExpression expression : alter.getAlterExpressions()) {
@@ -3228,7 +3230,7 @@ public class QueryParser {
         }
       } else if (expression.getOperation() == AlterOperation.RENAME
           && expression.getColOldName() != null) {
-        String oldName = unquote(expression.getColOldName());
+        String oldName = checkedCharacters(unquote(expression.getColOldName()));
         String newName = checkedName(unquote(expression.getColumnName()), true);
         steps.add(() -> admin.renameColumn(namespace, name, oldName, newName));
       } else {
@@ -3280,6 +3282,7 @@ public class QueryParser {
    * 56 bytes for the column's own name. Such names are refused rather than truncated.
    */
   static String checkedName(String name, boolean column) {
+    checkedCharacters(name);
     int max = column ? 63 - "before_".length() : 63;
     if (name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > max) {
       throw new PgException.Argument(
@@ -3292,6 +3295,36 @@ public class QueryParser {
               + (column
                   ? ", since ScalarDB stores a before_ copy of each column within PostgreSQL's 63"
                   : ""));
+    }
+    return name;
+  }
+
+  /**
+   * A name the frontend passes to ScalarDB DDL. PostgreSQL allows any character in a quoted
+   * identifier, but ScalarDB's JDBC storage writes names into SQL text without escaping them (its
+   * metadata INSERT formats them inside {@code '...'}, and each engine encloses them in {@code "},
+   * a backquote or brackets), so a quote, backslash, bracket, semicolon or control character could
+   * end the literal or the identifier and run SQL of the caller's choosing (todo 053). Such names
+   * are refused.
+   */
+  static String checkedCharacters(String name) {
+    for (int i = 0; i < name.length(); i++) {
+      char c = name.charAt(i);
+      if (c == '\''
+          || c == '"'
+          || c == '`'
+          || c == '['
+          || c == ']'
+          || c == '\\'
+          || c == ';'
+          || Character.isISOControl(c)) {
+        throw new PgException.Argument(
+            "42602", // invalid_name
+            "invalid name \""
+                + name.replaceAll("\\p{Cntrl}", "?")
+                + "\": quotes, backslashes, brackets, semicolons and control characters are not"
+                + " allowed in names, since ScalarDB writes names into SQL unescaped");
+      }
     }
     return name;
   }
@@ -3849,6 +3882,40 @@ public class QueryParser {
     return true;
   }
 
+  /**
+   * The type of CASE, COALESCE, NULLIF, GREATEST and LEAST, from all their branches: numeric types
+   * unify as PostgreSQL's do (any float gives double precision, else any numeric gives numeric,
+   * else the widest integer); otherwise the first typed branch decides.
+   */
+  private static int unifiedOid(
+      List<? extends Expression> branches, List<LogicalPlan.Source> sources) {
+    int first = 0;
+    int rank = -1;
+    boolean allNumeric = true;
+    for (Expression b : branches) {
+      if (b instanceof NullValue) {
+        continue;
+      }
+      int oid = inferOid(b, sources);
+      if (oid == 0) {
+        continue;
+      }
+      if (first == 0) {
+        first = oid;
+      }
+      int r = NUMERIC_RANK.indexOf(oid);
+      if (r < 0) {
+        allNumeric = false;
+      } else {
+        rank = Math.max(rank, r);
+      }
+    }
+    return allNumeric && rank >= 0 ? NUMERIC_RANK.get(rank) : first;
+  }
+
+  /** Numeric type OIDs from narrowest to widest, as PostgreSQL resolves a common type. */
+  private static final List<Integer> NUMERIC_RANK = Arrays.asList(21, 23, 20, 1700, 700, 701);
+
   /** The type OID an expression's values will have, from its shape; 0 when unknown. */
   static int inferOid(Expression e, List<LogicalPlan.Source> sources) {
     e = unwrap(e);
@@ -4008,15 +4075,16 @@ public class QueryParser {
       }
     }
     if (e instanceof net.sf.jsqlparser.expression.CaseExpression) {
+      List<Expression> branches = new ArrayList<>();
       for (net.sf.jsqlparser.expression.WhenClause when :
           ((net.sf.jsqlparser.expression.CaseExpression) e).getWhenClauses()) {
-        int oid = inferOid(when.getThenExpression(), sources);
-        if (oid != 0 && !(when.getThenExpression() instanceof NullValue)) {
-          return oid;
-        }
+        branches.add(when.getThenExpression());
       }
       Expression otherwise = ((net.sf.jsqlparser.expression.CaseExpression) e).getElseExpression();
-      return otherwise == null ? 0 : inferOid(otherwise, sources);
+      if (otherwise != null) {
+        branches.add(otherwise);
+      }
+      return unifiedOid(branches, sources);
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
       return 25;
@@ -4150,12 +4218,13 @@ public class QueryParser {
         return first == 23 || first == 21 ? 20 : first == 20 ? 1700 : first == 0 ? 0 : first;
       case "AVG":
         return first == 701 || first == 700 ? 701 : 1700;
-      case "MIN":
-      case "MAX":
       case "COALESCE":
       case "NULLIF":
       case "GREATEST":
       case "LEAST":
+        return unifiedOid(args, sources);
+      case "MIN":
+      case "MAX":
       case "ABS":
       case "ROUND":
       case "FLOOR":

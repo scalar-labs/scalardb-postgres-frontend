@@ -3001,4 +3001,126 @@ public class QueryParserTest {
     assertThat(String.join("\n", parser.explain(parser.parse("SELECT * FROM t"))))
         .contains("projections=[all]");
   }
+
+  @Test
+  public void parse_DdlWithQuotesOrControlCharactersInNames_ShouldFailWithInvalidName() {
+    // ScalarDB writes names into SQL unescaped (todo 053), so such names never reach it
+    for (String sql :
+        Arrays.asList(
+            "CREATE TABLE \"x'y\" (id INT PRIMARY KEY)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a',NULL);--\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a\"\"b\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a`b\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a[b]\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a\\b\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a;b\" INT)",
+            "CREATE TABLE u (id INT PRIMARY KEY, \"a\tb\" INT)",
+            "CREATE TABLE \"s'x\".u (id INT PRIMARY KEY)",
+            "ALTER TABLE t ADD COLUMN \"a'b\" INT",
+            "ALTER TABLE t RENAME COLUMN name TO \"a'b\"",
+            "ALTER TABLE t RENAME COLUMN \"a'b\" TO c",
+            "ALTER TABLE \"t'x\" ADD COLUMN c INT",
+            "CREATE INDEX i ON \"t'x\" (name)",
+            "CREATE INDEX \"i'x\" ON t (name)",
+            "DROP TABLE \"t'x\"",
+            "DROP SCHEMA \"s;x\"",
+            "TRUNCATE \"t'x\"")) {
+      assertThatThrownBy(() -> parser.parse(sql))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.Argument.class, e -> assertThat(e.sqlState()).isEqualTo("42602"));
+    }
+    // an index on such a column is refused before that, as an expression index
+    assertThatThrownBy(() -> parser.parse("CREATE INDEX i ON t (\"a'b\")"))
+        .isInstanceOf(PgException.Argument.class);
+  }
+
+  @Test
+  public void execute_CaseAndCoalesceOverIntegersAndDecimals_ShouldBeNumericAsInPostgres()
+      throws Exception {
+    // a decimal literal is numeric: an integer branch becomes numeric, not double precision
+    assertThat(
+            parser
+                .parse(
+                    "SELECT (coalesce(3, 1.5) / 2)::text AS a, (coalesce(3, 1.5::float8) / 2)::text"
+                        + " AS b, (CASE WHEN true THEN 1 ELSE 2.5 END)::text AS c,"
+                        + " greatest(1, 2.5)::text AS d")
+                .execute(transaction))
+        .containsExactly(map("a", "1.5000000000000000", "b", "1.5", "c", "1", "d", "2.5"));
+    // a branch the evaluator cannot type by shape (an aggregate) widens as the planner types it
+    assertThat(
+            parser
+                .parse(
+                    "SELECT ((CASE WHEN true THEN 3 ELSE avg(1) END) / 2)::text AS a,"
+                        + " (coalesce(3, max(1.5)) / 2)::text AS b")
+                .execute(transaction))
+        .containsExactly(map("a", "1.5000000000000000", "b", "1.5000000000000000"));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT coalesce(3, 1.5) AS a, coalesce(3, 1.5::float8) AS b,"
+                        + " CASE WHEN true THEN 1 ELSE 2.5 END AS c, nullif(1, 2) AS d,"
+                        + " coalesce(1, 2::bigint) AS e")
+                .outputOids())
+        .containsExactly(1700, 701, 1700, 23, 20);
+  }
+
+  @Test
+  public void execute_FormatTypeWithTypmod_ShouldPrintModifiersAsPostgres() throws Exception {
+    assertThat(
+            parser
+                .parse(
+                    "SELECT format_type(1700, 655366) AS a, format_type(1700, 329730) AS b,"
+                        + " format_type(1700, -1) AS c, format_type(1043, 24) AS d,"
+                        + " format_type(1043, -1) AS e, format_type(1042, 7) AS f,"
+                        + " format_type(1042, -1) AS g, format_type(1042, NULL) AS h,"
+                        + " format_type(1114, 3) AS i, format_type(1184, 0) AS j,"
+                        + " format_type(23, 99) AS k, format_type(9999, -1) AS l,"
+                        + " format_type(1015, 24) AS m")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a", "numeric(10,2)",
+                "b", "numeric(5,-2)",
+                "c", "numeric",
+                "d", "character varying(20)",
+                "e", "character varying",
+                "f", "character(3)",
+                "g", "bpchar",
+                "h", "character",
+                "i", "timestamp(3) without time zone",
+                "j", "timestamp(0) with time zone",
+                "k", "integer",
+                "l", "???",
+                "m", "character varying(20)[]"));
+  }
+
+  @Test
+  public void execute_CharCasts_ShouldTruncateAndIgnoreTrailingSpacesAsPostgres() throws Exception {
+    assertThat(
+            parser
+                .parse(
+                    "SELECT 'abc'::char AS a, 'abcd'::char(3) AS b, 'ab   '::char(5) AS c,"
+                        + " '[' || 'a'::char(3) || ']' AS d, length('a'::char(3))::text AS e,"
+                        + " 'ab   '::varchar(5) AS f, 'abc'::bpchar AS g,"
+                        + " 'abcd'::character varying(3) AS h")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a", "a", "b", "abc", "c", "ab", "d", "[a]", "e", "1", "f", "ab   ", "g", "abc",
+                "h", "abc"));
+  }
+
+  @Test
+  public void execute_FloatToNumeric_ShouldKeepFifteenSignificantDigitsAsPostgres()
+      throws Exception {
+    assertThat(
+            parser
+                .parse(
+                    "SELECT ((0.1::float8 + 0.2)::numeric)::text AS a,"
+                        + " (1.005::float8::numeric(10,2))::text AS b,"
+                        + " (1.2345678901234567::float8::numeric)::text AS c")
+                .execute(transaction))
+        .containsExactly(map("a", "0.3", "b", "1.01", "c", "1.23456789012346"));
+  }
 }

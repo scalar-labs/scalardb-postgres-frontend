@@ -1,0 +1,29 @@
+Differential run of 2026-10-14 for Phase 0 of docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md
+(branch type-modifiers-phase0): identifier characters refused in DDL (todo 053), CASE / COALESCE / GREATEST /
+LEAST / NULLIF typed as PostgreSQL types them (an integer next to a numeric is numeric, next to a float is double
+precision, and the result OID follows), format_type(oid, typmod) and pg_type bpchar, ::char casts (bare char is
+char(1), trailing spaces dropped), float to numeric with 15 (float8) or 6 (float4) significant digits.
+
+Setup: native PostgreSQL 18.1 with the C locale and UTC on a throwaway cluster (port 15499) holding both native_c
+and the frontend's backing database sdb; the frontend's fat jar under Java 17, listening on 127.0.0.1:15461;
+run.py from a copy of difftest/ with the native port changed. Every set ran with EXPECT=results/baseline/<set>.txt.
+
+Results (all match their baselines unless noted):
+  read          OK 259, NUM_FMT 1, BOTH_ERR 15, DIFF 1, PG_ERR 1
+  types         OK 17, BOTH_ERR 5
+  write         OK 19, FE_ERR 12, BOTH_ERR 13
+  write_ac      OK 49, FE_ERR 1, BOTH_ERR 3
+  bind          OK 18, BOTH_ERR 1, FE_ERR 1, CODE 1
+  session       OK 18, BOTH_ERR 18, FE_ERR 11, CODE 1
+  sql92 s01-s11 as their baselines, except s02_11_1_create_schema_authorization: CODE -> FE_ERR. Not a
+                frontend change: on a fresh native database the schema did not exist yet, so PostgreSQL
+                succeeded; the frontend answered 0A000 as before. The baseline is left as it was.
+  fuzz          seeds 7, 11, 23 x 300 queries: no DIFF. NUM_FMT 7 (the last digit of a float sum, see
+                LIMITATIONS.md) and FE_ERR 1 (substr(CASE ... IS DISTINCT FROM ... END, n), the JSQLParser
+                limit listed in results/2026-10-08-fuzz/summary.txt).
+
+No baseline was rewritten.
+
+Rerun after the code review of the same day (an integer branch next to avg(), sum(), max() and the like now
+widens as the planner types it; format_type on arrays; index names checked; static patterns): read as its
+baseline; sql92 s04, s06, s07 as their baselines; fuzz seeds 7, 11, 23: no DIFF (seed 11 now OK 297, NUM_FMT 3).

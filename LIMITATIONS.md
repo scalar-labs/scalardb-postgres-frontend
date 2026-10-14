@@ -95,7 +95,10 @@ at the end of this section.
   over 56, is refused (`42622`) rather than truncated as PostgreSQL does: ScalarDB keeps the full
   name and reads columns back by it, and stores a `before_` copy of each column, so a truncated
   name would leave a table that cannot be read. A table has at most 1600 columns as in PostgreSQL,
-  and on a PostgreSQL backend the `before_` copies halve what fits.
+  and on a PostgreSQL backend the `before_` copies halve what fits. A schema, table, column or index
+  name may not contain a quote (`'`, `"`, a backquote), a bracket, a backslash, a semicolon or a
+  control character (`42602`): PostgreSQL allows them in quoted identifiers, but ScalarDB's JDBC
+  storage writes names into SQL without escaping them.
 - **Keys, and the MySQL backend.** ScalarDB refuses an empty string as a partition key value
   (`22023`). On MySQL, ScalarDB creates key and indexed `TEXT` columns as `varchar(128)`
   (`scalar.db.jdbc.mysql.variable_key_column_size`), so a longer value fails at commit (`22001`),

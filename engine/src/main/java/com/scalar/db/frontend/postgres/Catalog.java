@@ -384,6 +384,7 @@ final class Catalog {
     type(1700, "numeric", "numeric");
     type(21, "int2", "smallint");
     type(1043, "varchar", "character varying");
+    type(1042, "bpchar", "character");
     type(114, "json", "json");
     type(3802, "jsonb", "jsonb");
     type(19, "name", "name");
@@ -539,6 +540,7 @@ final class Catalog {
         return "U";
       case 19:
       case 25:
+      case 1042:
       case 1043:
         return "S";
       case 1082:
@@ -632,6 +634,50 @@ final class Catalog {
   static String typeName(long oid) {
     String name = TYPE_NAMES.get(oid);
     return name == null ? "unknown" : name;
+  }
+
+  /**
+   * {@code format_type(oid, typmod)}: the type name with its modifier, as PostgreSQL prints it. A
+   * typmod of -1 means "none given"; for {@code character} PostgreSQL then prints {@code bpchar},
+   * while a NULL typmod (the one-argument form) prints {@code character}. An unknown OID is {@code
+   * ???}.
+   */
+  static String typeName(long oid, @Nullable Long typmod) {
+    long element = elementOid(oid);
+    if (element != 0 && typmod != null && typmod >= 0) {
+      return typeName(element, typmod) + "[]"; // character varying(20)[]
+    }
+    String name = TYPE_NAMES.get(oid);
+    if (name == null) {
+      return "???";
+    }
+    if (typmod == null) {
+      return name;
+    }
+    long t = typmod;
+    switch ((int) oid) {
+      case 1700:
+        if (t < 4) {
+          return name;
+        }
+        long packed = t - 4;
+        long scale = ((packed & 0x7ff) ^ 0x400) - 0x400; // 11-bit two's complement
+        return "numeric(" + (packed >> 16) + "," + scale + ")";
+      case 1043:
+        return t < 4 ? name : "character varying(" + (t - 4) + ")";
+      case 1042:
+        return t < 4 ? "bpchar" : "character(" + (t - 4) + ")";
+      case 1083:
+      case 1114:
+      case 1184:
+        if (t < 0) {
+          return name;
+        }
+        int space = name.indexOf(' ');
+        return name.substring(0, space) + "(" + t + ")" + name.substring(space);
+      default:
+        return name;
+    }
   }
 
   /**
