@@ -676,6 +676,28 @@ needing a numeric guard at each call site.
 
 #### Phase 5: VARCHAR(n), CHAR(n), SMALLINT, and RENAME of encoded columns
 
+**Status: done 2026-10-15 on branch `type-modifiers-phase0`** (uncommitted), except the orphan before-image and
+stale-name handling: `v`, `c` and `s` columns created and translated (`ColumnMap` now translates every kind but
+unknown encodings); notices withdrawn; char stored trimmed and padded on output (text and binary, by typmod);
+LIKE on char not pushed; smallint literals beyond the range decide a comparison instead of failing; OIDs 1043 /
+1042 / 21 with typmods in RowDescription, RETURNING, pg_attribute and information_schema; RENAME COLUMN keeps the
+code (42622 when the new name with its code is too long; index names follow). `ColumnType.comparesAsText()`
+decides how a value is read for a column; the type check for `text = 1` keeps its numeric guard (the
+Phase 4 review item, done only that far). `CharacterColumnTest` (5 tests);
+difftest `cases_character.sql` 23 cases all matching; nine `s01_types` cases improved.
+
+Code review fixes (same day): quoted smallint values are smallint input (22003 / 22P02) while number literals
+compare as numbers; char comparisons outside pushdown strip a literal's trailing spaces and LIKE sees the padded
+value (a plan-time rewrite in `analyze`, `rpad(c, n)`); lpad / rpad implemented; RENAME checks 42701 before 42622;
+the type notices are no longer emitted then withdrawn; `ColumnType.convertsValues()` replaces `exactlyConverted`;
+native numeric precisions in information_schema. Not changed: a char passed through an aggregate comes back
+unpadded (documented).
+
+**Not done, recorded as todo 054:** orphan before-images after an interrupted rename, and the 42703 mapping of
+stale storage names. Detection is ambiguous (the plan says so), a repair through the transaction admin would itself
+run ScalarDB's two-step rename, and neither can be tested without fault injection. LIMITATIONS.md gives the
+manual repair.
+
 - `v<n>`, `c<n>`, `s` codes; notices removed; write rules; CHAR stored and decoded trimmed, padded on output,
   stripped pushdown literals; LIKE on CHAR not pushed; SMALLINT range; OIDs 1043 / 1042 / 21 and typmods, including
   RETURNING's lists.

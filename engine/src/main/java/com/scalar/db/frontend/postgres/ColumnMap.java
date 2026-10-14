@@ -74,13 +74,8 @@ final class ColumnMap {
    * shown under its ScalarDB name with its stored value, and never written, so that a value is
    * never read one way and written another.
    */
-  // ponytail: grows with the plan's phases (char and smallint to come)
   private static final Set<ColumnType.Kind> TRANSLATED =
-      EnumSet.of(
-          ColumnType.Kind.NATIVE,
-          ColumnType.Kind.VARCHAR,
-          ColumnType.Kind.NUMERIC_SCALED,
-          ColumnType.Kind.NUMERIC_TEXT);
+      EnumSet.complementOf(EnumSet.of(ColumnType.Kind.UNKNOWN_ENCODING));
 
   private ColumnMap(String namespace, String table, TableMetadata stored) {
     this.namespace = namespace;

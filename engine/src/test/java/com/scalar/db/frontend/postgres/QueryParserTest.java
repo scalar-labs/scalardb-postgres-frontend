@@ -1144,7 +1144,7 @@ public class QueryParserTest {
             "c",
             TableMetadata.newBuilder()
                 .addColumn("id", DataType.INT)
-                .addColumn("name", DataType.TEXT)
+                .addColumn("name__pg_v20", DataType.TEXT) // varchar(20), its length recorded
                 .addColumn("created", DataType.TIMESTAMPTZ)
                 .addPartitionKey("id")
                 .build(),
@@ -1512,12 +1512,13 @@ public class QueryParserTest {
         .anyMatch(n -> n.startsWith("CHECK on column \"v\""))
         .anyMatch(n -> n.startsWith("UNIQUE on column \"u\""))
         .noneMatch(n -> n.contains("DEFAULT")) // DEFAULT NULL is what an omitted column reads
-        .anyMatch(n -> n.startsWith("CHAR on column \"c\""))
-        .noneMatch(n -> n.startsWith("NUMERIC on column \"m\"")) // kept exactly now
-        .anyMatch(n -> n.startsWith("SMALLINT on column \"s\""))
+        // char(5), numeric(10,2) and smallint are kept as declared now
+        .noneMatch(n -> n.startsWith("CHAR on column \"c\""))
+        .noneMatch(n -> n.startsWith("NUMERIC on column \"m\""))
+        .noneMatch(n -> n.startsWith("SMALLINT on column \"s\""))
         .anyMatch(n -> n.startsWith("identity on column \"g\""))
         .anyMatch(n -> n.contains("UNIQUE (v, u)"));
-    assertThat(plan.notices).hasSize(7);
+    assertThat(plan.notices).hasSize(5);
     // any other default would be lost: an omitted column reads NULL, so it is refused
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE d (id INT, v INT DEFAULT 7, PRIMARY KEY (id))"))

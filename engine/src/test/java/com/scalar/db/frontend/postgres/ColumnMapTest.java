@@ -350,19 +350,17 @@ public class ColumnMapTest {
             .addColumn("amount", DataType.DOUBLE)
             .addColumn("amount__pg_v10", DataType.TEXT) // the same client name, once decoded
             .addColumn("note__pg_zz", DataType.TEXT) // a code this frontend does not know
-            .addColumn("code__pg_c3", DataType.TEXT) // a code whose values are not wired yet
             .addColumn("tag__pg_v5", DataType.TEXT)
             .addPartitionKey("id")
             .build();
     ColumnMap map = ColumnMap.of(NS, "d", stored);
     assertThat(map.clientView().getColumnNames())
-        .containsExactly("id", "amount", "amount__pg_v10", "note__pg_zz", "code__pg_c3", "tag");
+        .containsExactly("id", "amount", "amount__pg_v10", "note__pg_zz", "tag");
     for (Column<?> write :
         Arrays.<Column<?>>asList(
             DoubleColumn.of("amount", 1.0),
             TextColumn.of("amount__pg_v10", "x"),
-            TextColumn.of("note__pg_zz", "x"),
-            TextColumn.of("code__pg_c3", "ab "))) {
+            TextColumn.of("note__pg_zz", "x"))) {
       Put put =
           Put.newBuilder()
               .namespace(NS)
@@ -372,12 +370,12 @@ public class ColumnMapTest {
               .build();
       assertThat(state(() -> map.toStorage(put))).as(write.getName()).isEqualTo("0A000");
     }
-    // a raw column reads its stored value as is: the trailing space is not trimmed
+    // a raw column reads its stored value as is, not validated against a code it does not know
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("id", IntColumn.of("id", 1));
-    columns.put("code__pg_c3", TextColumn.of("code__pg_c3", "ab "));
+    columns.put("note__pg_zz", TextColumn.of("note__pg_zz", "ab "));
     Result result = new ResultImpl(columns, stored);
-    assertThat(map.value("code__pg_c3", result, result.getColumns())).isEqualTo("ab ");
+    assertThat(map.value("note__pg_zz", result, result.getColumns())).isEqualTo("ab ");
     // a delete writes no value, and is allowed; the translated column is written
     Delete delete =
         Delete.newBuilder().namespace(NS).table("d").partitionKey(Key.ofInt("id", 1)).build();
@@ -565,7 +563,7 @@ public class ColumnMapTest {
   }
 
   @Test
-  public void ddl_ShouldMapNamesAndRefuseWhatPhase2CannotDo() throws Exception {
+  public void ddl_ShouldMapNamesAndKeepRecordedTypes() throws Exception {
     // CREATE INDEX on a client column indexes the stored column
     Optional.ofNullable(parser.parse("CREATE INDEX i ON e (k)").getDdl()).get().run();
     org.mockito.Mockito.verify(admin).createIndex(NS, "e", "k__pg_v10", false);
@@ -574,15 +572,29 @@ public class ColumnMapTest {
         .isEqualTo("42602");
     assertThat(state(() -> parser.parse("CREATE TABLE f (id INT PRIMARY KEY, \"y__pg_v3\" TEXT)")))
         .isEqualTo("42602");
-    // renaming a column whose type is in its name is refused until it can keep the suffix
+    // renaming a column whose type is in its name keeps the type in the new name
+    Optional.ofNullable(parser.parse("ALTER TABLE e RENAME COLUMN name TO nm").getDdl())
+        .get()
+        .run();
+    org.mockito.Mockito.verify(admin).renameColumn(NS, "e", "name__pg_v20", "nm__pg_v20");
     assertThat(
             state(
                 () ->
                     Optional.ofNullable(
-                            parser.parse("ALTER TABLE e RENAME COLUMN name TO nm").getDdl())
+                            parser
+                                .parse("ALTER TABLE e RENAME COLUMN name TO " + "x".repeat(50))
+                                .getDdl())
                         .get()
                         .run()))
-        .isEqualTo("0A000");
+        .isEqualTo("42622"); // the new ScalarDB name would be too long
+    assertThat(
+            state(
+                () ->
+                    Optional.ofNullable(
+                            parser.parse("ALTER TABLE e RENAME COLUMN name TO k").getDdl())
+                        .get()
+                        .run()))
+        .isEqualTo("42701"); // the name is taken: that, before any length check
     assertThat(
             state(
                 () ->

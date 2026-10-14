@@ -269,7 +269,7 @@ public class QueryParser {
     /** Records a plain column of {@code t}, as typed as a SELECT of it would be. */
     void column(Target t, String name) {
       ColumnType declared = t.columns.type(name);
-      boolean exact = exactlyConverted(declared);
+      boolean exact = declared.encoded(); // varchar(n), not text; numeric(10,2), not bigint
       oids.add(
           exact ? (int) declared.oid() : (int) Catalog.typeOid(t.metadata.getColumnDataType(name)));
       typmods.add(exact ? declared.typmod() : -1);
@@ -1336,7 +1336,7 @@ public class QueryParser {
           for (LogicalPlan.Source s : logical.sources) {
             if (s.target != null) {
               for (String name : s.target.metadata.getColumnNames()) {
-                if (!exactlyConverted(s.target.columns.type(name))) {
+                if (!s.target.columns.type(name).isNumeric()) { // char is text, smallint int
                   types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
                 }
               }
@@ -2079,7 +2079,7 @@ public class QueryParser {
   /** A ScalarDB column holding an in-memory value, converted to the column's type. */
   private static Column<?> columnFromValue(Target t, String name, @Nullable Object value) {
     ColumnType declared = t.columns.type(existing(t.metadata, name));
-    if (exactlyConverted(declared)) {
+    if (declared.convertsValues()) {
       return declared.exact(name, value); // a predicate's value: never rounded
     }
     if (value == null) {
@@ -3032,7 +3032,7 @@ public class QueryParser {
         }
       }
       columns.add(column);
-      ColumnType declared = recorded(declaredText(definition.getColDataType()), column, notices);
+      ColumnType declared = recorded(declaredText(definition.getColDataType()));
       declaredTypes.put(column, declared);
       stored.put(column, declared.storageName(column));
       builder.addColumn(
@@ -3149,32 +3149,23 @@ public class QueryParser {
       case "character":
       case "bpchar":
         checkLength("char", args);
-        out.add(
-            "CHAR on "
-                + col
-                + " is stored as text: no blank padding, so comparisons do not ignore trailing"
-                + " spaces, and the length is not enforced");
+        if (base.equals("bpchar") && !withArgs) {
+          // char(n), character and char are kept as declared (ColumnType); bpchar has no length
+          out.add(
+              "CHAR on "
+                  + col
+                  + " is stored as text: no blank padding, so comparisons do not ignore trailing"
+                  + " spaces");
+        }
         break;
       case "varchar":
       case "character varying":
-        checkLength("varchar", args);
-        if (withArgs) {
-          out.add("the length of " + col + " (" + declared.trim() + ") is not enforced");
-        }
+        checkLength("varchar", args); // varchar(n) is kept as declared (ColumnType)
         break;
       case "numeric":
       case "decimal":
       case "dec":
-        checkNumericModifiers(args);
-        out.add(
-            "NUMERIC on "
-                + col
-                + " is stored as double precision (binary floating point): precision and scale are"
-                + " not kept, and decimal fractions are approximate");
-        break;
-      case "smallint":
-      case "int2":
-        out.add("SMALLINT on " + col + " is stored as integer: its range is not enforced");
+        checkNumericModifiers(args); // kept exactly (ColumnType)
         break;
       case "timestamp":
       case "timestamp without time zone":
@@ -3370,7 +3361,7 @@ public class QueryParser {
                   ? ""
                   : String.join(" ", c.getColumnSpecs()).toUpperCase(Locale.ROOT);
           notices.addAll(unenforced(column, declaredText(c.getColDataType()), specs, false));
-          ColumnType declared = recorded(declaredText(c.getColDataType()), column, notices);
+          ColumnType declared = recorded(declaredText(c.getColDataType()));
           String storedName = declared.storageName(column);
           DataType type =
               declared.encoded() ? declared.storage : columnType(declaredText(c.getColDataType()));
@@ -3387,18 +3378,32 @@ public class QueryParser {
         steps.add(
             () -> {
               ColumnMap columns = freshColumnMap(namespace, name);
-              if (oldName.contains(ColumnType.MARKER)
-                  || (columns != null
-                      && columns.clientView().getColumnNames().contains(oldName)
-                      && columns.type(oldName).encoded())) {
+              if (oldName.contains(ColumnType.MARKER)) {
+                // a column shown under its ScalarDB name: its type is unknown here, or its name
+                // collides with another's, so renaming it could lose what the name records
                 throw new PgException.Argument(
                     "0A000",
                     "RENAME COLUMN is not supported for column \""
                         + oldName
-                        + "\" yet: its type is recorded in its ScalarDB name");
+                        + "\": its ScalarDB name records a type this frontend does not handle");
               }
-              checkNewColumn(columns, newName, oldName);
-              admin.renameColumn(namespace, name, oldName, newName);
+              checkNewColumn(columns, newName, oldName); // 42701 before any 42622
+              String oldStored = oldName;
+              String newStored = newName;
+              if (columns != null && columns.clientView().getColumnNames().contains(oldName)) {
+                // the type stays recorded: amount__pg_n10_2 becomes total__pg_n10_2
+                oldStored = columns.storageName(oldName);
+                newStored = columns.type(oldName).storageName(newName); // 42622 when too long
+              }
+              admin.renameColumn(namespace, name, oldStored, newStored);
+              // an index named at CREATE INDEX follows its column
+              INDEX_NAMES.replaceAll(
+                  (key, indexed) ->
+                      key.startsWith(namespace + ".")
+                              && indexed[0].equals(name)
+                              && indexed[1].equals(oldName)
+                          ? new String[] {name, newName}
+                          : indexed);
             });
       } else {
         throw new PgException.Argument(
@@ -3444,17 +3449,12 @@ public class QueryParser {
   }
 
   /**
-   * The declared type of a new column as this frontend records it: numeric(p,s) within the scaled
-   * limit is kept exactly (its notice about double precision withdrawn); every other declaration is
-   * native for now, as before (varchar, char, smallint and wider numerics come in later phases).
+   * The declared type of a new column as this frontend records it: numeric, char(n), varchar(n) and
+   * smallint in the column's ScalarDB name; anything else as its native ScalarDB type.
    */
-  private ColumnType recorded(String declaredType, String column, List<String> notices) {
+  private ColumnType recorded(String declaredType) {
     ColumnType declared = ColumnType.declared(declaredType, maxScaledPrecision);
-    if (!declared.isNumeric()) {
-      return ColumnType.of(columnType(declaredType));
-    }
-    notices.removeIf(n -> n.startsWith("NUMERIC on column \"" + column + "\""));
-    return declared;
+    return declared.encoded() ? declared : ColumnType.of(columnType(declaredType));
   }
 
   /** A table's column map from ScalarDB now, not the session's cache; null if there is none. */
@@ -4170,7 +4170,7 @@ public class QueryParser {
       LogicalPlan.Source source = sourceOf(c, sources);
       if (source != null && source.target != null) {
         ColumnType declared = declaredType(source.target, columnName(e));
-        if (declared != null && exactlyConverted(declared)) {
+        if (declared != null && declared.encoded()) {
           return (int) declared.oid(); // numeric, not the bigint it is stored as
         }
       } else if (source != null && source.derived != null) {
@@ -5120,6 +5120,7 @@ public class QueryParser {
       }
     }
     checkTextAgainstNumber(e, scope);
+    charSemantics(e, scope);
     for (Select sub : subselects(e)) {
       subplans.put(sub, select(sub, scope));
     }
@@ -5139,7 +5140,7 @@ public class QueryParser {
           return s.target != null
               ? checkedType(s.target, name)
               : s.derived != null && s.columns.contains(name)
-                  ? s.derived.outputTypes.get(s.columns.indexOf(name))
+                  ? derivedType(s.derived, s.columns.indexOf(name))
                   : null;
         },
         c -> {
@@ -5154,12 +5155,98 @@ public class QueryParser {
         });
   }
 
+  /** A derived column's type for the check above: text for text, varchar and char. */
+  @Nullable private static DataType derivedType(Plan derived, int i) {
+    DataType type = i < derived.outputTypes.size() ? derived.outputTypes.get(i) : null;
+    if (type != null) {
+      return type;
+    }
+    int[] oids = derived.outputOids();
+    int oid = i < oids.length ? oids[i] : 0;
+    return oid == 25 || oid == 1043 || oid == 1042 ? DataType.TEXT : null;
+  }
+
   /** As above, for a single-table UPDATE or DELETE planned by key, without a scope. */
   private static void checkTextAgainstNumber(@Nullable Expression where, Target t) {
     if (where != null) {
       checkTextAgainstNumber(
           where, c -> checkedType(t, columnName(c)), c -> isDeclaredNumeric(t, columnName(c)));
     }
+  }
+
+  /**
+   * Gives char(n) columns PostgreSQL's bpchar rules where the evaluator would otherwise see only
+   * their stored, unpadded text: a quoted value compared with one loses its trailing spaces ({@code
+   * c IN ('ab ')} matches 'ab'), and LIKE sees the value padded to n ({@code c LIKE 'ab'} is false
+   * for a char(5), {@code c LIKE 'ab '} true). Rewrites {@code e} in place, as column qualification
+   * does.
+   */
+  private static void charSemantics(Expression e, Scope scope) {
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(LikeExpression like, S context) {
+            Expression left = unwrap(like.getLeftExpression());
+            int n = charLength(left, scope);
+            if (n > 0) {
+              Function padded = new Function();
+              padded.setName("RPAD");
+              padded.setParameters(new ExpressionList<Expression>(left, new LongValue(n)));
+              like.setLeftExpression(padded);
+            }
+            return super.visit(like, context);
+          }
+
+          @Override
+          protected <S> Void visitBinaryExpression(BinaryExpression expr, S context) {
+            if (expr instanceof ComparisonOperator) {
+              stripAgainst(expr.getLeftExpression(), expr.getRightExpression());
+              stripAgainst(expr.getRightExpression(), expr.getLeftExpression());
+            }
+            return super.visitBinaryExpression(expr, context);
+          }
+
+          @Override
+          public <S> Void visit(InExpression in, S context) {
+            if (in.getRightExpression() instanceof ExpressionList) {
+              for (Expression item : (ExpressionList<?>) in.getRightExpression()) {
+                stripAgainst(in.getLeftExpression(), item);
+              }
+            }
+            return super.visit(in, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null; // planned on its own
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+
+          private void stripAgainst(Expression column, Expression other) {
+            Expression literal = unwrap(other);
+            if (literal instanceof StringValue && charLength(unwrap(column), scope) > 0) {
+              StringValue v = (StringValue) literal;
+              v.setValue(v.getValue().replaceAll(" +$", "")); // trailing spaces never count
+            }
+          }
+        });
+  }
+
+  /** The n of a char(n) table column {@code e} refers to, or 0 when it is no such column. */
+  private static int charLength(Expression e, Scope scope) {
+    if (!isColumn(e) || ((net.sf.jsqlparser.schema.Column) e).getTable() == null) {
+      return 0; // analyze qualifies every column, so a bare name is current_user or the like
+    }
+    LogicalPlan.Source s = scope.resolve((net.sf.jsqlparser.schema.Column) e);
+    if (s.target == null || !s.target.metadata.getColumnNames().contains(columnName(e))) {
+      return 0;
+    }
+    ColumnType type = s.target.columns.type(columnName(e));
+    return type.kind == ColumnType.Kind.CHAR ? type.length : 0;
   }
 
   /** A column's type for the checks below: a numeric stored as text is no text column. */
@@ -5310,7 +5397,7 @@ public class QueryParser {
     }
     if (source.target != null) {
       ColumnType declared = declaredType(source.target, columnName(e));
-      return declared != null && exactlyConverted(declared) ? declared.typmod() : -1;
+      return declared != null && declared.encoded() ? declared.typmod() : -1;
     }
     if (source.derived != null) {
       int i = source.columns.indexOf(columnName(e));
@@ -5352,8 +5439,8 @@ public class QueryParser {
       }
       if (s.target != null) {
         ColumnType declared = declaredType(s.target, name);
-        // a numeric stored as a scaled bigint is numeric to the client, not bigint
-        return declared != null && exactlyConverted(declared)
+        // a declared type is the client's (numeric(10,2), varchar(20)), not the stored one
+        return declared != null && declared.encoded()
             ? null
             : s.target.metadata.getColumnDataType(name);
       }
@@ -6289,7 +6376,7 @@ public class QueryParser {
    */
   @Nullable private static Object forColumn(
       Target t, String name, Expression e, List<Map<String, Object>> rows, Evaluator.Context ctx) {
-    return t.metadata.getColumnDataType(name) == DataType.TEXT && !isDeclaredNumeric(t, name)
+    return t.columns.type(existing(t.metadata, name)).comparesAsText()
         ? Evaluator.evalText(e, rows, ctx)
         : Evaluator.eval(e, rows, ctx);
   }
@@ -6343,8 +6430,10 @@ public class QueryParser {
           || !(like.getRightExpression() instanceof StringValue
               || like.getRightExpression() instanceof JdbcParameter)
           || (like.getEscape() != null && !(like.getEscape() instanceof StringValue))
-          || isDeclaredNumeric(t, columnName(like.getLeftExpression()))) {
-        return null;
+          || isDeclaredNumeric(t, columnName(like.getLeftExpression()))
+          || t.columns.type(existing(t.metadata, columnName(like.getLeftExpression()))).kind
+              == ColumnType.Kind.CHAR) {
+        return null; // a char is stored unpadded, and LIKE sees it padded: in memory
       }
       Column<?> column =
           valueColumn(t, columnName(like.getLeftExpression()), like.getRightExpression(), row, ctx);
@@ -7000,7 +7089,17 @@ public class QueryParser {
   }
 
   private static Column<?> column(Target t, String name, @Nullable Expression value) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    if (value != null && declared.convertsValues() && isNumberLiteral(value)) {
+      // s = 40000 compares a number, which no smallint equals; s = '40000' is smallint input
+      return declared.exact(name, Evaluator.decimal(String.valueOf(literal(value))));
+    }
     return columnFromText(t, name, value == null ? null : literal(value));
+  }
+
+  private static boolean isNumberLiteral(Expression e) {
+    Expression v = e instanceof SignedExpression ? ((SignedExpression) e).getExpression() : e;
+    return v instanceof LongValue || v instanceof DoubleValue;
   }
 
   /**
@@ -7010,7 +7109,7 @@ public class QueryParser {
    */
   private static Column<?> columnFromText(Target t, String name, @Nullable String s) {
     ColumnType declared = t.columns.type(existing(t.metadata, name));
-    if (exactlyConverted(declared)) {
+    if (declared.convertsValues()) {
       return declared.exact(name, s);
     }
     DataType type = t.metadata.getColumnDataType(name);
@@ -7068,14 +7167,6 @@ public class QueryParser {
   }
 
   /**
-   * True for a declared type whose stored value differs from the client's (a numeric stored
-   * scaled), converted by {@link ColumnType#exact}; a varchar compares and converts as text.
-   */
-  private static boolean exactlyConverted(ColumnType declared) {
-    return declared.encoded() && declared.kind != ColumnType.Kind.VARCHAR;
-  }
-
-  /**
    * A column holding a value being written: coerced by the column's declared type as PostgreSQL
    * coerces on INSERT and UPDATE (19.905 into numeric(10,2) is 19.91; spaces beyond a varchar's
    * length are cut), then stored exactly.
@@ -7093,14 +7184,17 @@ public class QueryParser {
     return declared.encoded() ? declared.coerce(value) : value;
   }
 
-  private static boolean isInteger(@Nullable String s) {
+  static boolean isInteger(@Nullable String s) {
     return s != null && s.trim().matches("[+-]?\\d+");
   }
 
   /** True for the failure of {@link #columnFromText} on an integer beyond the column's range. */
   static boolean isOutOfRange(IllegalArgumentException e) {
+    String message = String.valueOf(e.getMessage());
+    // a quoted value out of a smallint's range is an input error, as in PostgreSQL; a number
+    // literal reaches a smallint as a number and fails with the typed OutOfRange instead
     return e instanceof PgException.OutOfRange
-        || String.valueOf(e.getMessage()).contains("out of range for type");
+        || (message.contains("out of range for type") && !message.endsWith("type smallint"));
   }
 
   private static String pgTypeName(DataType type) {

@@ -1,0 +1,34 @@
+Differential run of 2026-10-15 for Phase 5 of docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md
+(branch type-modifiers-phase0): CHAR(n), VARCHAR(n) and SMALLINT recorded in ScalarDB column names (c<n>, v<n>, s)
+and written with PostgreSQL's rules; char stored without its padding and padded on output; RENAME COLUMN of an
+encoded column keeps its code.
+
+Setup as in results/2026-10-14-phase0/summary.txt, plus numeric_setup.sql and the new character_setup.sql (table
+ch: char(5), varchar(7), smallint, character; table chk with a char(4), varchar(5) primary key).
+
+Results:
+  character (new)  OK 19, BOTH_ERR 4 (22001 for char and varchar, 22003 for smallint; same messages). Covers
+                   padding on output, comparisons ignoring a char's trailing spaces, char keys, LIKE, smallint
+                   comparisons beyond its range, RETURNING, format_type and information_schema. Baseline recorded.
+  sql92 s01        nine cases improved and the baseline updated: char_n_padding, char_n_comparison_pad,
+                   char_n_too_long_trailing_spaces, char_pk_padding, insert_int_into_char -> OK;
+                   char_n_too_long, char_default_length_1, varchar_n_too_long, smallint_range -> BOTH_ERR.
+                   The one difference left, describe_column_types, is numeric_precision for integer and real
+                   (32, 24), which the plan defers.
+  numeric, read, types, write, write_ac, bind, session, sql92 s02-s11: as their baselines, except
+                   s02_11_1_create_schema_authorization CODE -> FE_ERR, the fresh-database effect noted for Phase 0.
+  fuzz             seeds 7, 11, 23 x 300: no DIFF.
+  RENAME           CREATE TABLE with numeric(10,2) and char(3), RENAME both, read back, insert 'abcd': identical
+                   output on both sides (19.91, a padded char, numeric(10,2) and character(3) in pg_attribute,
+                   22001).
+
+Rerun after the code review of the same day, which found: a quoted value out of a smallint's range compared as
+false instead of failing with 22003 (and '1.5' with 22P02) as PostgreSQL does; a char compared with a padded
+literal outside pushdown (IN, <>, OR) ignored PostgreSQL's rule that trailing spaces do not count; LIKE on a char
+saw the unpadded value where PostgreSQL sees it padded (c LIKE 'ab' is false for a char(5) 'ab'); RENAME reported
+42622 before 42701. Also: lpad and rpad were listed as supported but not implemented (0A000); information_schema
+now reports integer, bigint, real and double precision precisions as PostgreSQL. Eight cases added.
+  character        OK 25, BOTH_ERR 6 (same messages), baseline updated.
+  sql92 s01        s01_6_1_describe_column_types DIFF -> OK: every s01 case is now OK or BOTH_ERR. Baseline
+                   updated.
+  every other set and fuzz seeds 7, 11, 23: as above.

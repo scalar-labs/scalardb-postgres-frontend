@@ -239,6 +239,23 @@ final class ColumnType {
     }
   }
 
+  /**
+   * True when values compare as text, as PostgreSQL compares text, varchar and char: a quoted value
+   * is taken as written, and a number against it is 42883. A numeric stored as text is not.
+   */
+  boolean comparesAsText() {
+    return storage == DataType.TEXT && !isNumeric();
+  }
+
+  /**
+   * True when a value needs converting to its stored form, so a predicate's value goes through
+   * {@link #exact} (a numeric scaled, a char trimmed, a smallint range-checked). A varchar is
+   * stored as its text and converts as text does.
+   */
+  boolean convertsValues() {
+    return encoded() && kind != Kind.VARCHAR;
+  }
+
   /** True for a declared numeric, stored as a scaled bigint or as text. */
   boolean isNumeric() {
     return kind == Kind.NUMERIC_SCALED || kind == Kind.NUMERIC_TEXT;
@@ -473,11 +490,21 @@ final class ColumnType {
             return IntColumn.ofNull(storageName);
           }
           if (!(v instanceof Number)) {
-            // a quoted value is smallint input, as PostgreSQL reads WHERE s = '1.5': 22P02 for
-            // '1.5', 22003 for '40000', instead of matching nothing
-            return IntColumn.of(
-                storageName,
-                (Integer) java.util.Objects.requireNonNull(Evaluator.cast("smallint", v)));
+            // quoted text is smallint input, as PostgreSQL reads WHERE s = '40000': 22003, or
+            // 22P02 for '1.5', never a comparison that matches nothing (a number literal comes
+            // here as a number, see QueryParser.column)
+            String text = Evaluator.text(v).trim();
+            if (!QueryParser.isInteger(text)) {
+              throw new PgException.Argument(
+                  "22P02", "invalid input syntax for type smallint: \"" + text + "\"");
+            }
+            BigDecimal d = new BigDecimal(text);
+            if (d.compareTo(BigDecimal.valueOf(Short.MIN_VALUE)) < 0
+                || d.compareTo(BigDecimal.valueOf(Short.MAX_VALUE)) > 0) {
+              throw new PgException.Argument(
+                  "22003", "value \"" + text + "\" is out of range for type smallint");
+            }
+            return IntColumn.of(storageName, d.intValueExact());
           }
           Object n = number(v);
           if (!(n instanceof BigDecimal)) {

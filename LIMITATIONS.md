@@ -77,13 +77,16 @@ at the end of this section.
   `UNIQUE`, `CHECK`, `REFERENCES` and `DEFAULT` are accepted by `CREATE TABLE` with a `NOTICE`
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
-- **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
-  `'ab   '` differ and `code = 'ab   '` does not match a stored `'ab'`; `VARCHAR(n)` lengths are not
-  enforced; `SMALLINT` is an `integer`
-  without a range check. Each is reported with a `NOTICE` at `CREATE TABLE`. The declaration has
-  nowhere to live outside ScalarDB's own metadata, so enforcing it waits for type modifiers there
-  (`core-todo.md` item 11 in the ScalarDB repository). A modifier PostgreSQL itself rejects
-  (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
+- **Declared types are recorded in the ScalarDB column name** (`docs/type-encoding.md`): `CHAR(n)`,
+  `VARCHAR(n)`, `SMALLINT` and `NUMERIC` keep their declaration and PostgreSQL's rules for it
+  (`amount NUMERIC(10,2)` is the ScalarDB column `amount__pg_n10_2`). The suffix counts against the
+  56-byte column-name limit, so a long name with a type suffix can be refused (`42622`). Other ScalarDB
+  clients see the encoded names and stored values. Known differences: a `CHAR(n)` is stored without its
+  padding and padded back when a column is returned as such, so `octet_length` counts no padding and
+  a value passed through an aggregate or expression (`max(c)`, `COALESCE(c, c)`) comes back unpadded;
+  `SMALLINT` arithmetic does not overflow at 32767. Columns created by an earlier release keep their plain ScalarDB types. A
+  modifier PostgreSQL itself rejects (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with
+  `22023`.
 - **`NUMERIC` and `DECIMAL` are exact, with two limits** (`docs/type-encoding.md`). Up to 18 digits
   (15 on Cosmos DB, object storage and in Cluster mode) a column is a scaled `BIGINT`, which cannot
   hold `NaN` (`0A000`). Without a precision, or with more digits, it is stored as text: every
@@ -153,6 +156,11 @@ the result is not what PostgreSQL would return.
   its scale (`19.9`). `sum()` and `avg()` over any `double precision` column are computed exactly and
   rounded once, so their last digit can differ from PostgreSQL's running float sum. `SMALLINT`
   arithmetic does not overflow at 32767 (`s + s` on 20000 is 40000, where PostgreSQL errors).
+- **A RENAME COLUMN interrupted midway.** ScalarDB renames a column and its transaction before-image
+  column in two steps. If the frontend or the database stops between them, the table is left with
+  the new column and the old before-image: clients see an extra column named `before_<old name>`,
+  and writes to the table can fail. Repair it outside the frontend by renaming that before-image column
+  to `before_<new ScalarDB name>` in the backing database (todo 054).
 - **Text comparison under a non-binary collation.** On MySQL, and on PostgreSQL databases created
   with a locale other than `C`, whatever is pushed down follows the database's collation while the
   same expression evaluated in the frontend is binary, so one query can answer differently depending

@@ -502,6 +502,29 @@ final class Catalog {
   }
 
   /** pg_type.typlen, which RowDescription reports too. */
+  /** information_schema's numeric_precision of a fixed numeric type: bits for binary ones. */
+  @Nullable private static Long nativePrecision(long oid) {
+    switch ((int) oid) {
+      case 21:
+        return 16L;
+      case 23:
+        return 32L;
+      case 20:
+        return 64L;
+      case 700:
+        return 24L;
+      case 701:
+        return 53L;
+      default:
+        return null;
+    }
+  }
+
+  /** information_schema's numeric_scale: 0 for the integers, none for floats. */
+  @Nullable private static Long nativeScale(long oid) {
+    return oid == 21 || oid == 23 || oid == 20 ? 0L : null;
+  }
+
   static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
@@ -1003,11 +1026,14 @@ final class Catalog {
           attnum++;
           DataType type = metadata.getColumnDataType(column);
           ColumnType declared = columnMap.type(column);
-          // numeric(10,2) stored as a scaled bigint is numeric(10,2) here, as format_type shows it
+          // the declared type, as format_type shows it: numeric(10,2), not the bigint it is
+          // stored as; character varying(20), not text
           boolean numeric = declared.isNumeric();
           boolean bounded = numeric && declared.precision != 0; // numeric alone has neither
-          long typeOid = numeric ? declared.oid() : typeOid(type);
-          long typmod = numeric ? declared.typmod() : -1L;
+          boolean characters =
+              declared.kind == ColumnType.Kind.VARCHAR || declared.kind == ColumnType.Kind.CHAR;
+          long typeOid = declared.encoded() ? declared.oid() : typeOid(type);
+          long typmod = declared.encoded() ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
           row(
               t,
@@ -1042,10 +1068,10 @@ final class Catalog {
               typeName(typeOid),
               key ? "NO" : "YES",
               INTERNAL_TYPE_NAMES.get(typeOid),
+              characters ? (Object) (long) declared.length : null,
               null,
-              null,
-              bounded ? (long) declared.precision : null,
-              bounded ? (long) declared.scale : null,
+              bounded ? (Object) (long) declared.precision : nativePrecision(typeOid),
+              bounded ? (Object) (long) declared.scale : nativeScale(typeOid),
               null);
         }
         String columnList = String.join(", ", keys);

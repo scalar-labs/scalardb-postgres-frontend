@@ -877,16 +877,17 @@ public class PostgresServer implements AutoCloseable {
               sendRowDescription(rows.labels(), oids, rows.typmods(), formats);
             }
             if (first != null) {
-              sendRow(columns, first, oids, formats);
+              sendRow(columns, first, oids, rows.typmods(), formats);
               sent = 1;
             }
           }
+          int[] typmods = rows.typmods();
           while (rows.hasNext()) {
             if (maxRows > 0 && sent == maxRows) {
               suspended = true;
               break;
             }
-            sendRow(columns, rows.next(), oids, formats);
+            sendRow(columns, rows.next(), oids, typmods, formats);
             if (++sent % 64 == 0) {
               out.flush();
             }
@@ -939,12 +940,19 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void sendRow(
-        Map<String, DataType> columns, Map<String, Object> row, int[] oids, short[] formats)
+        Map<String, DataType> columns,
+        Map<String, Object> row,
+        int[] oids,
+        int[] typmods,
+        short[] formats)
         throws IOException {
       Msg m = new Msg().i16(columns.size());
       int i = 0;
       for (String column : columns.keySet()) {
         Object value = row.get(column);
+        if (value != null && oids[i] == 1042 && i < typmods.length && typmods[i] > 4) {
+          value = padded(Evaluator.text(value), typmods[i] - 4); // char(n) is stored trimmed
+        }
         if (value == null) {
           m.i32(-1);
         } else {
@@ -1528,6 +1536,12 @@ public class PostgresServer implements AutoCloseable {
       oids[i++] = oid;
     }
     return oids;
+  }
+
+  /** A char(n) value as PostgreSQL returns it: blank-padded to n characters. */
+  static String padded(String s, int n) {
+    int missing = n - s.codePointCount(0, s.length());
+    return missing > 0 ? s + " ".repeat(missing) : s;
   }
 
   private static final LocalDateTime PG_EPOCH = LocalDateTime.of(2000, 1, 1, 0, 0);

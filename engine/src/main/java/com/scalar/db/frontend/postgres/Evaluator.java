@@ -3048,6 +3048,13 @@ final class Evaluator {
         }
       case "REVERSE":
         return new StringBuilder(str(args, 0)).reverse().toString();
+      case "LPAD":
+      case "RPAD":
+        return pad(
+            str(args, 0),
+            num(args, 1).longValue(),
+            args.size() > 2 ? str(args, 2) : " ",
+            name.equals("LPAD"));
       case "DATE_PART":
         return extract(str(args, 0), arg(args, 1));
       case "UNNEST":
@@ -3254,6 +3261,33 @@ final class Evaluator {
 
   @Nullable private static Object arg(List<Object> args, int i) {
     return i < args.size() ? args.get(i) : null;
+  }
+
+  /**
+   * PostgreSQL's lpad and rpad: {@code s} filled to {@code n} characters with {@code fill}
+   * repeated, or cut to its first n when longer; an empty fill leaves it as it is.
+   */
+  static String pad(String s, long n, String fill, boolean left) {
+    int length = s.codePointCount(0, s.length());
+    if (n <= 0) {
+      return "";
+    }
+    if (length >= n) {
+      return characters(s, 0, n);
+    }
+    if (fill.isEmpty()) {
+      return s;
+    }
+    // ponytail: a fixed cap well under PostgreSQL's 1 GB value limit, which it reports the same way
+    if (n > 100_000_000) {
+      throw new PgException.Argument("54000", "requested length too large");
+    }
+    StringBuilder padding = new StringBuilder();
+    int[] points = fill.codePoints().toArray();
+    for (long i = 0; i < n - length; i++) {
+      padding.appendCodePoint(points[(int) (i % points.length)]);
+    }
+    return left ? padding + s : s + padding;
   }
 
   private static String str(List<Object> args, int i) {
