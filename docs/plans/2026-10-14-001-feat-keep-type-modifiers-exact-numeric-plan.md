@@ -210,7 +210,7 @@ Every PostgreSQL behaviour this plan relies on was run against a throwaway Postg
 | Unbounded `NUMERIC` ← `1.10` | `1.10` (display scale kept); `1.10` and `1.1` are one DISTINCT value and a duplicate key |
 | Ordering | `-Infinity` < numbers < `Infinity` < `NaN`; `NaN = NaN` is true; `sum` with a `NaN` is `NaN` |
 | `DELETE … WHERE numeric(10,2)_key = 1.005`; `WHERE varchar(5) = 'abcdefgh'`; `WHERE smallint = 40000` | 0 rows, no error |
-| `'ab   '` into `VARCHAR(3)` | stored `'ab'`; `'abcd'` → 22001 |
+| `'ab   '` into `VARCHAR(3)` | stored `'ab '` (spaces beyond n are cut, length 3; corrected 2026-10-14); `'abcd'` → 22001 |
 | `'abcd'` into `CHAR(3)` | 22001 `value too long for type character(3)` |
 | `CHAR(3)` holding `'ab'` | `c \|\| ']'` → `ab]`; `length` 2; `octet_length` 3; `= 'ab'` and `= 'ab'::varchar` true; `::text` `ab`; `LIKE 'ab'` **false**, `LIKE 'ab_'` true |
 | `'a'::char(3)`; `'abcd'::char(3)`; bare `CHAR` | `'a  '` (padded); `abc`; `character(1)` |
@@ -551,6 +551,15 @@ increment**: exact `NUMERIC(p,s)` money columns, shown as declared.
   match PostgreSQL; baselines updated and a dated `difftest/results/<date>-phase0` summary written.
 
 #### Phase 1: The codec and the contract (no behaviour change)
+
+**Status: done 2026-10-14 on branch `type-modifiers-phase0`** (uncommitted): `ColumnType.java` (one class holding
+the instance rules and the static factories, matching how `Catalog` and `Evaluator` are organised, instead of a
+separate `ColumnTypes`), `PgException.OutOfRange` / `NotRepresentable`, `Evaluator.applyTypmod` (the numeric(p,s)
+rounding shared by casts and writes, now checking integer digits before rounding and never returning a negative
+scale), `docs/type-encoding.md`, and 47 tests in `ColumnTypeTest`; 269 tests and `./gradlew check` pass. Two
+departures from the sketch above: `Evaluator.cast` shares only the numeric rounding, since `::char(n)` and
+`::varchar(n)` casts truncate silently while writes must raise 22001 (smallint already shared `cast`'s range
+check); and `ColumnMap` belongs to Phase 2.
 
 - `ColumnTypes.java` as in §1, with every rule from §2 and §4: codes and `parse`, `coerce` (shared with
   `Evaluator.cast`, which switches to it here with no behaviour change beyond typed 22003 errors), validated

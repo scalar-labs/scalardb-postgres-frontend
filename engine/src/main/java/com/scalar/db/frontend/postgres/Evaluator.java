@@ -1360,6 +1360,30 @@ final class Evaluator {
     return decimal(text(v));
   }
 
+  /**
+   * A numeric rounded to {@code numeric(precision, scale)}, half away from zero as PostgreSQL
+   * rounds, failing with 22003 when it does not fit: the value must round to an absolute value
+   * below 10^(precision - scale). The integer digits are checked before rounding as well, which
+   * cannot reduce them, so a huge value fails without being expanded. A negative scale rounds to
+   * tens, hundreds and so on, and the result never carries a negative scale (12345 in numeric(5,-2)
+   * is 12300, not 1.23E+4). Shared by casts and by writes to a numeric(p,s) column.
+   */
+  static BigDecimal applyTypmod(BigDecimal d, int precision, int scale) {
+    if (!integerDigitsFit(d, precision, scale)) {
+      throw new PgException.Argument("22003", "numeric field overflow");
+    }
+    BigDecimal rounded = d.setScale(scale, RoundingMode.HALF_UP);
+    if (!integerDigitsFit(rounded, precision, scale)) {
+      throw new PgException.Argument("22003", "numeric field overflow");
+    }
+    return rounded.scale() < 0 ? rounded.setScale(0) : rounded;
+  }
+
+  /** PostgreSQL's numeric(p,s) range: an absolute value below 10^(precision - scale). */
+  static boolean integerDigitsFit(BigDecimal d, int precision, int scale) {
+    return d.signum() == 0 || (long) d.precision() - d.scale() <= (long) precision - scale;
+  }
+
   /** Numeric division with PostgreSQL's result scale: at least 16 significant digits. */
   static BigDecimal divide(BigDecimal a, BigDecimal b) {
     if (b.signum() == 0) {
@@ -2517,16 +2541,10 @@ final class Evaluator {
       }
       if (t.startsWith("numeric") || t.startsWith("decimal")) {
         BigDecimal d = v instanceof Number ? toDecimal(v) : decimal(s.trim());
-        java.util.regex.Matcher typmod =
-            Pattern.compile("\\(\\s*(\\d+)\\s*(?:,\\s*(-?\\d+)\\s*)?\\)").matcher(t);
-        if (typmod.find()) {
-          int precision = Integer.parseInt(typmod.group(1));
-          int scale = typmod.group(2) == null ? 0 : Integer.parseInt(typmod.group(2));
-          d = d.setScale(scale, RoundingMode.HALF_UP);
-          // PostgreSQL: the value must round to an absolute value below 10^(precision - scale)
-          if (d.signum() != 0 && d.precision() - d.scale() > precision - scale) {
-            throw new ArithmeticException("numeric field overflow");
-          }
+        long[] typmod = QueryParser.typeArguments(t);
+        if (typmod.length > 0) {
+          QueryParser.checkNumericModifiers(typmod); // numeric(0), numeric(5,-5000): 22023
+          d = applyTypmod(d, (int) typmod[0], typmod.length > 1 ? (int) typmod[1] : 0);
         }
         return d;
       }

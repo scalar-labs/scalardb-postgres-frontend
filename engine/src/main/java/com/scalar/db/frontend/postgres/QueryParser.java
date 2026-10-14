@@ -3026,14 +3026,7 @@ public class QueryParser {
       case "numeric":
       case "decimal":
       case "dec":
-        if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
-          throw new PgException.Argument(
-              "22023", "NUMERIC precision " + args[0] + " must be between 1 and 1000");
-        }
-        if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
-          throw new PgException.Argument(
-              "22023", "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
-        }
+        checkNumericModifiers(args);
         out.add(
             "NUMERIC on "
                 + col
@@ -3071,7 +3064,7 @@ public class QueryParser {
   /**
    * The ScalarDB type of a declared column: {@code float(p)} up to 24 is real, as in PostgreSQL.
    */
-  private static DataType columnType(String declared) {
+  static DataType columnType(String declared) {
     Matcher floatP = Pattern.compile("(?i)^\\s*float\\s*\\(\\s*(\\d+)\\s*\\)").matcher(declared);
     if (floatP.find() && Integer.parseInt(floatP.group(1)) <= 24) {
       return DataType.FLOAT;
@@ -3252,7 +3245,7 @@ public class QueryParser {
   }
 
   /** The numeric arguments of a declared type: {10, 2} for {@code NUMERIC (10, 2)}. */
-  private static long[] typeArguments(String declared) {
+  static long[] typeArguments(String declared) {
     Matcher m = Pattern.compile("\\(([^)]*)\\)").matcher(declared);
     if (!m.find()) {
       return new long[0];
@@ -3264,8 +3257,20 @@ public class QueryParser {
         .toArray();
   }
 
+  /** The precision and scale PostgreSQL accepts for NUMERIC(p, s), with its messages. */
+  static void checkNumericModifiers(long[] args) {
+    if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
+      throw new PgException.Argument(
+          "22023", "NUMERIC precision " + args[0] + " must be between 1 and 1000");
+    }
+    if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
+      throw new PgException.Argument(
+          "22023", "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
+    }
+  }
+
   /** The length PostgreSQL accepts for CHAR(n) and VARCHAR(n), with its messages. */
-  private static void checkLength(String type, long[] args) {
+  static void checkLength(String type, long[] args) {
     if (args.length > 0 && args[0] < 1) {
       throw new PgException.Argument("22023", "length for type " + type + " must be at least 1");
     }
