@@ -964,10 +964,12 @@ final class Catalog {
           -1L);
       row(t, "information_schema.schemata", database, schema);
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
-        TableMetadata metadata = admin.getTableMetadata(namespace, table);
-        if (metadata == null) {
+        TableMetadata stored = admin.getTableMetadata(namespace, table);
+        if (stored == null) {
           continue;
         }
+        // columns, keys and indexes under the names clients use (amount, not amount__pg_n10_2)
+        TableMetadata metadata = ColumnMap.of(namespace, table, stored).clientView();
         long relOid = oid++;
         relation(
             t,

@@ -576,6 +576,35 @@ check); and `ColumnMap` belongs to Phase 2.
 
 #### Phase 2: Plumbing (no behaviour change for existing tables)
 
+**Status: done 2026-10-14 on branch `type-modifiers-phase0`** (uncommitted): `ColumnMap.java` (the client view,
+storage ↔ client names, duplicate and unknown-encoding columns shown raw and never written, `toStorage` for every
+operation kind), cached per table in `QueryParser.columnMaps` (replaced, not cleared, after DDL, so a plan keeps the
+maps it was made with); every plan of a statement gets the maps at parse time (`Plan.useColumnMaps`) and its reader
+rewrites operations and decodes rows through them; mutations are rewritten at both `mutate` sites; `lookupGroup`
+matches results by stored key values; `Catalog.load` uses client names; CREATE INDEX and DROP INDEX map names; new
+column names may not contain `__pg_` (42602); RENAME of an encoded column is refused (0A000). 12 tests in
+`ColumnMapTest` (every operation kind rewritten; point, range, index and full scans; the lookup-join partition group;
+INSERT, UPDATE, DELETE, ON CONFLICT with RETURNING; EXPLAIN; information_schema and pg_indexes; storage names in SQL
+refused with 42703); 285 tests and `./gradlew check` pass; difftest read, types, write, write_ac, bind, session and
+three fuzz seeds match their baselines.
+
+After the code review: only kinds whose value rules are wired are translated (`ColumnMap.TRANSLATED`: native and
+varchar, whose written values now follow the varchar write rule); a column of any other kind, including a numeric,
+char or smallint code written by another client, is shown raw with its stored value and never written, so a value is
+never decoded on read and sent unencoded on write. **Each later phase adds its kind to `TRANSLATED`.** ADD COLUMN and
+RENAME refuse a name a column already has as clients see it (42701, against fresh metadata); RENAME by the raw
+storage name is refused too; DROP INDEX falls back when the indexed column is gone; a result's columns are fetched
+once per row. An INSERT without a column list on a table with a raw, never-written column is refused (0A000), since
+it writes that column; naming the columns avoids it.
+
+Moved out of Phase 2: value conversion through `ColumnType` (`columnFromText` / `parseColumn` taking it, the
+`TableMetadata` → `Target` refactor) and the typed `OutOfRange` / `NotRepresentable` fallbacks go to Phase 3, the
+first phase with values that differ from their stored form; the Phase 2 fixture's varchar columns store values
+unchanged, so they would be untested here. Orphan before-image detection and the 42703 mapping of a stale storage name
+go to Phase 5, with RENAME of encoded columns, the only way either can arise: an orphan cannot be told apart from a
+legitimate client column named `before_x` with a modifier, and ScalarDB reports a missing column under several
+operation-check codes.
+
 - `TableMetadata` → `Target` refactor of the column-building functions, and `ColumnType` into
   `columnFromText` / `parseColumn` (§3).
 - `isOutOfRange` and the fallback sites switch to the typed outcomes (§4); `pushable` keeps a conjunct in memory
