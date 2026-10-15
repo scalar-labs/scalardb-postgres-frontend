@@ -367,6 +367,7 @@ final class Catalog {
             "character_maximum_length",
             "column_default",
             "numeric_precision",
+            "numeric_precision_radix",
             "numeric_scale",
             "datetime_precision"));
     type(16, "bool", "boolean");
@@ -384,6 +385,7 @@ final class Catalog {
     type(1700, "numeric", "numeric");
     type(21, "int2", "smallint");
     type(1043, "varchar", "character varying");
+    type(1042, "bpchar", "character");
     type(114, "json", "json");
     type(3802, "jsonb", "jsonb");
     type(19, "name", "name");
@@ -500,6 +502,29 @@ final class Catalog {
     return 0;
   }
 
+  /** information_schema's numeric_precision of a fixed numeric type: bits for binary ones. */
+  @Nullable private static Long nativePrecision(long oid) {
+    switch ((int) oid) {
+      case 21:
+        return 16L;
+      case 23:
+        return 32L;
+      case 20:
+        return 64L;
+      case 700:
+        return 24L;
+      case 701:
+        return 53L;
+      default:
+        return null;
+    }
+  }
+
+  /** information_schema's numeric_scale: 0 for the integers, none for floats. */
+  @Nullable private static Long nativeScale(long oid) {
+    return oid == 21 || oid == 23 || oid == 20 ? 0L : null;
+  }
+
   /** pg_type.typlen, which RowDescription reports too. */
   static long typeLength(long oid) {
     switch ((int) oid) {
@@ -539,6 +564,7 @@ final class Catalog {
         return "U";
       case 19:
       case 25:
+      case 1042:
       case 1043:
         return "S";
       case 1082:
@@ -567,6 +593,7 @@ final class Catalog {
   private final DistributedTransactionAdmin admin;
   final String database;
   String user = OWNER; // the connecting user, for current_user
+  TypeStore typeStore = TypeStore.NONE; // the declared types of columns
   boolean clusterUsers; // pg_roles lists Cluster's users and roles, not the OWNER placeholder
   private boolean acls; // pg_class.relacl holds Cluster's grants: one call per grantee and table
   private boolean aclsLoaded;
@@ -632,6 +659,50 @@ final class Catalog {
   static String typeName(long oid) {
     String name = TYPE_NAMES.get(oid);
     return name == null ? "unknown" : name;
+  }
+
+  /**
+   * {@code format_type(oid, typmod)}: the type name with its modifier, as PostgreSQL prints it. A
+   * typmod of -1 means "none given"; for {@code character} PostgreSQL then prints {@code bpchar},
+   * while a NULL typmod (the one-argument form) prints {@code character}. An unknown OID is {@code
+   * ???}.
+   */
+  static String typeName(long oid, @Nullable Long typmod) {
+    long element = elementOid(oid);
+    if (element != 0 && typmod != null && typmod >= 0) {
+      return typeName(element, typmod) + "[]"; // character varying(20)[]
+    }
+    String name = TYPE_NAMES.get(oid);
+    if (name == null) {
+      return "???";
+    }
+    if (typmod == null) {
+      return name;
+    }
+    long t = typmod;
+    switch ((int) oid) {
+      case 1700:
+        if (t < 4) {
+          return name;
+        }
+        long packed = t - 4;
+        long scale = ((packed & 0x7ff) ^ 0x400) - 0x400; // 11-bit two's complement
+        return "numeric(" + (packed >> 16) + "," + scale + ")";
+      case 1043:
+        return t < 4 ? name : "character varying(" + (t - 4) + ")";
+      case 1042:
+        return t < 4 ? "bpchar" : "character(" + (t - 4) + ")";
+      case 1083:
+      case 1114:
+      case 1184:
+        if (t < 0) {
+          return name;
+        }
+        int space = name.indexOf(' ');
+        return name.substring(0, space) + "(" + t + ")" + name.substring(space);
+      default:
+        return name;
+    }
   }
 
   /**
@@ -882,8 +953,10 @@ final class Catalog {
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
     long oid = 16384;
     for (String namespace : new TreeSet<>(admin.getNamespaceNames())) {
-      if (namespace.equals("scalardb") || namespace.equals("coordinator")) {
-        continue; // ScalarDB's own namespaces
+      if (namespace.equals("scalardb")
+          || namespace.equals("coordinator")
+          || namespace.equals(TypeStore.NAMESPACE)) {
+        continue; // ScalarDB's own namespaces, and the frontend's
       }
       long namespaceOid = oid++;
       String schema = schemaName(namespace); // the connected namespace is PostgreSQL's public
@@ -917,11 +990,20 @@ final class Catalog {
           false,
           -1L);
       row(t, "information_schema.schemata", database, schema);
+      boolean typed = typeStore.exists(); // asked once, not per table, while there is no table
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
-        TableMetadata metadata = admin.getTableMetadata(namespace, table);
-        if (metadata == null) {
+        TableMetadata stored = admin.getTableMetadata(namespace, table);
+        if (stored == null) {
           continue;
         }
+        // columns with their declared types (numeric(10,2), not the bigint it is stored as)
+        ColumnMap columnMap =
+            ColumnMap.of(
+                namespace,
+                table,
+                stored,
+                typed ? typeStore.read(namespace, table, stored) : Collections.emptyMap());
+        TableMetadata metadata = columnMap.metadata();
         long relOid = oid++;
         // as CREATE TABLE ... WITH (encrypted = '...') set them, for \d+ to show
         List<String> encrypted = new ArrayList<>();
@@ -963,6 +1045,15 @@ final class Catalog {
         for (String column : metadata.getColumnNames()) {
           attnum++;
           DataType type = metadata.getColumnDataType(column);
+          ColumnType declared = columnMap.type(column);
+          // the declared type, as format_type shows it: numeric(10,2), not the bigint it is
+          // stored as; character varying(20), not text
+          boolean numeric = declared.isNumeric();
+          boolean bounded = numeric && declared.precision != 0; // numeric alone has neither
+          boolean characters =
+              declared.kind == ColumnType.Kind.VARCHAR || declared.kind == ColumnType.Kind.CHAR;
+          long typeOid = declared.encoded() ? declared.oid() : typeOid(type);
+          long typmod = declared.encoded() ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
           row(
               t,
@@ -970,8 +1061,8 @@ final class Catalog {
               relOid,
               (long) attnum,
               column,
-              typeOid(type),
-              -1L,
+              typeOid,
+              typmod,
               key,
               false,
               false,
@@ -982,7 +1073,7 @@ final class Catalog {
               "",
               -1L,
               null,
-              typeLength(typeOid(type)),
+              typeLength(typeOid),
               0L,
               0L,
               true);
@@ -994,13 +1085,14 @@ final class Catalog {
               table,
               column,
               (long) attnum,
-              typeName(typeOid(type)),
+              typeName(typeOid),
               key ? "NO" : "YES",
-              INTERNAL_TYPE_NAMES.get(typeOid(type)),
+              INTERNAL_TYPE_NAMES.get(typeOid),
+              characters ? (Object) (long) declared.length : null,
               null,
-              null,
-              null,
-              null,
+              bounded ? (Object) (long) declared.precision : nativePrecision(typeOid),
+              typeOid == 1700 ? (Object) 10L : nativePrecision(typeOid) != null ? 2L : null,
+              bounded ? (Object) (long) declared.scale : nativeScale(typeOid),
               null);
         }
         String columnList = String.join(", ", keys);

@@ -6,6 +6,7 @@ drives both stacks. This directory holds what the frontend side needs.
 | File | What |
 |---|---|
 | `ddl-scalardb.sql` | the TPC-C schema for ScalarDB through the frontend: partition and clustering keys per table, `DECIMAL` as `DOUBLE PRECISION`, no foreign keys, column order identical to BenchBase's `ddl-postgres.sql` because its loader inserts positionally |
+| `ddl-scalardb-typed.sql` | the same schema with BenchBase's declared types (`DECIMAL(p,s)`, `CHAR(n)`, `VARCHAR(n)`), kept by the frontend, which records them in its metadata table (`CREATE FRONTEND METADATA TABLES`, first in the file): money is exact, stored as scaled `BIGINT` |
 | `tpcc-postgres.xml`, `tpcc-scalardb.xml` | BenchBase configs for each stack (edit url, user, scale factor, terminals, time) |
 | `benchbase-catalog.patch` | a one-line BenchBase patch: with `-Dbenchbase.catalog.hsqldb=true` it derives the table catalog from its own DDL instead of pgjdbc's metadata query, which uses a window function the frontend does not support |
 | `benchbase-delivery.patch` | swaps two statements of the Delivery transaction so that it sums the order lines before updating them: ScalarDB refuses to scan records the same transaction has already written (DB-CORE-10106); the sum is identical either way, and the native run uses the same patched code |
@@ -42,8 +43,11 @@ java -Dbenchbase.catalog.hsqldb=true -cp "benchbase.jar:hsqldb.jar:lib/*" com.ol
 python3 summarize.py pg=results-pg sdb=results-sdb
 ```
 
-Both configs use `TRANSACTION_REPEATABLE_READ`, which is snapshot isolation on PostgreSQL and the
-closest match to ScalarDB's default `SNAPSHOT`. Conflicts that PostgreSQL resolves by blocking are
+The native config uses `TRANSACTION_REPEATABLE_READ`, snapshot isolation on PostgreSQL. The frontend
+config uses `TRANSACTION_READ_COMMITTED`: ScalarDB's default `SNAPSHOT` reads each record's latest
+committed version without a snapshot across records, so the frontend reports it as read committed and
+refuses a request for repeatable read (until 2026-10-08 it accepted one, and the results below were
+taken that way, on the same ScalarDB isolation). Conflicts that PostgreSQL resolves by blocking are
 aborts on ScalarDB (SQLSTATE 40001), which BenchBase retries; compare the retry counts in the
 summaries as well as throughput.
 

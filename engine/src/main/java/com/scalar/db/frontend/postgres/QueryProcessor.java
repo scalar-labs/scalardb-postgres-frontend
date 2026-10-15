@@ -491,6 +491,11 @@ public class QueryProcessor {
       return plan == null ? new int[0] : plan.outputOids();
     }
 
+    /** The type modifiers of the columns (numeric(10,2) and the like); -1 where there is none. */
+    public int[] typmods() {
+      return plan == null ? new int[0] : plan.outputTypmods();
+    }
+
     /** The column names clients see, in the order of {@link #columns()}. */
     public List<String> labels() {
       return plan == null ? Collections.<String>emptyList() : plan.getColumnLabels();
@@ -913,7 +918,10 @@ public class QueryProcessor {
         planCache.clear();
         lastCommandTag = plan.commandTag(0);
         settleMetadata(lastCommandTag);
-        Rows rows = new Rows(null, QueryParser.Cursor.EMPTY);
+        Rows rows =
+            plan.getOutputColumns().isEmpty()
+                ? new Rows(null, QueryParser.Cursor.EMPTY)
+                : new Rows(plan, plan.open(manager, identity)); // what the DDL reports
         rows.notices = plan.notices;
         return rows;
       }
@@ -974,6 +982,11 @@ public class QueryProcessor {
   /** The PostgreSQL type OIDs of the columns {@link #describe} last returned; 0 when unknown. */
   public int[] describedOids() {
     return describedPlan == null ? new int[0] : describedPlan.outputOids();
+  }
+
+  /** The type modifiers of the columns {@link #describe} last returned; -1 where there is none. */
+  public int[] describedTypmods() {
+    return describedPlan == null ? new int[0] : describedPlan.outputTypmods();
   }
 
   /** The column names clients see for the statement {@link #describe} last returned columns for. */
@@ -1060,6 +1073,20 @@ public class QueryProcessor {
    */
   public void setDdlSettleMillis(long millis) {
     ddlSettleMillis = millis;
+  }
+
+  /**
+   * The most digits a numeric(p,s) column created in this session may have to be stored as a scaled
+   * bigint: 18, or 15 where the storage keeps a bigint exact only up to 2^53 (see {@link
+   * ColumnType#maxScaledPrecision}).
+   */
+  /** The deployment's store of declared column types. */
+  void setTypeStore(TypeStore store) {
+    parser.setTypeStore(store);
+  }
+
+  public void setMaxScaledPrecision(int digits) {
+    parser.setMaxScaledPrecision(digits);
   }
 
   private static final java.util.regex.Pattern SETTING_NAME =

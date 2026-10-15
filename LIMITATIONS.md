@@ -49,7 +49,8 @@ at the end of this section.
   (`scalar.db.postgres.max_rows_in_memory`); past that the statement fails with `54000` rather than
   exhausting the memory every session shares. A session may hold at most 64 MiB of prepared
   statements and portals, a statement may spend at most 5 seconds matching regular expressions
-  over all its rows, and a connection must finish its startup and login within 60 seconds. The
+  over all its rows, `lpad` and `rpad` may build at most 10 million characters, and a connection
+  must finish its startup and login within 60 seconds. The
   [settings table](getting-started/README.md#2-configure) lists them all.
 - **Window functions and recursive CTEs** work, except `RANGE`/`GROUPS` frames with offsets,
   `DISTINCT` inside a window aggregate, and a recursive CTE whose body is not
@@ -86,16 +87,32 @@ at the end of this section.
   `UNIQUE`, `CHECK`, `REFERENCES` and `DEFAULT` are accepted by `CREATE TABLE` with a `NOTICE`
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
-- **Type modifiers are not kept.** `CHAR(n)` is text without blank padding, so `'ab'` and
-  `'ab   '` differ and `code = 'ab   '` does not match a stored `'ab'`; `VARCHAR(n)` lengths are not
-  enforced; `NUMERIC(p,s)` and `DECIMAL` are stored as `double precision`, so a value is neither
-  rounded to its scale nor checked against its precision on write (`1.005` stays `1.005`,
-  `123456789.995` fits in `NUMERIC(10,2)`), prints as `19.9` rather than `19.90`, and arithmetic
-  carries floating-point noise (`19.90 * 3` is `59.699999999999996`); `SMALLINT` is an `integer`
-  without a range check. Each is reported with a `NOTICE` at `CREATE TABLE`. The declaration has
-  nowhere to live outside ScalarDB's own metadata, so enforcing it waits for type modifiers there
-  (`core-todo.md` item 11 in the ScalarDB repository). A modifier PostgreSQL itself rejects
-  (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`.
+- **Declared types are recorded in the frontend's metadata table** (`docs/type-encoding.md`): `CHAR(n)`,
+  `VARCHAR(n)`, `SMALLINT` and `NUMERIC` keep their declaration and PostgreSQL's rules for it
+  (`amount NUMERIC(10,2)` is a ScalarDB `BIGINT` column `amount` holding cents, and a row in
+  `scalardb_postgres_frontend.column_types` saying so). The table is created once with `CREATE FRONTEND
+  METADATA TABLES`; until then such a declaration is refused (`55000`). With Cluster authentication the
+  frontend reads and writes it as a service user, whose password is the `scalar.db.postgres.metadata_password`
+  property. Other ScalarDB clients see the stored values (1990, not 19.90) unless they read that table. A
+  column's type cannot be changed afterwards
+  (`ALTER COLUMN ... TYPE` is refused with `0A000`; RENAME COLUMN keeps the type). Columns created by an
+  earlier release keep their plain ScalarDB types. A modifier PostgreSQL itself rejects
+  (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`. Known differences for
+  `CHAR(n)`: it is stored without its padding and padded back when a column is returned as such, so
+  `octet_length`, `concat` and `to_json` see no padding, and a value passed through an aggregate,
+  expression or `UNION` (`max(c)`, `COALESCE(c, 'x')`) comes back unpadded; a parameter declared `text`
+  compares with it as if it were untyped, ignoring trailing spaces.
+- **`NUMERIC` and `DECIMAL` are exact, with two limits** (`docs/type-encoding.md`). Up to 18 digits
+  (15 on Cosmos DB, object storage and in Cluster mode) a column is a scaled `BIGINT`, which cannot
+  hold `NaN` (`0A000`). Without a precision, or with more digits, it is stored as text: every
+  comparison, `ORDER BY` and `GROUP BY` on it runs in the frontend rather than in the database, so a
+  filter on it reads the whole partition or table, and it cannot be a key or index column (`0A000`,
+  naming the fix: declare `NUMERIC(p,s)` with p up to 18). ORMs often declare such columns by default:
+  Prisma's `Decimal` is `DECIMAL(65,30)` and Rails' `decimal` without options is `NUMERIC`; give them a
+  precision of 18 or less (`@db.Decimal(12,2)`, `precision: 12, scale: 2`) where a filter on the column
+  should be pushed down. Columns created before this release stay `double precision`. This changes
+  earlier releases' behaviour: `id NUMERIC PRIMARY KEY` and `id NUMERIC(20) PRIMARY KEY`, which used to
+  be accepted as `double precision`, are now refused.
 - **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
   precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
   the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.
@@ -104,7 +121,11 @@ at the end of this section.
   over 56, is refused (`42622`) rather than truncated as PostgreSQL does: ScalarDB keeps the full
   name and reads columns back by it, and stores a `before_` copy of each column, so a truncated
   name would leave a table that cannot be read. A table has at most 1600 columns as in PostgreSQL,
-  and on a PostgreSQL backend the `before_` copies halve what fits.
+  and on a PostgreSQL backend the `before_` copies halve what fits. A schema, table, column or index
+  name may not contain a quote (`'`, `"`, a backquote), a bracket, a backslash, a semicolon or a
+  control character (`42602`): PostgreSQL allows them in quoted identifiers, but ScalarDB's JDBC
+  storage writes names into SQL without escaping them. A table or schema name may not contain a dot
+  either (`42602`): ScalarDB, and the frontend's metadata table, key tables by `namespace.table`.
 - **Keys, and the MySQL backend.** ScalarDB refuses an empty string as a partition key value
   (`22023`). On MySQL, ScalarDB creates key and indexed `TEXT` columns as `varchar(128)`
   (`scalar.db.jdbc.mysql.variable_key_column_size`), so a longer value fails at commit (`22001`),
@@ -147,13 +168,18 @@ at the end of this section.
 Every other limitation above shows up as an error or a `NOTICE`. These do not: the statement succeeds and
 the result is not what PostgreSQL would return.
 
-- **`NUMERIC` and `DECIMAL` columns**, which is where prices, balances and any exact amount live.
-  The column is a `double precision`, so `SELECT price * qty`
+- **`NUMERIC` and `DECIMAL` columns created by an earlier release**, which are `double precision`
+  (new ones are exact). On such a column `SELECT price * qty`
   carries floating-point noise (`19.90 * 3` is `59.699999999999996`), `WHERE price * 3 = 0.3` finds
   nothing, a value is stored unrounded (`1.005` stays `1.005` in `NUMERIC(10,2)`) and prints without
   its scale (`19.9`). `sum()` and `avg()` over any `double precision` column are computed exactly and
   rounded once, so their last digit can differ from PostgreSQL's running float sum. `SMALLINT`
   arithmetic does not overflow at 32767 (`s + s` on 20000 is 40000, where PostgreSQL errors).
+- **A RENAME COLUMN interrupted midway.** ScalarDB renames a column and its transaction before-image
+  column in two steps. If the frontend or the database stops between them, the table is left with
+  the new column and the old before-image: clients see an extra column named `before_<old name>`,
+  and writes to the table can fail. Repair it outside the frontend by renaming that before-image column
+  to `before_<new ScalarDB name>` in the backing database (todo 054).
 - **Text comparison under a non-binary collation.** On MySQL, and on PostgreSQL databases created
   with a locale other than `C`, whatever is pushed down follows the database's collation while the
   same expression evaluated in the frontend is binary, so one query can answer differently depending

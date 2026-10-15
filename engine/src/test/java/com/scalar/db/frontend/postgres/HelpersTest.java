@@ -141,4 +141,24 @@ public class HelpersTest {
     assertThat(Evaluator.compare(new BigDecimal("1.50"), 1.5)).isZero();
     assertThat(Evaluator.compare("abc", "abd")).isNegative();
   }
+
+  @Test
+  public void toDecimal_Float_ShouldUsePostgresSignificantDigits() {
+    // PostgreSQL's float8 and float4 to numeric: 15 and 6 significant digits
+    assertThat(Evaluator.toDecimal(0.1 + 0.2)).isEqualTo(new BigDecimal("0.3"));
+    assertThat(Evaluator.toDecimal(1.005)).isEqualTo(new BigDecimal("1.005"));
+    assertThat(Evaluator.toDecimal(1.2345678901234567))
+        .isEqualTo(new BigDecimal("1.23456789012346"));
+    assertThat(Evaluator.toDecimal(1e20)).isEqualTo(new BigDecimal("100000000000000000000"));
+    assertThat(Evaluator.toDecimal(123456789.123)).isEqualTo(new BigDecimal("123456789.123"));
+    assertThat(Evaluator.toDecimal(0.1f)).isEqualTo(new BigDecimal("0.1"));
+    assertThat(Evaluator.toDecimal(7L)).isEqualTo(BigDecimal.valueOf(7));
+  }
+
+  @Test
+  public void compare_IntegersOfDifferentWidths_ShouldCompareByValue() {
+    assertThat(Evaluator.compare(1, 1L)).isZero();
+    assertThat(Evaluator.compare(Long.MAX_VALUE, Integer.MAX_VALUE)).isPositive();
+    assertThat(Evaluator.compare(-1L, 0)).isNegative();
+  }
 }

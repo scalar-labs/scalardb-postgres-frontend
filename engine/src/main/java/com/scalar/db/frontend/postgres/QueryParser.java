@@ -144,13 +144,21 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
  * primary key map to ScalarDB mutations, with extra {@code AND} conditions as mutation conditions.
  */
 public class QueryParser {
+  private static final org.slf4j.Logger logger =
+      org.slf4j.LoggerFactory.getLogger(QueryParser.class);
+
   private final DistributedTransactionAdmin admin;
+  // ponytail: fixed per storage (18, or 15 for Cosmos DB, object storage and Cluster); a property
+  // when a Cluster on JDBC needs scaled numeric(16..18)
+  private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
   private final String defaultNamespace;
   private final Catalog catalog;
   // Per session; dropped after DDL by any session of this process (DDL_GENERATION, todo 011).
   // ponytail: DDL from another process is seen only through ScalarDB's own metadata cache expiry;
   // a cluster-wide schema version would be the upgrade path
-  private final Map<String, TableMetadata> metadataCache = new HashMap<>();
+  // namespace.table -> the table's columns as clients see them; replaced, not cleared, after DDL,
+  // so a plan keeps the maps it was made with (read from the lookup threads too)
+  private Map<String, ColumnMap> columnMaps = new java.util.concurrent.ConcurrentHashMap<>();
   private static final java.util.concurrent.atomic.AtomicLong DDL_GENERATION =
       new java.util.concurrent.atomic.AtomicLong();
   private long seenGeneration = DDL_GENERATION.get();
@@ -159,6 +167,18 @@ public class QueryParser {
     this.admin = admin;
     this.defaultNamespace = defaultNamespace;
     this.catalog = new Catalog(admin, defaultNamespace);
+  }
+
+  void setMaxScaledPrecision(int digits) {
+    maxScaledPrecision = digits;
+  }
+
+  // the declared types of columns; none until the server sets the deployment's store
+  private volatile TypeStore typeStore = TypeStore.NONE;
+
+  void setTypeStore(TypeStore store) {
+    typeStore = store;
+    catalog.typeStore = store;
   }
 
   /** Forgets cached table metadata, after DDL, in every session of this process. */
@@ -176,7 +196,7 @@ public class QueryParser {
       return false;
     }
     seenGeneration = now;
-    metadataCache.clear();
+    columnMaps = new java.util.concurrent.ConcurrentHashMap<>();
     return true;
   }
 
@@ -254,7 +274,17 @@ public class QueryParser {
   static final class Returning {
     final List<String> names = new ArrayList<>();
     final List<Expression> expressions = new ArrayList<>();
-    final List<DataType> types = new ArrayList<>(); // null for computed items
+    final List<Integer> oids = new ArrayList<>(); // 0 for computed items
+    final List<Integer> typmods = new ArrayList<>(); // -1 for computed items
+
+    /** Records a plain column of {@code t}, as typed as a SELECT of it would be. */
+    void column(Target t, String name) {
+      ColumnType declared = t.columns.type(name);
+      boolean exact = declared.encoded(); // varchar(n), not text; numeric(10,2), not bigint
+      oids.add(
+          exact ? (int) declared.oid() : (int) Catalog.typeOid(t.metadata.getColumnDataType(name)));
+      typmods.add(exact ? declared.typmod() : -1);
+    }
   }
 
   /** A write driven by a read: one mutation per row the read plan returns. */
@@ -299,7 +329,17 @@ public class QueryParser {
 
   /** Runs ScalarDB reads; failures are wrapped so evaluation code stays free of checked types. */
   interface Reader {
+    /** Runs a Get or Scan; the results carry stored values, see {@link ColumnMap#value}. */
     List<Result> read(Operation operation);
+
+    /** The column map of the table an operation names; null when none is known. */
+    @Nullable ColumnMap columnMap(Operation operation);
+
+    /** Runs a Get or Scan and returns its rows keyed {@code qualifier.column}, decoded. */
+    default List<Map<String, Object>> rows(
+        Operation operation, String qualifier, List<String> columns) {
+      return rowsOf(qualifier, columns, columnMap(operation), read(operation));
+    }
 
     /**
      * Opens a Get or Scan as a row stream with keys qualified as {@code qualifier.column}; every
@@ -385,6 +425,7 @@ public class QueryParser {
     private List<OrderByElement> orderBy; // in-memory ordering
     private int limit; // in-memory limit; negative for none
     private boolean unsatisfied; // the keyed UPDATE/DELETE matched no row
+    private String keyedWord = "UPDATE"; // the tag of a keyed write that planned no mutation
     @Nullable private List<String> labels; // the names clients see; outputNames when null
     private int offset;
     // A set operation: its two member plans and how they combine
@@ -401,9 +442,14 @@ public class QueryParser {
     @Nullable private Plan analyze; // EXPLAIN ANALYZE: the statement to run and report on
     private long started; // nanoTime when an EXPLAIN ANALYZE started
     @Nullable private Reader reader; // set while executing
+    // The column maps of the tables the statement reads and writes, namespace.table -> map
+    private Map<String, ColumnMap> columnMaps = Collections.emptyMap();
     private final boolean streaming; // top-level: the first table is read as rows are pulled
     @Nullable private final LogicalPlan logical; // what this plan was made from; null for DML
     @Nullable private Map<String, DataType> columnTypes; // built on first use from logical
+    // the type each CASE, COALESCE, ... widens to, worked out once (Evaluator.widened); a plan is
+    // one session's, cached by its QueryProcessor, so a plain map
+    private final Map<Expression, Integer> widenings = new java.util.IdentityHashMap<>();
     @Nullable private Operator root; // the operator tree; null for DML
 
     /** A DML plan whose mutations {@code builder} makes from the bound parameters. */
@@ -690,10 +736,6 @@ public class QueryParser {
               returning == null ? Collections.<String>emptyList() : returning.names,
               Collections.<Map<String, Object>>emptyList(),
               tag);
-      if (returning != null) {
-        plan.outputTypes.clear();
-        plan.outputTypes.addAll(returning.types); // so drivers see int4, not text, for RETURNING id
-      }
       plan.write = new WriteByScan(read, mutator, description, returning);
       return plan;
     }
@@ -780,7 +822,7 @@ public class QueryParser {
             driving.add(row);
           }
         }
-        Reader reader = reader(crud, identity);
+        Reader reader = reader(crud, identity, columnMaps);
         for (Map<String, Object> row : driving) {
           Effect effect = write.mutator.apply(row, reader);
           if (effect != null) {
@@ -796,7 +838,7 @@ public class QueryParser {
       if (!mutations.isEmpty()) {
         boolean inserts = mutations.stream().allMatch(m -> m instanceof Insert);
         try {
-          crud.mutate(mutations);
+          crud.mutate(ColumnMap.checked(mutations, columnMaps));
         } catch (TransactionException | IllegalArgumentException e) {
           if (inserts
               && e.getMessage() != null
@@ -827,8 +869,21 @@ public class QueryParser {
 
     /** Reads through {@code crud}, wrapping its failures in {@link ReadFailure}. */
     private static <E extends TransactionException> Reader reader(
-        CrudOperable<E> crud, @Nullable Authenticator.Identity identity) {
+        CrudOperable<E> crud,
+        @Nullable Authenticator.Identity identity,
+        Map<String, ColumnMap> columnMaps) {
       return new Reader() {
+        @Nullable @Override
+        public ColumnMap columnMap(Operation operation) {
+          return ColumnMap.forOperation(operation, columnMaps);
+        }
+
+        /** The operation, checked against its table's columns that are never written. */
+        private <T extends Operation> T stored(T operation) {
+          ColumnMap map = columnMap(operation);
+          return map == null ? operation : map.checked(operation);
+        }
+
         @Nullable @Override
         public Authenticator.Identity identity() {
           return identity;
@@ -853,12 +908,12 @@ public class QueryParser {
           reads.incrementAndGet();
           try {
             if (operation instanceof Get) {
-              Optional<Result> result = crud.get((Get) operation);
+              Optional<Result> result = crud.get(stored((Get) operation));
               return result.isPresent()
                   ? Collections.singletonList(result.get())
                   : Collections.<Result>emptyList();
             }
-            return crud.scan((Scan) operation);
+            return crud.scan(stored((Scan) operation));
           } catch (TransactionException e) {
             throw new ReadFailure(e);
           }
@@ -866,13 +921,14 @@ public class QueryParser {
 
         @Override
         public Cursor open(Operation operation, String qualifier, List<String> columns) {
+          ColumnMap map = columnMap(operation);
           if (operation instanceof Get) {
-            return listCursor(rowsOf(qualifier, columns, read(operation)));
+            return listCursor(rowsOf(qualifier, columns, map, read(operation)));
           }
           CrudOperable.Scanner<E> scanner;
           reads.incrementAndGet();
           try {
-            scanner = crud.getScanner((Scan) operation);
+            scanner = crud.getScanner(stored((Scan) operation));
           } catch (TransactionException e) {
             throw new ReadFailure(e);
           }
@@ -883,7 +939,7 @@ public class QueryParser {
             @Nullable public Map<String, Object> next() {
               try {
                 Optional<Result> result = scanner.one();
-                return result.isPresent() ? rowOf(qualifier, columns, result.get()) : null;
+                return result.isPresent() ? rowOf(qualifier, columns, map, result.get()) : null;
               } catch (TransactionException e) {
                 throw new ReadFailure(e);
               }
@@ -1068,8 +1124,11 @@ public class QueryParser {
      */
     public int[] outputOids() {
       int[] oids = new int[outputNames.size()];
+      Returning returning = write == null ? null : write.returning;
       for (int i = 0; i < oids.length; i++) {
-        if (i < outputTypes.size() && outputTypes.get(i) != null) {
+        if (returning != null) {
+          oids[i] = i < returning.oids.size() ? returning.oids.get(i) : 0; // int4, not text
+        } else if (i < outputTypes.size() && outputTypes.get(i) != null) {
           oids[i] = (int) Catalog.typeOid(outputTypes.get(i));
         } else if (logical != null && i < logical.outputOids.size()) {
           oids[i] = logical.outputOids.get(i);
@@ -1081,6 +1140,36 @@ public class QueryParser {
       return oids;
     }
 
+    /** The type modifier of each output column (numeric(10,2), ...); -1 where there is none. */
+    public int[] outputTypmods() {
+      int[] typmods = new int[outputNames.size()];
+      java.util.Arrays.fill(typmods, -1);
+      Returning returning = write == null ? null : write.returning;
+      for (int i = 0; i < typmods.length; i++) {
+        if (returning != null) {
+          typmods[i] = i < returning.typmods.size() ? returning.typmods.get(i) : -1;
+        } else if (logical != null && i < logical.outputTypmods.size()) {
+          typmods[i] = logical.outputTypmods.get(i);
+        } else if (!members.isEmpty()) {
+          // a set operation keeps a modifier only when every branch has the same one
+          Integer common = null;
+          for (Plan member : members) {
+            int[] inner = member.outputTypmods();
+            int typmod = i < inner.length ? inner[i] : -1;
+            common = common == null || common == typmod ? typmod : -1;
+          }
+          typmods[i] = common == null ? -1 : common;
+        }
+      }
+      return typmods;
+    }
+
+    /** Names the keyed UPDATE or DELETE this plan is, for when it plans no mutation. */
+    Plan keyed(String word) {
+      keyedWord = word;
+      return this;
+    }
+
     /** The PostgreSQL command tag for this statement, given the number of rows returned. */
     public String commandTag(int rowCount) {
       if (tag != null) {
@@ -1089,6 +1178,9 @@ public class QueryParser {
       List<Mutation> mutations = mutations();
       if (mutations == null) {
         return "SELECT " + rowCount;
+      }
+      if (mutations.isEmpty()) {
+        return keyedWord + " 0";
       }
       Mutation first = mutations.get(0);
       if (first instanceof Insert || first instanceof Upsert) {
@@ -1146,11 +1238,15 @@ public class QueryParser {
       if (write != null) {
         throw new IllegalStateException("A read-then-write statement runs with executeWrite");
       }
+      if (mutations() != null && mutations().isEmpty()) {
+        unsatisfied = false;
+        return Cursor.EMPTY; // a keyed write that can match no row: UPDATE 0
+      }
       if (mutations() != null) {
         unsatisfied = false;
         boolean inserts = mutations().stream().allMatch(m -> m instanceof Insert);
         try {
-          crud.mutate(mutations());
+          crud.mutate(ColumnMap.checked(mutations(), columnMaps));
         } catch (TransactionException | IllegalArgumentException e) {
           // ScalarDB reports an existing key as a conflict (DB-CORE-20013, also raised by real
           // write-write conflicts on upserts) or, within one transaction, as DB-CORE-10146. For a
@@ -1169,7 +1265,7 @@ public class QueryParser {
         }
         return Cursor.EMPTY;
       }
-      Reader crudReader = reader(crud, identity);
+      Reader crudReader = reader(crud, identity, columnMaps);
       attach(crudReader);
       try {
         Operator tree = root();
@@ -1179,6 +1275,21 @@ public class QueryParser {
         @SuppressWarnings("unchecked")
         E cause = (E) e.getCause();
         throw cause;
+      }
+    }
+
+    /**
+     * Gives the statement's column maps to this plan and to the plans that open a reader of their
+     * own (the read of a read-then-write statement, the statement EXPLAIN ANALYZE runs); every
+     * other plan inside reads through the reader {@link #attach} hands it.
+     */
+    void useColumnMaps(Map<String, ColumnMap> maps) {
+      columnMaps = maps;
+      if (write != null) {
+        write.read.useColumnMaps(maps);
+      }
+      if (analyze != null) {
+        analyze.useColumnMaps(maps);
       }
     }
 
@@ -1218,7 +1329,14 @@ public class QueryParser {
     }
 
     Evaluator.Context context(@Nullable Map<String, Object> outer) {
-      return new Evaluator.Context(outer, subplans, catalog, parameters, columnTypes());
+      return new Evaluator.Context(
+          outer,
+          subplans,
+          catalog,
+          parameters,
+          columnTypes(),
+          logical == null ? Collections.<LogicalPlan.Source>emptyList() : logical.sources,
+          widenings);
     }
 
     /** The type of every {@code alias.column} the plan reads, which a NULL value cannot tell. */
@@ -1229,7 +1347,9 @@ public class QueryParser {
           for (LogicalPlan.Source s : logical.sources) {
             if (s.target != null) {
               for (String name : s.target.metadata.getColumnNames()) {
-                types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
+                if (!s.target.columns.type(name).isNumeric()) { // char is text, smallint int
+                  types.put(s.qualifier + "." + name, s.target.metadata.getColumnDataType(name));
+                }
               }
             } else if (s.derived != null) {
               for (int i = 0; i < s.columns.size() && i < s.derived.outputTypes.size(); i++) {
@@ -1380,7 +1500,7 @@ public class QueryParser {
       Operation operation = lookupOperation(s, left, ctx);
       return operation == null
           ? new ArrayList<Map<String, Object>>()
-          : rowsOf(s.qualifier, s.columns, reader().read(operation));
+          : reader().rows(operation, s.qualifier, s.columns);
     }
 
     /**
@@ -1441,7 +1561,7 @@ public class QueryParser {
 
     private Runnable lookupOne(
         Source s, int i, List<Operation> operations, List<Map<String, Object>>[] results) {
-      return () -> results[i] = rowsOf(s.qualifier, s.columns, reader().read(operations.get(i)));
+      return () -> results[i] = reader().rows(operations.get(i), s.qualifier, s.columns);
     }
 
     /** True if the group's Gets carry the same conditions, so one scan can serve them all. */
@@ -1497,6 +1617,8 @@ public class QueryParser {
               .whereOr(keys)
               .projections(projections)
               .build();
+      // The Gets' keys hold stored values, so the results are matched by their stored key values
+      ColumnMap map = reader().columnMap(scan);
       Map<List<Object>, List<Result>> byKey = new HashMap<>();
       for (Result result : reader().read(scan)) {
         List<Object> key = new ArrayList<>();
@@ -1512,7 +1634,10 @@ public class QueryParser {
         }
         results[i] =
             rowsOf(
-                s.qualifier, s.columns, byKey.getOrDefault(key, Collections.<Result>emptyList()));
+                s.qualifier,
+                s.columns,
+                map,
+                byKey.getOrDefault(key, Collections.<Result>emptyList()));
       }
     }
 
@@ -1525,20 +1650,16 @@ public class QueryParser {
       for (Map.Entry<String, Expression> p : s.lookupParams().entrySet()) {
         Object value =
             forColumn(
-                s.lookup().table().metadata,
-                p.getKey(),
-                p.getValue(),
-                Collections.singletonList(left),
-                ctx);
+                s.lookup().table(), p.getKey(), p.getValue(), Collections.singletonList(left), ctx);
         if (value == null) {
           return null; // NULL never equals anything
         }
         Column<?> column;
         try {
-          column = columnFromValue(s.lookup().table().metadata, p.getKey(), value);
+          column = columnFromValue(s.lookup().table(), p.getKey(), value);
         } catch (IllegalArgumentException e) {
-          if (isOutOfRange(e)) {
-            return null; // an int column never equals a value beyond its range
+          if (isOutOfRange(e) || e instanceof PgException.NotRepresentable) {
+            return null; // a key never equals a value beyond its range or with no exact stored form
           }
           throw e;
         }
@@ -1548,7 +1669,7 @@ public class QueryParser {
       for (Expression late : s.lookup().pushedLate) {
         ConditionalExpression condition;
         try {
-          condition = pushable(late, s.lookup().table().metadata, left, ctx);
+          condition = pushable(late, s.lookup().table(), left, ctx);
         } catch (IllegalArgumentException e) {
           Boolean constant = beyondRange(late, e, left, ctx);
           if (constant == null) {
@@ -1674,10 +1795,19 @@ public class QueryParser {
    * table metadata (scalar.db.metadata.cache_expiration_time_secs, 60 seconds by default), so for a
    * while after ALTER TABLE a read may not return a new column, which is then null here.
    */
-  static Map<String, Object> rowOf(String qualifier, List<String> columns, Result result) {
+  static Map<String, Object> rowOf(
+      String qualifier, List<String> columns, @Nullable ColumnMap map, Result result) {
     Map<String, Object> row = new LinkedHashMap<>();
-    for (String name : result.getContainedColumnNames()) {
-      row.put(qualifier + "." + name, result.getAsObject(name));
+    if (map == null || !map.decodes()) {
+      for (String name : result.getContainedColumnNames()) {
+        row.put(qualifier + "." + name, result.getAsObject(name));
+      }
+    } else {
+      // stored values to the client's: amount = 1990 in a numeric(10,2) column is 19.90
+      Map<String, Column<?>> stored = result.getColumns();
+      for (String name : result.getContainedColumnNames()) {
+        row.put(qualifier + "." + name, map.value(name, result, stored));
+      }
     }
     for (String name : columns) {
       row.putIfAbsent(qualifier + "." + name, null);
@@ -1686,10 +1816,10 @@ public class QueryParser {
   }
 
   static List<Map<String, Object>> rowsOf(
-      String qualifier, List<String> columns, List<Result> results) {
+      String qualifier, List<String> columns, @Nullable ColumnMap map, List<Result> results) {
     List<Map<String, Object>> rows = new ArrayList<>(results.size());
     for (Result result : results) {
-      rows.add(rowOf(qualifier, columns, result));
+      rows.add(rowOf(qualifier, columns, map, result));
     }
     return rows;
   }
@@ -1957,12 +2087,15 @@ public class QueryParser {
   }
 
   /** A ScalarDB column holding an in-memory value, converted to the column's type. */
-  private static Column<?> columnFromValue(
-      TableMetadata metadata, String name, @Nullable Object value) {
-    if (value == null) {
-      return columnFromText(metadata, name, null);
+  private static Column<?> columnFromValue(Target t, String name, @Nullable Object value) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    if (declared.convertsValues()) {
+      return declared.exact(name, value); // a predicate's value: never rounded
     }
-    DataType type = metadata.getColumnDataType(existing(metadata, name));
+    if (value == null) {
+      return columnFromText(t, name, null);
+    }
+    DataType type = t.metadata.getColumnDataType(existing(t.metadata, name));
     if (type == DataType.TIMESTAMP && value instanceof java.time.Instant) {
       // PostgreSQL compares a timestamp with a timestamptz in the session's zone
       value = LocalDateTime.ofInstant((java.time.Instant) value, Evaluator.zone());
@@ -1984,7 +2117,7 @@ public class QueryParser {
               // an array keeps PostgreSQL's text form, {a,b}, not Java's [a, b]
               : value instanceof List ? Evaluator.text(value) : String.valueOf(value);
     }
-    return columnFromText(metadata, name, text);
+    return columnFromText(t, name, text);
   }
 
   private static String keyText(Key key) {
@@ -2054,6 +2187,7 @@ public class QueryParser {
     try {
       Plan plan = plan(sql);
       plan.cacheable = !EMBEDDED.get() && plan.reusable();
+      plan.useColumnMaps(columnMaps);
       return plan;
     } catch (IllegalArgumentException e) {
       // psql describes objects with catalog queries beyond this engine (UNION, table functions,
@@ -2598,6 +2732,8 @@ public class QueryParser {
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
+  private static final Pattern FRONTEND_TABLES =
+      Pattern.compile("(?is)CREATE\\s+FRONTEND\\s+METADATA\\s+TABLES(\\s+IF\\s+NOT\\s+EXISTS)?");
 
   /**
    * The statement without surrounding whitespace and one final {@code ;}, which is what the
@@ -2641,7 +2777,7 @@ public class QueryParser {
     Matcher schema = CREATE_SCHEMA.matcher(trimmed);
     if (schema.matches()) {
       boolean ifNotExists = schema.group(1) != null;
-      String name = checkedName(namespace(schema.group(2)), false);
+      String name = userNamespace(checkedName(namespace(schema.group(2)), false));
       return Plan.ddl(() -> admin.createNamespace(name, ifNotExists), "CREATE SCHEMA");
     }
     Matcher explain = EXPLAIN.matcher(trimmed);
@@ -2661,6 +2797,23 @@ public class QueryParser {
     }
     if (VACUUM.matcher(trimmed).matches()) {
       return Plan.ddl(() -> {}, "VACUUM"); // nothing to vacuum; tools run it after bulk loads
+    }
+    if (FRONTEND_TABLES.matcher(trimmed).matches()) {
+      // creates only what is missing, so IF NOT EXISTS changes nothing; with authentication the
+      // rows hold the service user's new password, filled in when the statement runs
+      if (!typeStore.authenticated()) {
+        return Plan.ddl(typeStore::create, "CREATE FRONTEND METADATA TABLES");
+      }
+      List<Map<String, Object>> rows = new ArrayList<>();
+      Plan plan =
+          Plan.constant(
+              Arrays.asList("property", "value"), rows, "CREATE FRONTEND METADATA TABLES");
+      plan.ddl =
+          () -> {
+            rows.clear();
+            rows.addAll(typeStore.create());
+          };
+      return plan;
     }
     Matcher coordinator = COORDINATOR_TABLES.matcher(trimmed);
     if (coordinator.matches()) {
@@ -2698,7 +2851,7 @@ public class QueryParser {
     if (statement instanceof Truncate) {
       Table table = ((Truncate) statement).getTable();
       String namespace = namespaceOf(table);
-      String name = unquote(table.getName());
+      String name = checkedCharacters(unquote(table.getName()));
       return Plan.ddl(() -> admin.truncateTable(namespace, name), "TRUNCATE TABLE");
     }
     if (statement instanceof Alter) {
@@ -2759,7 +2912,7 @@ public class QueryParser {
             }
           }
         }
-        return Plan.deferred(ctx -> Collections.singletonList(update(update, t, ctx)));
+        return Plan.deferred(ctx -> listOf(update(update, t, ctx))).keyed("UPDATE");
       } finally {
         ctes = saved;
       }
@@ -2776,7 +2929,7 @@ public class QueryParser {
         }
         Target t = target(delete.getTable());
         checkTextAgainstNumber(delete.getWhere(), t);
-        return Plan.deferred(ctx -> Collections.singletonList(delete(delete, t, ctx)));
+        return Plan.deferred(ctx -> listOf(delete(delete, t, ctx))).keyed("DELETE");
       } finally {
         ctes = saved;
       }
@@ -2793,7 +2946,19 @@ public class QueryParser {
   // ---- DDL ----
 
   private String namespaceOf(Table table) {
-    return namespace(table.getSchemaName());
+    return userNamespace(checkedCharacters(namespace(table.getSchemaName())));
+  }
+
+  /** Refuses DDL in the frontend's own namespace, which only its setup command manages. */
+  private static String userNamespace(String namespace) {
+    if (namespace.equals(TypeStore.NAMESPACE)) {
+      throw new PgException.Argument(
+          "42501",
+          "permission denied: schema \""
+              + namespace
+              + "\" holds the frontend's metadata; CREATE FRONTEND METADATA TABLES manages it");
+    }
+    return namespace;
   }
 
   /** The user the client connected as, for {@code current_user}. */
@@ -2879,6 +3044,7 @@ public class QueryParser {
     }
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
+    Map<String, ColumnType> declaredTypes = new LinkedHashMap<>();
     List<String> primaryKey = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (ColumnDefinition definition : create.getColumnDefinitions()) {
@@ -2889,7 +3055,7 @@ public class QueryParser {
               : String.join(" ", definition.getColumnSpecs()).toUpperCase(Locale.ROOT);
       boolean keyColumn = specs.contains("PRIMARY KEY");
       notices.addAll(
-          unenforced(column, definition.getColDataType().getDataType(), specs, keyColumn));
+          unenforced(column, declaredText(definition.getColDataType()), specs, keyColumn));
       for (String earlier : columns) {
         if (earlier.equals(column)) {
           throw new PgException.Argument(
@@ -2906,7 +3072,13 @@ public class QueryParser {
         }
       }
       columns.add(column);
-      builder.addColumn(column, columnType(definition.getColDataType().getDataType()));
+      ColumnType declared = recorded(declaredText(definition.getColDataType()));
+      declaredTypes.put(column, declared);
+      builder.addColumn(
+          column,
+          declared.encoded()
+              ? declared.storage
+              : columnType(declaredText(definition.getColDataType())));
       if (keyColumn) {
         primaryKey.add(column);
       }
@@ -2954,6 +3126,8 @@ public class QueryParser {
       if (!columns.contains(column.trim())) {
         throw new IllegalArgumentException("Unknown partition key column: " + column);
       }
+      java.util.Objects.requireNonNull(declaredTypes.get(column.trim()))
+          .checkKeyable(column.trim(), maxScaledPrecision);
       builder.addPartitionKey(column.trim());
     }
     for (String spec : clusteringKey) {
@@ -2961,6 +3135,8 @@ public class QueryParser {
       if (!columns.contains(parts[0])) {
         throw new IllegalArgumentException("Unknown clustering key column: " + parts[0]);
       }
+      java.util.Objects.requireNonNull(declaredTypes.get(parts[0]))
+          .checkKeyable(parts[0], maxScaledPrecision);
       boolean desc = parts.length > 1 && parts[1].equalsIgnoreCase("DESC");
       builder.addClusteringKey(parts[0], desc ? Scan.Ordering.Order.DESC : Scan.Ordering.Order.ASC);
     }
@@ -2986,8 +3162,25 @@ public class QueryParser {
     }
     TableMetadata table = metadata;
     boolean ifNotExists = create.isIfNotExists();
+    Map<String, ColumnType> recorded = new LinkedHashMap<>(declaredTypes);
+    recorded.values().removeIf(t -> !t.encoded());
     Plan plan =
-        Plan.ddl(() -> admin.createTable(namespace, name, table, ifNotExists), "CREATE TABLE");
+        Plan.ddl(
+            () -> {
+              if (admin.tableExists(namespace, name)) {
+                admin.createTable(namespace, name, table, ifNotExists); // as ScalarDB answers
+                return;
+              }
+              withTypes(
+                  namespace,
+                  name,
+                  recorded,
+                  null,
+                  () -> admin.createTable(namespace, name, table, false),
+                  () -> admin.tableExists(namespace, name),
+                  ifNotExists);
+            },
+            "CREATE TABLE");
     plan.notices.addAll(notices);
     return plan;
   }
@@ -3030,39 +3223,23 @@ public class QueryParser {
       case "character":
       case "bpchar":
         checkLength("char", args);
-        out.add(
-            "CHAR on "
-                + col
-                + " is stored as text: no blank padding, so comparisons do not ignore trailing"
-                + " spaces, and the length is not enforced");
+        if (base.equals("bpchar") && !withArgs) {
+          // char(n), character and char are kept as declared (ColumnType); bpchar has no length
+          out.add(
+              "CHAR on "
+                  + col
+                  + " is stored as text: no blank padding, so comparisons do not ignore trailing"
+                  + " spaces");
+        }
         break;
       case "varchar":
       case "character varying":
-        checkLength("varchar", args);
-        if (withArgs) {
-          out.add("the length of " + col + " (" + declared.trim() + ") is not enforced");
-        }
+        checkLength("varchar", args); // varchar(n) is kept as declared (ColumnType)
         break;
       case "numeric":
       case "decimal":
       case "dec":
-        if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
-          throw new PgException.Argument(
-              "22023", "NUMERIC precision " + args[0] + " must be between 1 and 1000");
-        }
-        if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
-          throw new PgException.Argument(
-              "22023", "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
-        }
-        out.add(
-            "NUMERIC on "
-                + col
-                + " is stored as double precision (binary floating point): precision and scale are"
-                + " not kept, and decimal fractions are approximate");
-        break;
-      case "smallint":
-      case "int2":
-        out.add("SMALLINT on " + col + " is stored as integer: its range is not enforced");
+        checkNumericModifiers(args); // kept exactly (ColumnType)
         break;
       case "timestamp":
       case "timestamp without time zone":
@@ -3091,7 +3268,7 @@ public class QueryParser {
   /**
    * The ScalarDB type of a declared column: {@code float(p)} up to 24 is real, as in PostgreSQL.
    */
-  private static DataType columnType(String declared) {
+  static DataType columnType(String declared) {
     Matcher floatP = Pattern.compile("(?i)^\\s*float\\s*\\(\\s*(\\d+)\\s*\\)").matcher(declared);
     if (floatP.find() && Integer.parseInt(floatP.group(1)) <= 24) {
       return DataType.FLOAT;
@@ -3105,7 +3282,7 @@ public class QueryParser {
 
   private Plan createIndex(CreateIndex create) {
     String namespace = namespaceOf(create.getTable());
-    String name = unquote(create.getTable().getName());
+    String name = checkedCharacters(unquote(create.getTable().getName()));
     List<String> columns = create.getIndex().getColumnsNames();
     if (columns.size() != 1) {
       throw new IllegalArgumentException("ScalarDB indexes cover one column: " + create);
@@ -3114,13 +3291,19 @@ public class QueryParser {
       throw new PgException.Argument(
           "0A000", "Expression indexes are not supported: " + columns.get(0));
     }
-    String column = unquote(columns.get(0));
+    String column = checkedCharacters(unquote(columns.get(0)));
     String generated = name + "_" + column + "_idx";
     String given =
-        create.getIndex().getName() == null ? null : unquote(create.getIndex().getName());
+        create.getIndex().getName() == null
+            ? null
+            : checkedCharacters(unquote(create.getIndex().getName()));
     Plan plan =
         Plan.ddl(
             () -> {
+              ColumnMap map = columnMap(namespace, name);
+              if (map != null && map.metadata().getColumnNames().contains(column)) {
+                map.type(column).checkKeyable(column, maxScaledPrecision);
+              }
               admin.createIndex(namespace, name, column, false);
               if (given != null && !given.equals(generated)) {
                 INDEX_NAMES.put(namespace + "." + given, new String[] {name, column});
@@ -3164,12 +3347,18 @@ public class QueryParser {
       case "TABLE":
         {
           String namespace = namespaceOf(target);
-          String name = unquote(target.getName());
-          return Plan.ddl(() -> admin.dropTable(namespace, name, ifExists), "DROP TABLE");
+          String name = checkedCharacters(unquote(target.getName()));
+          return Plan.ddl(
+              () -> {
+                Map<String, String> rows = typeStore.tokens(namespace, name);
+                admin.dropTable(namespace, name, ifExists);
+                afterDdl(() -> typeStore.deleteUnchanged(namespace, name, rows));
+              },
+              "DROP TABLE");
         }
       case "SCHEMA":
         {
-          String namespace = unquote(target.getName());
+          String namespace = userNamespace(checkedCharacters(unquote(target.getName())));
           if (namespace.equals("public")) {
             throw new IllegalArgumentException(
                 "cannot drop schema public: it is the connected database's namespace; drop it by name");
@@ -3183,7 +3372,9 @@ public class QueryParser {
               () -> {
                 if (cascade && admin.namespaceExists(namespace)) {
                   for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
+                    Map<String, String> rows = typeStore.tokens(namespace, table);
                     admin.dropTable(namespace, table, true);
+                    afterDdl(() -> typeStore.deleteUnchanged(namespace, table, rows));
                   }
                 }
                 admin.dropNamespace(namespace, ifExists);
@@ -3228,7 +3419,7 @@ public class QueryParser {
 
   private Plan alter(Alter alter) {
     String namespace = namespaceOf(alter.getTable());
-    String name = unquote(alter.getTable().getName());
+    String name = checkedCharacters(unquote(alter.getTable().getName()));
     List<Ddl> steps = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (AlterExpression expression : alter.getAlterExpressions()) {
@@ -3242,15 +3433,70 @@ public class QueryParser {
               c.getColumnSpecs() == null
                   ? ""
                   : String.join(" ", c.getColumnSpecs()).toUpperCase(Locale.ROOT);
-          notices.addAll(unenforced(column, c.getColDataType().getDataType(), specs, false));
-          DataType type = dataType(c.getColDataType().getDataType());
-          steps.add(() -> admin.addNewColumnToTable(namespace, name, column, type));
+          notices.addAll(unenforced(column, declaredText(c.getColDataType()), specs, false));
+          ColumnType declared = recorded(declaredText(c.getColDataType()));
+          DataType type =
+              declared.encoded() ? declared.storage : columnType(declaredText(c.getColDataType()));
+          Map<String, ColumnType> rows =
+              declared.encoded()
+                  ? Collections.singletonMap(column, declared)
+                  : Collections.<String, ColumnType>emptyMap();
+          steps.add(
+              () -> {
+                checkNewColumn(freshColumnMap(namespace, name), column, null);
+                withTypes(
+                    namespace,
+                    name,
+                    rows,
+                    Collections.singleton(column),
+                    () -> admin.addNewColumnToTable(namespace, name, column, type),
+                    () -> {
+                      TableMetadata now = admin.getTableMetadata(namespace, name);
+                      return now != null && now.getColumnNames().contains(column);
+                    },
+                    false);
+              });
         }
       } else if (expression.getOperation() == AlterOperation.RENAME
           && expression.getColOldName() != null) {
-        String oldName = unquote(expression.getColOldName());
+        String oldName = checkedCharacters(unquote(expression.getColOldName()));
         String newName = checkedName(unquote(expression.getColumnName()), true);
-        steps.add(() -> admin.renameColumn(namespace, name, oldName, newName));
+        steps.add(
+            () -> {
+              ColumnMap columns = freshColumnMap(namespace, name);
+              Map<String, ColumnType> rows = Collections.emptyMap();
+              if (columns != null) {
+                if (!columns.metadata().getColumnNames().contains(oldName)) {
+                  throw new PgException.Argument(
+                      "42703", "column \"" + oldName + "\" does not exist");
+                }
+                checkNewColumn(columns, newName, oldName);
+                columns.checkWritable(oldName); // a type it cannot read, it cannot carry over
+                ColumnType type = columns.type(oldName);
+                if (type.encoded()) {
+                  rows = Collections.singletonMap(newName, type); // the type follows the column
+                }
+              }
+              Map<String, String> old = new HashMap<>(typeStore.tokens(namespace, name));
+              old.keySet().retainAll(Collections.singleton(oldName));
+              withTypes(
+                  namespace,
+                  name,
+                  rows,
+                  Collections.singleton(newName),
+                  () -> admin.renameColumn(namespace, name, oldName, newName),
+                  () -> false,
+                  false);
+              afterDdl(() -> typeStore.deleteUnchanged(namespace, name, old));
+              // an index named at CREATE INDEX follows its column
+              INDEX_NAMES.replaceAll(
+                  (key, indexed) ->
+                      key.startsWith(namespace + ".")
+                              && indexed[0].equals(name)
+                              && indexed[1].equals(oldName)
+                          ? new String[] {name, newName}
+                          : indexed);
+            });
       } else {
         throw new PgException.Argument(
             "0A000",
@@ -3270,7 +3516,19 @@ public class QueryParser {
   }
 
   /** The numeric arguments of a declared type: {10, 2} for {@code NUMERIC (10, 2)}. */
-  private static long[] typeArguments(String declared) {
+  /**
+   * A column definition's type as written, modifiers included: the parser keeps them in the type
+   * name for some types (DECIMAL(5,1)) and apart for others (DEC(5,1)).
+   */
+  static String declaredText(net.sf.jsqlparser.statement.create.table.ColDataType type) {
+    String name = type.getDataType();
+    List<String> args = type.getArgumentsStringList();
+    return args == null || args.isEmpty() || name.contains("(")
+        ? name
+        : name + "(" + String.join(",", args) + ")";
+  }
+
+  static long[] typeArguments(String declared) {
     Matcher m = Pattern.compile("\\(([^)]*)\\)").matcher(declared);
     if (!m.find()) {
       return new long[0];
@@ -3282,8 +3540,118 @@ public class QueryParser {
         .toArray();
   }
 
+  /**
+   * The declared type of a new column as this frontend records it: numeric, char(n), varchar(n) and
+   * smallint in its metadata table; anything else as its native ScalarDB type.
+   */
+  private ColumnType recorded(String declaredType) {
+    ColumnType declared = ColumnType.declared(declaredType, maxScaledPrecision);
+    return declared.encoded() ? declared : ColumnType.of(columnType(declaredType));
+  }
+
+  /** Whether a table or column exists now, asked after a DDL that would have created it failed. */
+  private interface Exists {
+    boolean now() throws ExecutionException;
+  }
+
+  /**
+   * Runs a DDL that creates columns with the types they record: the rows first, then the DDL, so a
+   * failure in between leaves an inert row rather than a column without its type (TypeStore). Rows
+   * left under the names in {@code scope} (the whole table when null) are removed. If the DDL
+   * fails, this statement's rows are taken back; if what it would have created exists after all
+   * (another session's), the rows that were there are put back, and with {@code ifNotExists} that
+   * is no error. Without types and without the metadata table, the DDL simply runs.
+   */
+  private void withTypes(
+      String namespace,
+      String table,
+      Map<String, ColumnType> types,
+      @Nullable Set<String> scope,
+      Ddl ddl,
+      Exists exists,
+      boolean ifNotExists)
+      throws ExecutionException {
+    if (types.isEmpty() && !typeStore.exists()) {
+      ddl.run();
+      return;
+    }
+    if (!types.isEmpty()) {
+      typeStore.requireTable();
+    }
+    String token = java.util.UUID.randomUUID().toString();
+    Map<String, Result> previous = typeStore.write(namespace, table, types, scope, token);
+    try {
+      ddl.run();
+    } catch (ExecutionException | RuntimeException e) {
+      boolean other;
+      try {
+        other = exists.now();
+        typeStore.undo(namespace, table, types.keySet(), token, previous, other);
+      } catch (ExecutionException | RuntimeException undo) {
+        e.addSuppressed(undo); // the DDL's own failure is the one to report
+        throw e;
+      }
+      if (other && ifNotExists) {
+        return;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Deletes rows a DDL that has taken effect no longer needs. A failure only leaves inert rows, so
+   * it is logged rather than reported as the statement's: the DDL itself succeeded.
+   */
+  private static void afterDdl(Ddl cleanup) {
+    try {
+      cleanup.run();
+    } catch (ExecutionException | RuntimeException e) {
+      logger.warn("Leftover rows in the frontend's metadata table after DDL: {}", e.toString());
+    }
+  }
+
+  /** A table's column map from ScalarDB now, not the session's cache; null if there is none. */
+  @Nullable private ColumnMap freshColumnMap(String namespace, String table) throws ExecutionException {
+    TableMetadata stored = admin.getTableMetadata(namespace, table);
+    return stored == null
+        ? null
+        : ColumnMap.of(namespace, table, stored, typeStore.read(namespace, table, stored));
+  }
+
+  /**
+   * Refuses a new column name that a column already has (42701), compared without regard to case,
+   * as the JDBC backends compare column names.
+   */
+  private static void checkNewColumn(
+      @Nullable ColumnMap columns, String newName, @Nullable String renamed) {
+    if (columns == null) {
+      return;
+    }
+    for (String existing : columns.metadata().getColumnNames()) {
+      // a rename may change only the case of its own column's name, not keep the name
+      if (existing.equalsIgnoreCase(newName)
+          && (!existing.equals(renamed) || existing.equals(newName))) {
+        throw new PgException.Argument(
+            "42701",
+            "column \"" + newName + "\" of relation \"" + columns.table + "\" already exists");
+      }
+    }
+  }
+
+  /** The precision and scale PostgreSQL accepts for NUMERIC(p, s), with its messages. */
+  static void checkNumericModifiers(long[] args) {
+    if (args.length > 0 && (args[0] < 1 || args[0] > 1000)) {
+      throw new PgException.Argument(
+          "22023", "NUMERIC precision " + args[0] + " must be between 1 and 1000");
+    }
+    if (args.length > 1 && (args[1] < -1000 || args[1] > 1000)) {
+      throw new PgException.Argument(
+          "22023", "NUMERIC scale " + args[1] + " must be between -1000 and 1000");
+    }
+  }
+
   /** The length PostgreSQL accepts for CHAR(n) and VARCHAR(n), with its messages. */
-  private static void checkLength(String type, long[] args) {
+  static void checkLength(String type, long[] args) {
     if (args.length > 0 && args[0] < 1) {
       throw new PgException.Argument("22023", "length for type " + type + " must be at least 1");
     }
@@ -3300,6 +3668,13 @@ public class QueryParser {
    * 56 bytes for the column's own name. Such names are refused rather than truncated.
    */
   static String checkedName(String name, boolean column) {
+    checkedCharacters(name);
+    if (!column && name.indexOf('.') >= 0) {
+      // namespace.table names a table in ScalarDB's metadata and in the frontend's: a dot would
+      // make "a.b".c and a."b.c" the same table there
+      throw new PgException.Argument(
+          "42602", "invalid name \"" + name + "\": a table or schema name may not contain a dot");
+    }
     int max = column ? 63 - "before_".length() : 63;
     if (name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > max) {
       throw new PgException.Argument(
@@ -3312,6 +3687,36 @@ public class QueryParser {
               + (column
                   ? ", since ScalarDB stores a before_ copy of each column within PostgreSQL's 63"
                   : ""));
+    }
+    return name;
+  }
+
+  /**
+   * A name the frontend passes to ScalarDB DDL. PostgreSQL allows any character in a quoted
+   * identifier, but ScalarDB's JDBC storage writes names into SQL text without escaping them (its
+   * metadata INSERT formats them inside {@code '...'}, and each engine encloses them in {@code "},
+   * a backquote or brackets), so a quote, backslash, bracket, semicolon or control character could
+   * end the literal or the identifier and run SQL of the caller's choosing (todo 053). Such names
+   * are refused.
+   */
+  static String checkedCharacters(String name) {
+    for (int i = 0; i < name.length(); i++) {
+      char c = name.charAt(i);
+      if (c == '\''
+          || c == '"'
+          || c == '`'
+          || c == '['
+          || c == ']'
+          || c == '\\'
+          || c == ';'
+          || Character.isISOControl(c)) {
+        throw new PgException.Argument(
+            "42602", // invalid_name
+            "invalid name \""
+                + name.replaceAll("\\p{Cntrl}", "?")
+                + "\": quotes, backslashes, brackets, semicolons and control characters are not"
+                + " allowed in names, since ScalarDB writes names into SQL unescaped");
+      }
     }
     return name;
   }
@@ -3804,6 +4209,7 @@ public class QueryParser {
       Expression e = plan.outputExpressions.get(i);
       plan.outputTypes.add(outputType(e, plan.sources));
       plan.outputOids.add(inferOid(e, plan.sources));
+      plan.outputTypmods.add(inferTypmod(e, plan.sources));
       if (isSetReturning(e)) {
         if (plan.aggregated) {
           throw new PgException.Argument(
@@ -3869,6 +4275,39 @@ public class QueryParser {
     return true;
   }
 
+  /**
+   * The type of CASE, COALESCE, NULLIF, GREATEST and LEAST, from all their branches: numeric types
+   * unify as PostgreSQL's do (any float gives double precision, else any numeric gives numeric,
+   * else the widest integer); otherwise the first typed branch decides.
+   */
+  static int unifiedOid(List<? extends Expression> branches, List<LogicalPlan.Source> sources) {
+    int first = 0;
+    int rank = -1;
+    boolean allNumeric = true;
+    for (Expression b : branches) {
+      if (b instanceof NullValue) {
+        continue;
+      }
+      int oid = inferOid(b, sources);
+      if (oid == 0) {
+        continue;
+      }
+      if (first == 0) {
+        first = oid;
+      }
+      int r = NUMERIC_RANK.indexOf(oid);
+      if (r < 0) {
+        allNumeric = false;
+      } else {
+        rank = Math.max(rank, r);
+      }
+    }
+    return allNumeric && rank >= 0 ? NUMERIC_RANK.get(rank) : first;
+  }
+
+  /** Numeric type OIDs from narrowest to widest, as PostgreSQL resolves a common type. */
+  private static final List<Integer> NUMERIC_RANK = Arrays.asList(21, 23, 20, 1700, 700, 701);
+
   /** The type OID an expression's values will have, from its shape; 0 when unknown. */
   static int inferOid(Expression e, List<LogicalPlan.Source> sources) {
     e = unwrap(e);
@@ -3887,6 +4326,19 @@ public class QueryParser {
         return (int) Catalog.typeOid(type);
       }
       net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) e;
+      LogicalPlan.Source source = sourceOf(c, sources);
+      if (source != null && source.target != null) {
+        ColumnType declared = declaredType(source.target, columnName(e));
+        if (declared != null && declared.encoded()) {
+          return (int) declared.oid(); // numeric, not the bigint it is stored as
+        }
+      } else if (source != null && source.derived != null) {
+        int i = source.columns.indexOf(columnName(e));
+        int[] inner = source.derived.outputOids();
+        if (i >= 0 && i < inner.length && inner[i] != 0) {
+          return inner[i]; // through a subquery or CTE
+        }
+      }
       for (LogicalPlan.Source s : sources) {
         if (s.catalogTable != null
             && c.getTable() != null
@@ -4028,15 +4480,16 @@ public class QueryParser {
       }
     }
     if (e instanceof net.sf.jsqlparser.expression.CaseExpression) {
+      List<Expression> branches = new ArrayList<>();
       for (net.sf.jsqlparser.expression.WhenClause when :
           ((net.sf.jsqlparser.expression.CaseExpression) e).getWhenClauses()) {
-        int oid = inferOid(when.getThenExpression(), sources);
-        if (oid != 0 && !(when.getThenExpression() instanceof NullValue)) {
-          return oid;
-        }
+        branches.add(when.getThenExpression());
       }
       Expression otherwise = ((net.sf.jsqlparser.expression.CaseExpression) e).getElseExpression();
-      return otherwise == null ? 0 : inferOid(otherwise, sources);
+      if (otherwise != null) {
+        branches.add(otherwise);
+      }
+      return unifiedOid(branches, sources);
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
       return 25;
@@ -4170,12 +4623,13 @@ public class QueryParser {
         return first == 23 || first == 21 ? 20 : first == 20 ? 1700 : first == 0 ? 0 : first;
       case "AVG":
         return first == 701 || first == 700 ? 701 : 1700;
-      case "MIN":
-      case "MAX":
       case "COALESCE":
       case "NULLIF":
       case "GREATEST":
       case "LEAST":
+        return unifiedOid(args, sources);
+      case "MIN":
+      case "MAX":
       case "ABS":
       case "ROUND":
       case "FLOOR":
@@ -4825,6 +5279,7 @@ public class QueryParser {
       }
     }
     checkTextAgainstNumber(e, scope);
+    charSemantics(e, scope);
     for (Select sub : subselects(e)) {
       subplans.put(sub, select(sub, scope));
     }
@@ -4842,24 +5297,168 @@ public class QueryParser {
           String name = columnName(c);
           LogicalPlan.Source s = scope.resolve(c);
           return s.target != null
-              ? s.target.metadata.getColumnDataType(name)
+              ? checkedType(s.target, name)
               : s.derived != null && s.columns.contains(name)
-                  ? s.derived.outputTypes.get(s.columns.indexOf(name))
+                  ? derivedType(s.derived, s.columns.indexOf(name))
                   : null;
+        },
+        c -> {
+          String name = columnName(c);
+          LogicalPlan.Source s = scope.resolve(c);
+          if (s.target != null) {
+            return isDeclaredNumeric(s.target, name);
+          }
+          int i = s.derived == null ? -1 : s.columns.indexOf(name);
+          int[] oids = s.derived == null ? new int[0] : s.derived.outputOids();
+          return i >= 0 && i < oids.length && oids[i] == 1700; // through a subquery or CTE
         });
+  }
+
+  /** A derived column's type for the check above: text for text, varchar and char. */
+  @Nullable private static DataType derivedType(Plan derived, int i) {
+    DataType type = i < derived.outputTypes.size() ? derived.outputTypes.get(i) : null;
+    if (type != null) {
+      return type;
+    }
+    int[] oids = derived.outputOids();
+    int oid = i < oids.length ? oids[i] : 0;
+    return oid == 25 || oid == 1043 || oid == 1042 ? DataType.TEXT : null;
   }
 
   /** As above, for a single-table UPDATE or DELETE planned by key, without a scope. */
   private static void checkTextAgainstNumber(@Nullable Expression where, Target t) {
     if (where != null) {
-      checkTextAgainstNumber(where, c -> t.metadata.getColumnDataType(columnName(c)));
+      checkTextAgainstNumber(
+          where, c -> checkedType(t, columnName(c)), c -> isDeclaredNumeric(t, columnName(c)));
     }
   }
 
-  private static void checkTextAgainstNumber(
-      Expression e, java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf) {
+  /**
+   * Gives char(n) columns PostgreSQL's bpchar rules where the evaluator would otherwise see only
+   * their stored, unpadded text: a quoted value compared with one loses its trailing spaces ({@code
+   * c IN ('ab ')} matches 'ab'), and LIKE sees the value padded to n ({@code c LIKE 'ab'} is false
+   * for a char(5), {@code c LIKE 'ab '} true). Rewrites {@code e} in place, as column qualification
+   * does.
+   */
+  private static void charSemantics(Expression e, Scope scope) {
     e.accept(
         new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(LikeExpression like, S context) {
+            Expression left = unwrap(like.getLeftExpression());
+            int n = charLength(left, scope);
+            if (n > 0) {
+              Function padded = new Function();
+              padded.setName("RPAD");
+              padded.setParameters(new ExpressionList<Expression>(left, new LongValue(n)));
+              like.setLeftExpression(padded);
+            }
+            return super.visit(like, context);
+          }
+
+          @Override
+          protected <S> Void visitBinaryExpression(BinaryExpression expr, S context) {
+            if (expr instanceof ComparisonOperator) {
+              stripAgainst(expr.getLeftExpression(), expr.getRightExpression());
+              stripAgainst(expr.getRightExpression(), expr.getLeftExpression());
+            }
+            return super.visitBinaryExpression(expr, context);
+          }
+
+          @Override
+          public <S> Void visit(InExpression in, S context) {
+            if (in.getRightExpression() instanceof ExpressionList) {
+              for (Expression item : (ExpressionList<?>) in.getRightExpression()) {
+                stripAgainst(in.getLeftExpression(), item);
+              }
+            }
+            return super.visit(in, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null; // planned on its own
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+
+          private void stripAgainst(Expression column, Expression other) {
+            Expression literal = unwrap(other);
+            if (literal instanceof StringValue && charLength(unwrap(column), scope) > 0) {
+              StringValue v = (StringValue) literal;
+              v.setValue(v.getValue().replaceAll(" +$", "")); // trailing spaces never count
+            }
+          }
+        });
+  }
+
+  /**
+   * The n of the char(n) column {@code e} refers to, of a table or through a subquery or CTE, or 0
+   * when it is no such column.
+   */
+  private static int charLength(Expression e, Scope scope) {
+    if (!isColumn(e) || ((net.sf.jsqlparser.schema.Column) e).getTable() == null) {
+      return 0; // analyze qualifies every column, so a bare name is current_user or the like
+    }
+    LogicalPlan.Source s = scope.resolve((net.sf.jsqlparser.schema.Column) e);
+    String name = columnName(e);
+    if (s.target != null) {
+      ColumnType type = declaredType(s.target, name);
+      return type != null && type.kind == ColumnType.Kind.CHAR ? type.length : 0;
+    }
+    if (s.derived != null) {
+      int i = s.columns.indexOf(name);
+      int[] oids = s.derived.outputOids();
+      int[] typmods = s.derived.outputTypmods();
+      return i >= 0 && i < oids.length && i < typmods.length && oids[i] == 1042 && typmods[i] > 4
+          ? typmods[i] - 4
+          : 0;
+    }
+    return 0;
+  }
+
+  /** A column's type for the checks below: a numeric stored as text is no text column. */
+  @Nullable private static DataType checkedType(Target t, String name) {
+    DataType type = t.metadata.getColumnDataType(name);
+    return type == null || isDeclaredNumeric(t, name) ? null : type;
+  }
+
+  /** True for a column declared numeric(p,s) or numeric and stored scaled or as text. */
+  private static boolean isDeclaredNumeric(Target t, String name) {
+    if (!t.metadata.getColumnNames().contains(name)) {
+      return false;
+    }
+    return t.columns.type(name).isNumeric();
+  }
+
+  private static void checkTextAgainstNumber(
+      Expression e,
+      java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf,
+      java.util.function.Predicate<net.sf.jsqlparser.schema.Column> numeric) {
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(LikeExpression like, S context) {
+            Expression left = unwrap(like.getLeftExpression());
+            if (isTableColumn(left) && numeric.test((net.sf.jsqlparser.schema.Column) left)) {
+              // a numeric column has no LIKE in PostgreSQL; its text would match where it errs
+              String op =
+                  like.getLikeKeyWord() == LikeExpression.KeyWord.ILIKE
+                      ? like.isNot() ? "!~~*" : "~~*"
+                      : like.isNot() ? "!~~" : "~~";
+              throw new PgException.Argument(
+                  "42883",
+                  "operator does not exist: numeric "
+                      + op
+                      + " "
+                      + operandType(like.getRightExpression()));
+            }
+            return super.visit(like, context);
+          }
+
           @Override
           protected <S> Void visitBinaryExpression(BinaryExpression expr, S context) {
             if (expr instanceof ComparisonOperator) {
@@ -4891,6 +5490,42 @@ public class QueryParser {
             return null;
           }
 
+          /** A column reference, not a bare current_user, true or the like. */
+          private boolean isTableColumn(Expression e) {
+            if (!isColumn(e)) {
+              return false;
+            }
+            net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) e;
+            String name = columnName(c);
+            return c.getTable() != null || !(isBooleanLiteral(name) || isKeyword(name));
+          }
+
+          /** The type PostgreSQL names for the right side of an operator it cannot find. */
+          private String operandType(Expression e) {
+            e = unwrap(e);
+            if (isTableColumn(e)) {
+              net.sf.jsqlparser.schema.Column c = (net.sf.jsqlparser.schema.Column) e;
+              if (numeric.test(c)) {
+                return "numeric";
+              }
+              DataType type = typeOf.apply(c);
+              return type == null ? "unknown" : Catalog.typeName(Catalog.typeOid(type));
+            }
+            if (e instanceof CastExpression) {
+              try {
+                return Catalog.typeName( // character varying, not varchar
+                    Catalog.typeOid(
+                        castTypeLabel(((CastExpression) e).getColDataType().getDataType())));
+              } catch (IllegalArgumentException unknownType) {
+                return "unknown";
+              }
+            }
+            if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
+              return "text";
+            }
+            return "unknown"; // a literal or an untyped parameter
+          }
+
           private void check(Expression column, Expression other, String op) {
             Expression literal = unwrap(other);
             if (literal instanceof SignedExpression) {
@@ -4917,6 +5552,52 @@ public class QueryParser {
         });
   }
 
+  /**
+   * The type modifier of an output expression, as PostgreSQL reports it: a plain column keeps its
+   * column's (numeric(10,2) is 655366), also through a subquery or CTE; anything else has none
+   * (-1).
+   */
+  static int inferTypmod(Expression e, List<LogicalPlan.Source> sources) {
+    e = unwrap(e);
+    if (!isColumn(e)) {
+      return -1;
+    }
+    LogicalPlan.Source source = sourceOf((net.sf.jsqlparser.schema.Column) e, sources);
+    if (source == null) {
+      return -1;
+    }
+    if (source.target != null) {
+      ColumnType declared = declaredType(source.target, columnName(e));
+      return declared != null && declared.encoded() ? declared.typmod() : -1;
+    }
+    if (source.derived != null) {
+      int i = source.columns.indexOf(columnName(e));
+      int[] inner = source.derived.outputTypmods();
+      return i >= 0 && i < inner.length ? inner[i] : -1;
+    }
+    return -1;
+  }
+
+  /** The source a qualified column reference reads, or null. */
+  @Nullable private static LogicalPlan.Source sourceOf(
+      net.sf.jsqlparser.schema.Column c, List<LogicalPlan.Source> sources) {
+    if (c.getTable() == null) {
+      return null;
+    }
+    String qualifier = unquote(c.getTable().getName());
+    for (LogicalPlan.Source s : sources) {
+      if (s.qualifier.equals(qualifier)) {
+        return s;
+      }
+    }
+    return null;
+  }
+
+  /** The declared type of a table's client column, or null if the table has no such column. */
+  @Nullable private static ColumnType declaredType(Target t, String name) {
+    return t.metadata.getColumnNames().contains(name) ? t.columns.type(name) : null;
+  }
+
   @Nullable private static DataType outputType(Expression e, List<LogicalPlan.Source> sources) {
     if (!isColumn(e) || ((net.sf.jsqlparser.schema.Column) e).getTable() == null) {
       return null;
@@ -4928,7 +5609,11 @@ public class QueryParser {
         continue;
       }
       if (s.target != null) {
-        return s.target.metadata.getColumnDataType(name);
+        ColumnType declared = declaredType(s.target, name);
+        // a declared type is the client's (numeric(10,2), varchar(20)), not the stored one
+        return declared != null && declared.encoded()
+            ? null
+            : s.target.metadata.getColumnDataType(name);
       }
       if (s.derived == null) {
         return null; // catalog table
@@ -5113,8 +5798,8 @@ public class QueryParser {
         columns.put(
             names.get(i),
             isDefaultKeyword(row.get(i))
-                ? columnFromText(t.metadata, names.get(i), null) // no column defaults: NULL
-                : value(t.metadata, names.get(i), row.get(i), ctx));
+                ? columnFromText(t, names.get(i), null) // no column defaults: NULL
+                : value(t, names.get(i), row.get(i), ctx));
       }
       mutations.add(put(t, columns, upsert));
     }
@@ -5239,9 +5924,18 @@ public class QueryParser {
     return updated.equals(expected);
   }
 
-  private static Update update(
+  /** The one mutation, or none when the statement can match no row. */
+  private static List<Mutation> listOf(@Nullable Mutation m) {
+    return m == null ? Collections.<Mutation>emptyList() : Collections.singletonList(m);
+  }
+
+  /** A keyed UPDATE, or null when its WHERE is false for every row (see {@link #conditions}). */
+  @Nullable private static Update update(
       net.sf.jsqlparser.statement.update.Update update, Target t, Evaluator.Context ctx) {
-    List<ConditionalExpression> conditions = conditions(update.getWhere(), t.metadata, update, ctx);
+    List<ConditionalExpression> conditions = conditions(update.getWhere(), t, update, ctx);
+    if (conditions == null) {
+      return null;
+    }
     UpdateBuilder.Buildable b =
         Update.newBuilder()
             .namespace(t.namespace)
@@ -5252,8 +5946,7 @@ public class QueryParser {
     }
     for (UpdateSet set : update.getUpdateSets()) {
       for (int i = 0; i < set.getColumns().size(); i++) {
-        b.value(
-            value(t.metadata, columnName(set.getColumn(i)), defaultToNull(set.getValue(i)), ctx));
+        b.value(value(t, columnName(set.getColumn(i)), defaultToNull(set.getValue(i)), ctx));
       }
     }
     // A condition makes ScalarDB report a missing or non-matching row (as 0 rows) instead of
@@ -5265,9 +5958,13 @@ public class QueryParser {
     return b.build();
   }
 
-  private static Delete delete(
+  /** A keyed DELETE, or null when its WHERE is false for every row (see {@link #conditions}). */
+  @Nullable private static Delete delete(
       net.sf.jsqlparser.statement.delete.Delete delete, Target t, Evaluator.Context ctx) {
-    List<ConditionalExpression> conditions = conditions(delete.getWhere(), t.metadata, delete, ctx);
+    List<ConditionalExpression> conditions = conditions(delete.getWhere(), t, delete, ctx);
+    if (conditions == null) {
+      return null;
+    }
     DeleteBuilder.Buildable b =
         Delete.newBuilder()
             .namespace(t.namespace)
@@ -5306,7 +6003,7 @@ public class QueryParser {
   private static boolean keyed(Target t, List<Expression> conjuncts) {
     List<ConditionalExpression> conditions = new ArrayList<>();
     for (Expression c : conjuncts) {
-      ConditionalExpression p = pushable(c, t.metadata, null, literalContext());
+      ConditionalExpression p = pushable(c, t, null, literalContext());
       if (p == null) {
         return false;
       }
@@ -5377,7 +6074,7 @@ public class QueryParser {
       if (values.get(name) == null) {
         throw notNullViolation(name);
       }
-      key.add(columnFromValue(t.metadata, name, values.get(name)));
+      key.add(writtenColumn(t, name, values.get(name)));
     }
     return key.build();
   }
@@ -5389,8 +6086,12 @@ public class QueryParser {
   private static Map<String, Object> left(Target t, String qualifier, Map<String, Object> values) {
     Map<String, Object> row = new LinkedHashMap<>();
     for (String c : t.metadata.getColumnNames()) {
+      Object value = values.get(c);
       row.put(
-          qualifier + "." + c, columnFromValue(t.metadata, c, values.get(c)).getValueAsObject());
+          qualifier + "." + c,
+          t.columns.type(c).encoded()
+              ? writtenValue(t, c, value)
+              : columnFromValue(t, c, value).getValueAsObject());
     }
     return row;
   }
@@ -5407,16 +6108,18 @@ public class QueryParser {
         for (String c : t.metadata.getColumnNames()) {
           returning.names.add(c);
           returning.expressions.add(new net.sf.jsqlparser.schema.Column(new Table(qualifier), c));
-          returning.types.add(t.metadata.getColumnDataType(c));
+          returning.column(t, c);
         }
       } else {
         returning.names.add(
             item.getAlias() != null ? unquote(item.getAlias().getName()) : label(e));
         returning.expressions.add(e);
-        returning.types.add(
-            isColumn(e) && t.metadata.getColumnNames().contains(columnName(e))
-                ? t.metadata.getColumnDataType(columnName(e))
-                : null);
+        if (isColumn(e) && t.metadata.getColumnNames().contains(columnName(e))) {
+          returning.column(t, columnName(e));
+        } else {
+          returning.oids.add(0);
+          returning.typmods.add(-1);
+        }
       }
     }
     return returning;
@@ -5433,7 +6136,7 @@ public class QueryParser {
       b.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), values));
     }
     for (String column : columns) {
-      b.value(columnFromValue(t.metadata, column, values.get(column)));
+      b.value(writtenColumn(t, column, values.get(column)));
     }
     return b.build();
   }
@@ -5655,19 +6358,21 @@ public class QueryParser {
               throw new PgException.Argument(
                   "21000", "ON CONFLICT DO UPDATE command cannot affect row a second time");
             }
-            List<Result> found = reader.read(get.build());
+            Get existing = get.build();
+            List<Map<String, Object>> found = reader.rows(existing, qualifier, allColumns);
             if (!found.isEmpty()) {
               if (!update) {
                 return null; // DO NOTHING
               }
-              Map<String, Object> env = rowOf(qualifier, allColumns, found.get(0));
+              Map<String, Object> env = found.get(0);
               Map<String, Object> values = new LinkedHashMap<>();
               for (String c : allColumns) {
                 values.put(c, env.get(qualifier + "." + c));
               }
               for (Map.Entry<String, Object> e : proposed.entrySet()) {
-                env.put("excluded." + e.getKey(), e.getValue());
-                env.put("EXCLUDED." + e.getKey(), e.getValue());
+                Object coerced = writtenValue(t, e.getKey(), e.getValue());
+                env.put("excluded." + e.getKey(), coerced);
+                env.put("EXCLUDED." + e.getKey(), coerced);
               }
               List<Map<String, Object>> group = Collections.singletonList(env);
               if (conflictWhere != null
@@ -5683,7 +6388,7 @@ public class QueryParser {
           }
           Map<String, Column<?>> columns = new LinkedHashMap<>();
           for (Map.Entry<String, Object> e : proposed.entrySet()) {
-            columns.put(e.getKey(), columnFromValue(t.metadata, e.getKey(), e.getValue()));
+            columns.put(e.getKey(), writtenColumn(t, e.getKey(), e.getValue()));
           }
           return new Effect(put(t, columns, false), left(t, qualifier, proposed));
         },
@@ -5705,13 +6410,30 @@ public class QueryParser {
   static final class Target {
     final String namespace;
     final String table;
-    final TableMetadata metadata;
+    final TableMetadata metadata; // ScalarDB's (ColumnMap.metadata); types in columns
+    final ColumnMap columns;
 
-    Target(String namespace, String table, TableMetadata metadata) {
+    Target(String namespace, String table, ColumnMap columns) {
       this.namespace = namespace;
       this.table = table;
-      this.metadata = metadata;
+      this.metadata = columns.metadata();
+      this.columns = columns;
     }
+  }
+
+  /** A table's column map, from the session's cache or ScalarDB; null if there is no table. */
+  @Nullable ColumnMap columnMap(String namespace, String table) throws ExecutionException {
+    String key = namespace + "." + table;
+    ColumnMap columns = columnMaps.get(key);
+    if (columns == null) {
+      TableMetadata stored = admin.getTableMetadata(namespace, table);
+      if (stored == null) {
+        return null;
+      }
+      columns = ColumnMap.of(namespace, table, stored, typeStore.read(namespace, table, stored));
+      columnMaps.put(key, columns);
+    }
+    return columns;
   }
 
   Target target(Table table) throws ExecutionException {
@@ -5722,16 +6444,9 @@ public class QueryParser {
             // has it
             : Collections.singletonList(namespace(table.getSchemaName()));
     for (String namespace : candidates) {
-      String key = namespace + "." + name;
-      TableMetadata metadata = metadataCache.get(key);
-      if (metadata == null) {
-        metadata = admin.getTableMetadata(namespace, name);
-        if (metadata != null) {
-          metadataCache.put(key, metadata);
-        }
-      }
-      if (metadata != null) {
-        return new Target(namespace, name, metadata);
+      ColumnMap columns = columnMap(userNamespace(namespace), name);
+      if (columns != null) {
+        return new Target(namespace, name, columns);
       }
     }
     throw new PgException.Argument(
@@ -5776,16 +6491,29 @@ public class QueryParser {
     }
   }
 
-  /** WHERE conditions for UPDATE/DELETE, which ScalarDB must be able to evaluate entirely. */
-  private static List<ConditionalExpression> conditions(
-      @Nullable Expression where,
-      TableMetadata metadata,
-      Statement statement,
-      Evaluator.Context ctx) {
+  /**
+   * WHERE conditions for a keyed UPDATE/DELETE, which ScalarDB must be able to evaluate entirely;
+   * null when one of them is false for every row. The plan was found keyed with the values it was
+   * planned with, and a cached plan meets others: {@code amount = $2} with 1.005 on a numeric(10,2)
+   * column, or {@code id = $1} with 5000000000 on an integer column, matches nothing.
+   */
+  @Nullable private static List<ConditionalExpression> conditions(
+      @Nullable Expression where, Target t, Statement statement, Evaluator.Context ctx) {
     List<ConditionalExpression> out = new ArrayList<>();
     for (Expression c : conjuncts(where)) {
-      ConditionalExpression p = pushable(c, metadata, null, ctx);
+      ConditionalExpression p;
+      try {
+        p = pushable(c, t, null, ctx);
+      } catch (IllegalArgumentException e) {
+        if (Boolean.FALSE.equals(Plan.beyondRange(c, e, Collections.emptyMap(), ctx))) {
+          return null;
+        }
+        throw e;
+      }
       if (p == null) {
+        if (neverTrue(c, t, ctx)) {
+          return null;
+        }
         throw new PgException.Argument("0A000", "Unsupported condition " + c + " in: " + statement);
       }
       out.add(p);
@@ -5794,25 +6522,50 @@ public class QueryParser {
   }
 
   /**
+   * A {@code column op value} conjunct that {@link #pushable} could not express because it is false
+   * for every row: a comparison with NULL, with a value beyond an integer column's range, or one no
+   * stored value of a numeric(p,s) column satisfies (a null scaled condition means that).
+   */
+  private static boolean neverTrue(Expression e, Target t, Evaluator.Context ctx) {
+    if (!(e instanceof ComparisonOperator)
+        || operator((ComparisonOperator) e) == null
+        || !isColumn(((ComparisonOperator) e).getLeftExpression())) {
+      return false;
+    }
+    ComparisonOperator c = (ComparisonOperator) e;
+    String name = existing(t.metadata, columnName(c.getLeftExpression()));
+    Object v =
+        forColumn(
+            t, name, c.getRightExpression(), Collections.<Map<String, Object>>emptyList(), ctx);
+    if (v == null || t.columns.type(name).kind == ColumnType.Kind.NUMERIC_SCALED) {
+      return true;
+    }
+    try {
+      valueColumn(t, name, c.getRightExpression(), null, ctx);
+      return false;
+    } catch (IllegalArgumentException failure) {
+      return Boolean.FALSE.equals(Plan.beyondRange(e, failure, Collections.emptyMap(), ctx));
+    }
+  }
+
+  /**
    * The value of {@code e} for column {@code name}: for a TEXT column an untyped parameter is the
    * text it was sent as ('007' stays 007), for any other column its guess (see Evaluator.Untyped).
    */
   @Nullable private static Object forColumn(
-      TableMetadata metadata,
-      String name,
-      Expression e,
-      List<Map<String, Object>> rows,
-      Evaluator.Context ctx) {
-    return metadata.getColumnDataType(name) == DataType.TEXT
+      Target t, String name, Expression e, List<Map<String, Object>> rows, Evaluator.Context ctx) {
+    return t.columns.type(existing(t.metadata, name)).comparesAsText()
         ? Evaluator.evalText(e, rows, ctx)
         : Evaluator.eval(e, rows, ctx);
   }
 
   /** A column holding the value of a constant expression (a literal or a placeholder). */
-  private static Column<?> value(
-      TableMetadata metadata, String name, Expression e, Evaluator.Context ctx) {
-    Object v = forColumn(metadata, name, e, Collections.<Map<String, Object>>emptyList(), ctx);
-    DataType type = metadata.getColumnDataType(name);
+  private static Column<?> value(Target t, String name, Expression e, Evaluator.Context ctx) {
+    Object v = forColumn(t, name, e, Collections.<Map<String, Object>>emptyList(), ctx);
+    if (t.columns.type(existing(t.metadata, name)).encoded()) {
+      return writtenColumn(t, name, v); // rounded to the declared scale, not to an integer
+    }
+    DataType type = t.metadata.getColumnDataType(name);
     if ((type == DataType.INT || type == DataType.BIGINT)
         && v instanceof Number
         && !Evaluator.isIntegral(v)
@@ -5820,43 +6573,37 @@ public class QueryParser {
       // a decimal written to an integer column is rounded, as PostgreSQL does (2.5 is 3)
       v = new BigDecimal(Evaluator.text(v)).setScale(0, RoundingMode.HALF_UP);
     }
-    return columnFromValue(metadata, name, v);
+    return columnFromValue(t, name, v);
   }
 
   /** Returns the ScalarDB condition for a {@code column op literal} conjunct, or null. */
-  @Nullable static ConditionalExpression pushable(Expression e, TableMetadata metadata) {
-    return pushable(e, metadata, null, null);
+  @Nullable static ConditionalExpression pushable(Expression e, Target t) {
+    return pushable(e, t, null, null);
   }
 
   /**
-   * As {@link #pushable(Expression, TableMetadata)}, with the compared value evaluated in {@code
-   * ctx} (and {@code row}) when a context is given, so placeholders take their bound values. Null
-   * when the condition cannot be pushed, or when its value is NULL, which matches nothing.
+   * As {@link #pushable(Expression, Target)}, with the compared value evaluated in {@code ctx} (and
+   * {@code row}) when a context is given, so placeholders take their bound values. Null when the
+   * condition cannot be pushed, or when its value is NULL, which matches nothing.
    */
   @Nullable static ConditionalExpression pushable(
-      Expression e,
-      TableMetadata metadata,
-      @Nullable Map<String, Object> row,
-      @Nullable Evaluator.Context ctx) {
-    ConditionalExpression p = condition(e, metadata, row, ctx);
+      Expression e, Target t, @Nullable Map<String, Object> row, @Nullable Evaluator.Context ctx) {
+    ConditionalExpression p = condition(e, t, row, ctx);
     // Cluster stores an encrypted column as ciphertext and refuses it in a condition, so it is
     // compared here, on the decrypted value
-    return p == null || metadata.getEncryptedColumnNames().contains(p.getColumn().getName())
+    return p == null || t.metadata.getEncryptedColumnNames().contains(p.getColumn().getName())
         ? null
         : p;
   }
 
   @Nullable private static ConditionalExpression condition(
-      Expression e,
-      TableMetadata metadata,
-      @Nullable Map<String, Object> row,
-      @Nullable Evaluator.Context ctx) {
+      Expression e, Target t, @Nullable Map<String, Object> row, @Nullable Evaluator.Context ctx) {
     if (e instanceof IsNullExpression) {
       IsNullExpression n = (IsNullExpression) e;
       if (!isColumn(n.getLeftExpression())) {
         return null;
       }
-      Column<?> column = column(metadata, columnName(n.getLeftExpression()), null);
+      Column<?> column = column(t, columnName(n.getLeftExpression()), null);
       return ConditionBuilder.buildConditionalExpression(
           column,
           n.isNot()
@@ -5870,12 +6617,14 @@ public class QueryParser {
           || !isColumn(like.getLeftExpression())
           || !(like.getRightExpression() instanceof StringValue
               || like.getRightExpression() instanceof JdbcParameter)
-          || (like.getEscape() != null && !(like.getEscape() instanceof StringValue))) {
-        return null;
+          || (like.getEscape() != null && !(like.getEscape() instanceof StringValue))
+          || isDeclaredNumeric(t, columnName(like.getLeftExpression()))
+          || t.columns.type(existing(t.metadata, columnName(like.getLeftExpression()))).kind
+              == ColumnType.Kind.CHAR) {
+        return null; // a char is stored unpadded, and LIKE sees it padded: in memory
       }
       Column<?> column =
-          valueColumn(
-              metadata, columnName(like.getLeftExpression()), like.getRightExpression(), row, ctx);
+          valueColumn(t, columnName(like.getLeftExpression()), like.getRightExpression(), row, ctx);
       if (!(column instanceof TextColumn)) {
         return null;
       }
@@ -5897,11 +6646,29 @@ public class QueryParser {
               || (ctx != null && isConstant(c.getRightExpression())))) {
         return null;
       }
+      ColumnType declared = t.columns.type(existing(t.metadata, columnName(c.getLeftExpression())));
+      if (!declared.comparableWhenStored()) {
+        return null; // "1.50" is not "1.5" as text, and "10" sorts before "9": in memory
+      }
+      if (declared.kind == ColumnType.Kind.NUMERIC_SCALED) {
+        Expression right = c.getRightExpression();
+        Object v =
+            ctx == null
+                ? (isNull(right) ? null : literal(right))
+                : forColumn(
+                    t,
+                    columnName(c.getLeftExpression()),
+                    right,
+                    row == null
+                        ? Collections.<Map<String, Object>>emptyList()
+                        : Collections.singletonList(row),
+                    ctx);
+        return declared.scaledCondition(columnName(c.getLeftExpression()), op, v);
+      }
       Column<?> column;
       try {
         column =
-            valueColumn(
-                metadata, columnName(c.getLeftExpression()), c.getRightExpression(), row, ctx);
+            valueColumn(t, columnName(c.getLeftExpression()), c.getRightExpression(), row, ctx);
       } catch (IllegalArgumentException | ArithmeticException failure) {
         if (c.getRightExpression() instanceof DoubleValue
             || (c.getRightExpression() instanceof SignedExpression
@@ -5925,24 +6692,24 @@ public class QueryParser {
 
   /** The compared value as a column, or null for NULL. Without a context, the literal's text. */
   @Nullable private static Column<?> valueColumn(
-      TableMetadata metadata,
+      Target t,
       String name,
       Expression value,
       @Nullable Map<String, Object> row,
       @Nullable Evaluator.Context ctx) {
     if (ctx == null) {
-      return isNull(value) ? null : column(metadata, name, value);
+      return isNull(value) ? null : column(t, name, value);
     }
     Object v =
         forColumn(
-            metadata,
+            t,
             name,
             value,
             row == null
                 ? Collections.<Map<String, Object>>emptyList()
                 : Collections.singletonList(row),
             ctx);
-    return v == null ? null : columnFromValue(metadata, name, v);
+    return v == null ? null : columnFromValue(t, name, v);
   }
 
   @Nullable private static ConditionalExpression.Operator operator(ComparisonOperator e) {
@@ -6509,8 +7276,18 @@ public class QueryParser {
     return name;
   }
 
-  private static Column<?> column(TableMetadata metadata, String name, @Nullable Expression value) {
-    return columnFromText(metadata, name, value == null ? null : literal(value));
+  private static Column<?> column(Target t, String name, @Nullable Expression value) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    if (value != null && declared.convertsValues() && isNumberLiteral(value)) {
+      // s = 40000 compares a number, which no smallint equals; s = '40000' is smallint input
+      return declared.exact(name, Evaluator.decimal(String.valueOf(literal(value))));
+    }
+    return columnFromText(t, name, value == null ? null : literal(value));
+  }
+
+  private static boolean isNumberLiteral(Expression e) {
+    Expression v = e instanceof SignedExpression ? ((SignedExpression) e).getExpression() : e;
+    return v instanceof LongValue || v instanceof DoubleValue;
   }
 
   /**
@@ -6518,8 +7295,12 @@ public class QueryParser {
    * input syntax (SQLSTATE 22P02, or 22007 for dates and times) or a value out of range (22003, or
    * 22008 for dates and times).
    */
-  private static Column<?> columnFromText(TableMetadata metadata, String name, @Nullable String s) {
-    DataType type = metadata.getColumnDataType(existing(metadata, name));
+  private static Column<?> columnFromText(Target t, String name, @Nullable String s) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    if (declared.convertsValues()) {
+      return declared.exact(name, s);
+    }
+    DataType type = t.metadata.getColumnDataType(name);
     if (type == DataType.TEXT && s != null && s.indexOf('\0') >= 0) {
       // PostgreSQL has no NUL in text, and some backing databases would store it
       throw new PgException.Argument("22021", "invalid byte sequence for encoding \"UTF8\": 0x00");
@@ -6573,13 +7354,35 @@ public class QueryParser {
     }
   }
 
-  private static boolean isInteger(@Nullable String s) {
+  /**
+   * A column holding a value being written: coerced by the column's declared type as PostgreSQL
+   * coerces on INSERT and UPDATE (19.905 into numeric(10,2) is 19.91; spaces beyond a varchar's
+   * length are cut), then stored exactly.
+   */
+  private static Column<?> writtenColumn(Target t, String name, @Nullable Object value) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    return declared.encoded()
+        ? declared.exact(name, declared.coerce(value))
+        : columnFromValue(t, name, value);
+  }
+
+  /** A written value as a read returns it (RETURNING, EXCLUDED): coerced, in the client's form. */
+  @Nullable private static Object writtenValue(Target t, String name, @Nullable Object value) {
+    ColumnType declared = t.columns.type(existing(t.metadata, name));
+    return declared.encoded() ? declared.coerce(value) : value;
+  }
+
+  static boolean isInteger(@Nullable String s) {
     return s != null && s.trim().matches("[+-]?\\d+");
   }
 
   /** True for the failure of {@link #columnFromText} on an integer beyond the column's range. */
   static boolean isOutOfRange(IllegalArgumentException e) {
-    return String.valueOf(e.getMessage()).contains("out of range for type");
+    String message = String.valueOf(e.getMessage());
+    // a quoted value out of a smallint's range is an input error, as in PostgreSQL; a number
+    // literal reaches a smallint as a number and fails with the typed OutOfRange instead
+    return e instanceof PgException.OutOfRange
+        || (message.contains("out of range for type") && !message.endsWith("type smallint"));
   }
 
   private static String pgTypeName(DataType type) {

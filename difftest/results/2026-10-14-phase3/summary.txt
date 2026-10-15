@@ -1,0 +1,33 @@
+Differential run of 2026-10-14 for Phase 3 of docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md
+(branch type-modifiers-phase0): NUMERIC(p,s) and DECIMAL(p,s) with p <= 18 kept exactly as a scaled BIGINT named
+<column>__pg_n<p>_<s>: writes rounded half away from zero and checked (22003 with PostgreSQL's DETAIL), reads exact,
+conditions pushed down with exact scaled bounds, numeric OID and typmod in RowDescription, RETURNING, pg_attribute
+and information_schema.
+
+Setup as in results/2026-10-14-phase0/summary.txt, plus numeric_setup.sql loaded on both sides.
+
+Results:
+  numeric (new)  OK 26, BOTH_ERR 2 (both overflow cases, same SQLSTATE and DETAIL). Recorded as baseline/numeric.txt.
+  RowDescription for SELECT k, a, a * 2, c (numeric(10,2), numeric(4,4)) over the wire: identical OIDs and
+                 typmods on both sides: (23,-1) (1700,655366) (1700,-1) (1700,262152).
+  sql92 s01      six cases improved and the baseline updated to them:
+                 s01_6_1_numeric_scale_rounding DIFF -> OK, s01_6_1_numeric_precision_overflow PG_ERR -> BOTH_ERR,
+                 s01_6_1_decimal_exact_sum NUM_FMT -> OK, s01_6_1_decimal_exact_equality DIFF -> OK,
+                 s01_6_1_decimal_division_scale NUM_FMT -> OK, s01_6_1_int_keyword_synonym DIFF -> OK
+                 (DEC(5,1): the parser keeps DEC's modifiers apart from its name; found by this run and fixed).
+                 Still different, for later phases: CHAR(n) padding (Phase 5), DECIMAL(20,0) (Phase 4).
+  read, types, write, write_ac, bind, session, sql92 s02-s11: as their baselines, except
+                 s02_11_1_create_schema_authorization CODE -> FE_ERR, the fresh-database effect noted for Phase 0.
+
+Rerun after the code review of the same day, which found: a numeric column compared with a float was pushed down
+through the float's 15 digits (PostgreSQL compares the two as double precision; now so, pushed down and in memory);
+a cached keyed UPDATE / DELETE re-run with a value no row can hold failed with 0A000 (now UPDATE 0 / DELETE 0);
+UNION reported the first branch's typmod (now -1 unless every branch agrees); CASE / COALESCE over a NULL numeric
+column did not widen an integer branch, and typed avg() of a double column as numeric (now typed once per plan
+from the plan's sources). Six cases added to cases_numeric.sql (float equality and range, a float bound on a key,
+CASE over NULL, UNION).
+  numeric        OK 32, BOTH_ERR 2 (baseline updated with the new cases)
+  RowDescription for UNION ALL of numeric(10,2) branches: typmod 655366; of numeric(10,2) and numeric(4,4): -1,
+                 as PostgreSQL.
+  every other set as above; fuzz seeds 7, 11, 23 x 300: no DIFF (OK 300; OK 297, NUM_FMT 3; OK 296, NUM_FMT 3,
+                 FE_ERR 1, the known JSQLParser limit).

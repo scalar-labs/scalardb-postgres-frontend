@@ -3,6 +3,7 @@
 --   psql -h localhost -p 15432 -d demo -f schema.sql
 -- The first PRIMARY KEY column is the partition key; the others are clustering keys.
 CREATE COORDINATOR TABLES IF NOT EXISTS;
+CREATE FRONTEND METADATA TABLES;  -- where NUMERIC, VARCHAR(n), CHAR(n) and SMALLINT record their types
 CREATE SCHEMA IF NOT EXISTS demo;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS items;
@@ -13,7 +14,7 @@ CREATE TABLE customers (
   name    TEXT,
   region  TEXT,
   tier    INT,
-  balance DOUBLE PRECISION,
+  balance NUMERIC(12,2),
   PRIMARY KEY (id)
 );
 CREATE INDEX customers_region_idx ON customers (region);
@@ -22,7 +23,7 @@ CREATE TABLE items (
   id       INT,
   name     TEXT,
   category TEXT,
-  price    DOUBLE PRECISION,
+  price    NUMERIC(12,2),
   PRIMARY KEY (id)
 );
 CREATE INDEX items_category_idx ON items (category);
@@ -33,7 +34,7 @@ CREATE TABLE orders (
   order_id    INT,
   item_id     INT,
   quantity    INT,
-  amount      DOUBLE PRECISION,
+  amount      NUMERIC(12,2),
   status      TEXT,
   ordered_at  TIMESTAMP,
   PRIMARY KEY (customer_id, order_id)

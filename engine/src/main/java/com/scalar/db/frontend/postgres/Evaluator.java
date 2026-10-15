@@ -113,6 +113,10 @@ final class Evaluator {
     @Nullable final Catalog catalog;
     final List<Object> parameters; // the statement's $n values, 1-based
     final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
+    final List<LogicalPlan.Source> sources; // the plan's FROM items, for plan-time types
+    final Map<Expression, Integer> widenings; // CASE, COALESCE, ... -> what it widens to
+    // a comparison's right operand -> whether it compares as bpchar (see Evaluator.bpchar)
+    final Map<Expression, Boolean> bpchars = new java.util.IdentityHashMap<>();
 
     Context(
         @Nullable Map<String, Object> outer,
@@ -135,11 +139,31 @@ final class Evaluator {
         @Nullable Catalog catalog,
         List<Object> parameters,
         Map<String, com.scalar.db.io.DataType> types) {
+      this(
+          outer,
+          subplans,
+          catalog,
+          parameters,
+          types,
+          Collections.emptyList(),
+          new java.util.IdentityHashMap<>());
+    }
+
+    Context(
+        @Nullable Map<String, Object> outer,
+        Map<Select, QueryParser.Plan> subplans,
+        @Nullable Catalog catalog,
+        List<Object> parameters,
+        Map<String, com.scalar.db.io.DataType> types,
+        List<LogicalPlan.Source> sources,
+        Map<Expression, Integer> widenings) {
       this.outer = outer;
       this.subplans = subplans;
       this.catalog = catalog;
       this.parameters = parameters;
       this.types = types;
+      this.sources = sources;
+      this.widenings = widenings;
     }
 
     /** The declared type of a column of this plan's sources, or null if not known. */
@@ -433,6 +457,50 @@ final class Evaluator {
       }
       return null;
     }
+  }
+
+  /**
+   * True when PostgreSQL compares {@code a} with {@code b} as bpchar, where trailing spaces do not
+   * count: one is a char(n) value and the other a char, a varchar, a quoted literal or a parameter.
+   * Against text, char loses its padding and the text keeps its own ('ab'::char(5) = 'ab '::text is
+   * false). Decided once per operand pair from plan-time types.
+   */
+  // ponytail: a parameter is taken as untyped or varchar (pgjdbc's default), so one the client
+  // declared text compares as bpchar here; and ANY(ARRAY['ab ']), rewritten to IN, compares as
+  // bpchar where PostgreSQL's text[] does not. Parameter types in the Context would close both
+  private static boolean bpchar(Expression a, Expression b, Context ctx) {
+    return ctx.bpchars.computeIfAbsent(
+        b,
+        k ->
+            (isBpchar(a, ctx) && comparesAsBpchar(b, ctx))
+                || (isBpchar(b, ctx) && comparesAsBpchar(a, ctx)));
+  }
+
+  private static boolean isBpchar(Expression e, Context ctx) {
+    return QueryParser.inferOid(e, ctx.sources) == 1042;
+  }
+
+  private static boolean comparesAsBpchar(Expression e, Context ctx) {
+    Expression u = QueryParser.unwrap(e);
+    if (u instanceof StringValue || u instanceof JdbcParameter) {
+      return true;
+    }
+    if (u instanceof CastExpression) {
+      // inferOid types every character cast as text
+      String type = ((CastExpression) u).getColDataType().getDataType().toLowerCase(Locale.ROOT);
+      return BPCHAR_PEER_CAST.matcher(type).lookingAt();
+    }
+    int oid = QueryParser.inferOid(u, ctx.sources);
+    return oid == 1042 || oid == 1043;
+  }
+
+  /** A text value without its trailing spaces; anything else unchanged. */
+  private static Object rtrim(Object v) {
+    return v instanceof String ? TRAILING_SPACES.matcher((String) v).replaceFirst("") : v;
+  }
+
+  @Nullable private static Object rtrimNullable(@Nullable Object v) {
+    return v == null ? null : rtrim(v);
   }
 
   /** {@code v >= lo AND v <= hi} in three-valued logic. */
@@ -1013,7 +1081,12 @@ final class Evaluator {
         }
       } else if (in.getRightExpression() instanceof ExpressionList) {
         for (Expression item : (ExpressionList<?>) in.getRightExpression()) {
-          values.add(eval(item, group, ctx));
+          Object x = eval(item, group, ctx);
+          if (bpchar(in.getLeftExpression(), item, ctx)) {
+            v = rtrimNullable(v);
+            x = rtrimNullable(x);
+          }
+          values.add(x);
         }
       } else {
         throw new PgException.Argument("0A000", "Unsupported IN expression: " + e);
@@ -1036,6 +1109,12 @@ final class Evaluator {
       Object v = eval(b.getLeftExpression(), group, ctx);
       Object lo = eval(b.getBetweenExpressionStart(), group, ctx);
       Object hi = eval(b.getBetweenExpressionEnd(), group, ctx);
+      if (bpchar(b.getLeftExpression(), b.getBetweenExpressionStart(), ctx)
+          || bpchar(b.getLeftExpression(), b.getBetweenExpressionEnd(), ctx)) {
+        v = rtrimNullable(v);
+        lo = rtrimNullable(lo);
+        hi = rtrimNullable(hi);
+      }
       // v >= lo AND v <= hi in three-valued logic: 5 BETWEEN NULL AND 3 is false (todo 017)
       Boolean in = between(v, lo, hi);
       if (b.isUsingSymmetric()) {
@@ -1086,6 +1165,9 @@ final class Evaluator {
         }
         l = order;
         r = 0;
+      } else if (bpchar(op.getLeftExpression(), op.getRightExpression(), ctx)) {
+        l = rtrim(l);
+        r = rtrim(r);
       }
       Boolean result = compared(op, compare(l, r));
       if (result != null) {
@@ -1169,6 +1251,10 @@ final class Evaluator {
           (net.sf.jsqlparser.expression.operators.relational.IsDistinctExpression) e;
       Object l = eval(d.getLeftExpression(), group, ctx);
       Object r = eval(d.getRightExpression(), group, ctx);
+      if (bpchar(d.getLeftExpression(), d.getRightExpression(), ctx)) {
+        l = rtrimNullable(l);
+        r = rtrimNullable(r);
+      }
       boolean distinct = l == null || r == null ? (l == null) != (r == null) : compare(l, r) != 0;
       return distinct != d.isNot();
     }
@@ -1386,12 +1472,66 @@ final class Evaluator {
     return v;
   }
 
-  /** A number as a numeric: a double by its shortest decimal digits, as it was written. */
+  /**
+   * A number as a numeric. A float converts as PostgreSQL's float8 and float4 to numeric casts do:
+   * rounded to 15 (float8) or 6 (float4) significant digits, so {@code (0.1 + 0.2)::numeric} is 0.3
+   * and a float8 1.005 is 1.005, not the 17-digit shortest form.
+   */
   static BigDecimal toDecimal(Object v) {
     if (v instanceof BigDecimal) {
       return (BigDecimal) v;
     }
-    return isIntegral(v) ? BigDecimal.valueOf(((Number) v).longValue()) : decimal(text(v));
+    if (isIntegral(v)) {
+      return BigDecimal.valueOf(((Number) v).longValue());
+    }
+    if ((v instanceof Double || v instanceof Float) && isFinite(v)) {
+      int digits = v instanceof Float ? 6 : 15; // FLT_DIG and DBL_DIG, as PostgreSQL's %.*g
+      BigDecimal d =
+          new BigDecimal(((Number) v).doubleValue())
+              .round(new java.math.MathContext(digits, RoundingMode.HALF_EVEN))
+              .stripTrailingZeros();
+      return checkedNumeric(d.scale() < 0 ? d.setScale(0) : d);
+    }
+    return decimal(text(v));
+  }
+
+  /**
+   * A numeric rounded to {@code numeric(precision, scale)}, half away from zero as PostgreSQL
+   * rounds, failing with 22003 when it does not fit: the value must round to an absolute value
+   * below 10^(precision - scale). The integer digits are checked before rounding as well, which
+   * cannot reduce them, so a huge value fails without being expanded. A negative scale rounds to
+   * tens, hundreds and so on, and the result never carries a negative scale (12345 in numeric(5,-2)
+   * is 12300, not 1.23E+4). Shared by casts and by writes to a numeric(p,s) column.
+   */
+  static BigDecimal applyTypmod(BigDecimal d, int precision, int scale) {
+    if (!integerDigitsFit(d, precision, scale)) {
+      throw numericOverflow(precision, scale);
+    }
+    BigDecimal rounded = d.setScale(scale, RoundingMode.HALF_UP);
+    if (!integerDigitsFit(rounded, precision, scale)) {
+      throw numericOverflow(precision, scale);
+    }
+    return rounded.scale() < 0 ? rounded.setScale(0) : rounded;
+  }
+
+  /** PostgreSQL's 22003 for a value too large for numeric(p,s), with its DETAIL line. */
+  static PgException.Argument numericOverflow(int precision, int scale) {
+    int digits = precision - scale;
+    return new PgException.Argument(
+        "22003",
+        "numeric field overflow",
+        "A field with precision "
+            + precision
+            + ", scale "
+            + scale
+            + " must round to an absolute value less than "
+            + (digits > 0 ? "10^" + digits : "1")
+            + ".");
+  }
+
+  /** PostgreSQL's numeric(p,s) range: an absolute value below 10^(precision - scale). */
+  static boolean integerDigitsFit(BigDecimal d, int precision, int scale) {
+    return d.signum() == 0 || (long) d.precision() - d.scale() <= (long) precision - scale;
   }
 
   /** Numeric division with PostgreSQL's result scale: at least 16 significant digits. */
@@ -1475,9 +1615,20 @@ final class Evaluator {
       b = coerce((String) b, a);
     }
     if (a instanceof Number && b instanceof Number) {
+      if ((a instanceof Long || a instanceof Integer)
+          && (b instanceof Long || b instanceof Integer)) {
+        return Long.compare(((Number) a).longValue(), ((Number) b).longValue());
+      }
       if (!isFinite(a) || !isFinite(b)) {
         // PostgreSQL orders NaN above Infinity and treats NaN as equal to itself, as Double does
         return Double.compare(((Number) a).doubleValue(), ((Number) b).doubleValue());
+      }
+      if (a instanceof Double || a instanceof Float || b instanceof Double || b instanceof Float) {
+        // a number next to a float is converted to double precision, as PostgreSQL resolves
+        // numeric = float8 and bigint = float8: 0.30 is not 0.1::float8 + 0.2::float8
+        double x = ((Number) a).doubleValue();
+        double y = ((Number) b).doubleValue();
+        return x < y ? -1 : x > y ? 1 : 0; // -0.0 equals 0.0
       }
       return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString()));
     }
@@ -2278,17 +2429,24 @@ final class Evaluator {
         c.getSwitchExpression() == null ? null : eval(c.getSwitchExpression(), group, ctx);
     for (WhenClause when : c.getWhenClauses()) {
       Object condition = eval(when.getWhenExpression(), group, ctx);
+      boolean bpchar =
+          c.getSwitchExpression() != null
+              && bpchar(c.getSwitchExpression(), when.getWhenExpression(), ctx);
       boolean matches =
           c.getSwitchExpression() == null
               ? isTrue(condition)
-              : subject != null && condition != null && compare(subject, condition) == 0;
+              : subject != null
+                  && condition != null
+                  && (bpchar
+                      ? compare(rtrim(subject), rtrim(condition)) == 0
+                      : compare(subject, condition) == 0);
       if (matches) {
-        return widened(eval(when.getThenExpression(), group, ctx), branches(c), group, ctx);
+        return widened(eval(when.getThenExpression(), group, ctx), c, branches(c), group, ctx);
       }
     }
     return c.getElseExpression() == null
         ? null
-        : widened(eval(c.getElseExpression(), group, ctx), branches(c), group, ctx);
+        : widened(eval(c.getElseExpression(), group, ctx), c, branches(c), group, ctx);
   }
 
   private static List<Expression> branches(CaseExpression c) {
@@ -2304,50 +2462,90 @@ final class Evaluator {
 
   /**
    * PostgreSQL types CASE, COALESCE, GREATEST, LEAST and NULLIF by all their branches, not by the
-   * one taken: an integer result is widened to double when another branch is a double, so that a
-   * later {@code / 2} divides as PostgreSQL does.
+   * one taken: an integer result becomes numeric when another branch is numeric (a decimal literal
+   * such as {@code 1.5} is numeric), and an integer or numeric result becomes double precision when
+   * another branch is a float, so that a later {@code / 2} divides as PostgreSQL does. The type
+   * comes from the plan, once per expression (a numeric column is numeric in a row where it is
+   * NULL); only a branch the plan cannot type, such as an outer column, is looked at per row.
    */
   @Nullable private static Object widened(
       @Nullable Object v,
+      Expression owner,
       List<? extends Expression> branches,
       List<Map<String, Object>> group,
       Context ctx) {
     if (!(v instanceof Long) && !(v instanceof Integer) && !(v instanceof BigDecimal)) {
       return v;
     }
-    boolean integer = !(v instanceof BigDecimal);
-    for (Expression b : branches) {
-      // a numeric literal widens an integer; only a double column or cast widens a numeric
-      if (looksDouble(b, integer, group, ctx)) {
-        return ((Number) v).doubleValue();
+    int widest = ctx.widenings.computeIfAbsent(owner, o -> planned(branches, ctx));
+    if (widest == UNKNOWN) {
+      widest = NOT_WIDER;
+      for (Expression b : branches) {
+        widest = Math.max(widest, widening(b, group, ctx));
+        if (widest == FLOAT) {
+          break; // nothing is wider
+        }
       }
+    }
+    if (widest == FLOAT) {
+      return ((Number) v).doubleValue();
+    }
+    if (widest == NUMERIC && !(v instanceof BigDecimal)) {
+      return BigDecimal.valueOf(((Number) v).longValue());
     }
     return v;
   }
 
+  /**
+   * What the branches widen to by their plan-time types, or UNKNOWN when one of them has none and
+   * nothing else already settles it.
+   */
+  private static int planned(List<? extends Expression> branches, Context ctx) {
+    boolean unknown = false;
+    for (Expression b : branches) {
+      unknown |=
+          !(QueryParser.unwrap(b) instanceof NullValue)
+              && QueryParser.inferOid(b, ctx.sources) == 0;
+    }
+    int oid = QueryParser.unifiedOid(branches, ctx.sources);
+    int widest = oid == 700 || oid == 701 ? FLOAT : oid == 1700 ? NUMERIC : NOT_WIDER;
+    return unknown && widest != FLOAT ? UNKNOWN : widest;
+  }
+
+  private static final int UNKNOWN = -1;
+
+  /** What a branch widens an integer result to: nothing, numeric or double precision. */
+  private static final int NOT_WIDER = 0;
+
+  private static final int NUMERIC = 1;
+  private static final int FLOAT = 2;
+
   // ponytail: a correlated outer column that is NULL in this row is typed by neither the value
   // nor this plan's sources, so such a branch cannot widen; a plan-time typer would close that
-  private static boolean looksDouble(
-      Expression e, boolean literals, List<Map<String, Object>> group, Context ctx) {
+  private static int widening(Expression e, List<Map<String, Object>> group, Context ctx) {
     e = QueryParser.unwrap(e);
     if (e instanceof DoubleValue) {
-      return literals;
+      return NUMERIC; // 1.5 and 1e3 are numeric literals in PostgreSQL
     }
     if (e instanceof SignedExpression) {
-      return looksDouble(((SignedExpression) e).getExpression(), literals, group, ctx);
+      return widening(((SignedExpression) e).getExpression(), group, ctx);
     }
     if (e instanceof Column) {
       Object v;
       try {
         v = column((Column) e, group, ctx);
       } catch (IllegalArgumentException unknown) {
-        return false;
+        return NOT_WIDER;
       }
       if (v != null) {
-        return v instanceof Double || v instanceof Float || v instanceof BigDecimal;
+        return v instanceof Double || v instanceof Float
+            ? FLOAT
+            : v instanceof BigDecimal ? NUMERIC : NOT_WIDER;
       }
       com.scalar.db.io.DataType t = ctx.columnType((Column) e);
-      return t == com.scalar.db.io.DataType.DOUBLE || t == com.scalar.db.io.DataType.FLOAT;
+      return t == com.scalar.db.io.DataType.DOUBLE || t == com.scalar.db.io.DataType.FLOAT
+          ? FLOAT
+          : NOT_WIDER;
     }
     if (e instanceof Addition
         || e instanceof Subtraction
@@ -2355,35 +2553,47 @@ final class Evaluator {
         || e instanceof Division
         || e instanceof Modulo) {
       BinaryExpression b = (BinaryExpression) e;
-      return looksDouble(b.getLeftExpression(), literals, group, ctx)
-          || looksDouble(b.getRightExpression(), literals, group, ctx);
+      return Math.max(
+          widening(b.getLeftExpression(), group, ctx),
+          widening(b.getRightExpression(), group, ctx));
     }
     if (e instanceof CastExpression) {
       String type = ((CastExpression) e).getColDataType().getDataType().toLowerCase(Locale.ROOT);
-      return type.matches("(double|float|real|numeric|decimal).*");
+      return type.matches("(double|float|real).*")
+          ? FLOAT
+          : type.matches("(numeric|decimal).*") ? NUMERIC : NOT_WIDER;
     }
+    int widest = NOT_WIDER;
     if (e instanceof CaseExpression) {
       for (Expression b : branches((CaseExpression) e)) {
-        if (looksDouble(b, literals, group, ctx)) {
-          return true;
-        }
+        widest = Math.max(widest, widening(b, group, ctx));
       }
-      return false;
+      return widest;
     }
     if (e instanceof Function && ((Function) e).getParameters() != null) {
       String name = ((Function) e).getName().toUpperCase(Locale.ROOT);
-      if (name.matches("COALESCE|GREATEST|LEAST|NULLIF|ABS")) {
+      if (SAME_TYPE_AS_ARGUMENTS.matcher(name).matches()) {
         for (Expression p : ((Function) e).getParameters()) {
-          if (looksDouble(p, literals, group, ctx)) {
-            return true;
-          }
+          widest = Math.max(widest, widening(p, group, ctx));
         }
+        return widest;
       }
     }
-    return false;
+    // avg(), sum(), a scalar subquery and the like: the type the planner reports for it
+    int oid = QueryParser.inferOid(e, ctx.sources);
+    return oid == 700 || oid == 701 ? FLOAT : oid == 1700 ? NUMERIC : NOT_WIDER;
   }
 
+  /** Functions whose result has the type of their (unified) arguments, as QueryParser.inferOid. */
+  private static final Pattern SAME_TYPE_AS_ARGUMENTS =
+      Pattern.compile("COALESCE|GREATEST|LEAST|NULLIF|ABS|MIN|MAX|ROUND|FLOOR|CEIL|CEILING|TRUNC");
+
   private static final Pattern INTEGER_TEXT = Pattern.compile("[+-]?\\d+");
+
+  private static final Pattern TYPE_LENGTH = Pattern.compile("\\((\\d+)\\)");
+  private static final Pattern TRAILING_SPACES = Pattern.compile(" +$");
+  private static final Pattern BPCHAR_PEER_CAST =
+      Pattern.compile("(pg_catalog\\.)?(varchar|character varying|char|character|bpchar)\\b");
 
   /**
    * Integer input as PostgreSQL reads it: digits with a sign, surrounding spaces allowed; '1.5' and
@@ -2521,16 +2731,10 @@ final class Evaluator {
       }
       if (t.startsWith("numeric") || t.startsWith("decimal")) {
         BigDecimal d = v instanceof Number ? toDecimal(v) : decimal(s.trim());
-        java.util.regex.Matcher typmod =
-            Pattern.compile("\\(\\s*(\\d+)\\s*(?:,\\s*(-?\\d+)\\s*)?\\)").matcher(t);
-        if (typmod.find()) {
-          int precision = Integer.parseInt(typmod.group(1));
-          int scale = typmod.group(2) == null ? 0 : Integer.parseInt(typmod.group(2));
-          d = d.setScale(scale, RoundingMode.HALF_UP);
-          // PostgreSQL: the value must round to an absolute value below 10^(precision - scale)
-          if (d.signum() != 0 && d.precision() - d.scale() > precision - scale) {
-            throw new ArithmeticException("numeric field overflow");
-          }
+        long[] typmod = QueryParser.typeArguments(t);
+        if (typmod.length > 0) {
+          QueryParser.checkNumericModifiers(typmod); // numeric(0), numeric(5,-5000): 22023
+          d = applyTypmod(d, (int) typmod[0], typmod.length > 1 ? (int) typmod[1] : 0);
         }
         return d;
       }
@@ -2538,14 +2742,20 @@ final class Evaluator {
         return v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
       }
       if (t.contains("char") || t.equals("text") || t.equals("string")) {
-        java.util.regex.Matcher length = Pattern.compile("\\((\\d+)\\)").matcher(t);
-        if (length.find()) {
-          int n = Integer.parseInt(length.group(1)); // char(n) and varchar(n) casts truncate
-          if (s.codePointCount(0, s.length()) > n) {
-            return s.substring(0, s.offsetByCodePoints(0, n));
-          }
-        }
-        return s;
+        java.util.regex.Matcher length = TYPE_LENGTH.matcher(t);
+        // char(n) and varchar(n) casts truncate; a bare char or character is char(1)
+        boolean bpchar = (t.startsWith("char") || t.startsWith("bpchar")) && !t.contains("varying");
+        int n =
+            length.find()
+                ? Integer.parseInt(length.group(1))
+                : bpchar && !t.equals("bpchar") ? 1 : Integer.MAX_VALUE;
+        String out =
+            s.codePointCount(0, s.length()) > n ? s.substring(0, s.offsetByCodePoints(0, n)) : s;
+        // ponytail: a character(n) value is its text without trailing spaces here, which is how
+        // PostgreSQL compares, concatenates and measures it; padding it back to n on output needs
+        // the column typmod
+        // (docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md)
+        return bpchar ? TRAILING_SPACES.matcher(out).replaceFirst("") : out;
       }
       if (t.equals("boolean") || t.equals("bool")) {
         return v instanceof Boolean
@@ -2650,7 +2860,7 @@ final class Evaluator {
       for (Expression p : f.getParameters()) {
         Object a = eval(p, group, ctx);
         if (a != null) {
-          return widened(a, f.getParameters(), group, ctx);
+          return widened(a, f, f.getParameters(), group, ctx);
         }
       }
       return null;
@@ -2681,7 +2891,7 @@ final class Evaluator {
       case "COALESCE":
         for (Object a : args) {
           if (a != null) {
-            return widened(a, f.getParameters(), group, ctx);
+            return widened(a, f, f.getParameters(), group, ctx);
           }
         }
         return null;
@@ -2709,7 +2919,7 @@ final class Evaluator {
                 && arg(args, 1) != null
                 && compare(args.get(0), args.get(1)) == 0
             ? null
-            : widened(arg(args, 0), f.getParameters(), group, ctx);
+            : widened(arg(args, 0), f, f.getParameters(), group, ctx);
       case "GREATEST":
       case "LEAST":
         {
@@ -2720,7 +2930,7 @@ final class Evaluator {
               best = a;
             }
           }
-          return widened(best, f.getParameters(), group, ctx);
+          return widened(best, f, f.getParameters(), group, ctx);
         }
       case "JSON_BUILD_OBJECT":
       case "JSONB_BUILD_OBJECT":
@@ -2960,6 +3170,13 @@ final class Evaluator {
         }
       case "REVERSE":
         return new StringBuilder(str(args, 0)).reverse().toString();
+      case "LPAD":
+      case "RPAD":
+        return pad(
+            str(args, 0),
+            int4(args, 1, name),
+            args.size() > 2 ? str(args, 2) : " ",
+            name.equals("LPAD"));
       case "DATE_PART":
         return extract(str(args, 0), arg(args, 1));
       case "UNNEST":
@@ -3068,7 +3285,14 @@ final class Evaluator {
           }
           return sb.toString();
         case "FORMAT_TYPE":
-          return arg(args, 0) instanceof Number ? Catalog.typeName(num(args, 0).longValue()) : null;
+          // format_type(oid, typmod): numeric(10,2), character varying(20), character(3), ...
+          return arg(args, 0) instanceof Number
+              ? Catalog.typeName(
+                  num(args, 0).longValue(),
+                  args.size() > 1 && arg(args, 1) instanceof Number
+                      ? Long.valueOf(num(args, 1).longValue())
+                      : null)
+              : null;
         case "TO_REGTYPE":
           try {
             return arg(args, 0) == null ? null : (Object) Catalog.typeOid(str(args, 0));
@@ -3161,11 +3385,56 @@ final class Evaluator {
     return i < args.size() ? args.get(i) : null;
   }
 
+  /**
+   * PostgreSQL's lpad and rpad: {@code s} filled to {@code n} characters with {@code fill}
+   * repeated, or cut to its first n when longer; an empty fill leaves it as it is.
+   */
+  static String pad(String s, long n, String fill, boolean left) {
+    int length = s.codePointCount(0, s.length());
+    if (n <= 0) {
+      return "";
+    }
+    if (length >= n) {
+      return characters(s, 0, n);
+    }
+    if (fill.isEmpty()) {
+      return s;
+    }
+    // ponytail: a fixed 10M-character cap, far under PostgreSQL's 1 GB, because one shared JVM
+    // serves every session; make it a property if someone needs longer padded values
+    if (n > 10_000_000) {
+      throw new PgException.Argument("54000", "requested length too large");
+    }
+    StringBuilder padding = new StringBuilder();
+    int[] points = fill.codePoints().toArray();
+    for (long i = 0; i < n - length; i++) {
+      padding.appendCodePoint(points[(int) (i % points.length)]);
+    }
+    return left ? padding + s : s + padding;
+  }
+
   private static String str(List<Object> args, int i) {
     if (i >= args.size()) {
       throw new IllegalArgumentException("Missing function argument " + (i + 1));
     }
     return text(args.get(i));
+  }
+
+  /**
+   * An argument PostgreSQL declares {@code integer}: a bigint, numeric or double value has no such
+   * function there (42883), rather than being cut to fit.
+   */
+  private static int int4(List<Object> args, int i, String function) {
+    Number n = num(args, i);
+    if ((n instanceof Long || n instanceof Integer || n instanceof Short)
+        && n.longValue() == n.intValue()) {
+      return n.intValue();
+    }
+    String type =
+        n instanceof Long ? "bigint" : n instanceof BigDecimal ? "numeric" : "double precision";
+    throw new PgException.Argument(
+        "42883",
+        "function " + function.toLowerCase(Locale.ROOT) + "(text, " + type + ") does not exist");
   }
 
   private static Number num(List<Object> args, int i) {

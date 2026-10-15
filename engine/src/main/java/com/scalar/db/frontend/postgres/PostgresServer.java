@@ -166,6 +166,7 @@ public class PostgresServer implements AutoCloseable {
       throws IOException {
     this.manager = manager;
     this.admin = admin;
+    this.typeStore = new TypeStore(manager, admin, new java.util.Properties());
     this.serverSocket = new ServerSocket(port, 50, address);
   }
 
@@ -180,6 +181,11 @@ public class PostgresServer implements AutoCloseable {
 
   private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling
+  // numeric(p,s) up to this many digits is stored as a scaled bigint
+  // (ColumnType.maxScaledPrecision)
+  private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
+  // the declared types of columns, read and written as the service user with authentication
+  private volatile TypeStore typeStore;
 
   /**
    * Applies the settings that depend on the ScalarDB configuration the manager was created from:
@@ -226,6 +232,8 @@ public class PostgresServer implements AutoCloseable {
     if (require != null) {
       sslRequire = Boolean.parseBoolean(require);
     }
+    maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
+    typeStore = new TypeStore(manager, admin, properties);
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -610,6 +618,8 @@ public class PostgresServer implements AutoCloseable {
         processor.setDdlSettleMillis(ddlSettleMillis);
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
+        processor.setMaxScaledPrecision(maxScaledPrecision);
+        processor.setTypeStore(typeStore);
         if (identity != null) {
           processor.setIdentity(identity);
         } else if (!user.isEmpty()) {
@@ -869,19 +879,20 @@ public class PostgresServer implements AutoCloseable {
             oids =
                 oids(columns, first == null ? null : Collections.singletonList(first), rows.oids());
             if (describe) {
-              sendRowDescription(rows.labels(), oids, formats);
+              sendRowDescription(rows.labels(), oids, rows.typmods(), formats);
             }
             if (first != null) {
-              sendRow(columns, first, oids, formats);
+              sendRow(columns, first, oids, rows.typmods(), formats);
               sent = 1;
             }
           }
+          int[] typmods = rows.typmods();
           while (rows.hasNext()) {
             if (maxRows > 0 && sent == maxRows) {
               suspended = true;
               break;
             }
-            sendRow(columns, rows.next(), oids, formats);
+            sendRow(columns, rows.next(), oids, typmods, formats);
             if (++sent % 64 == 0) {
               out.flush();
             }
@@ -934,12 +945,19 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void sendRow(
-        Map<String, DataType> columns, Map<String, Object> row, int[] oids, short[] formats)
+        Map<String, DataType> columns,
+        Map<String, Object> row,
+        int[] oids,
+        int[] typmods,
+        short[] formats)
         throws IOException {
       Msg m = new Msg().i16(columns.size());
       int i = 0;
       for (String column : columns.keySet()) {
         Object value = row.get(column);
+        if (value != null && oids[i] == 1042 && i < typmods.length && typmods[i] > 4) {
+          value = padded(Evaluator.text(value), typmods[i] - 4); // char(n) is stored trimmed
+        }
         if (value == null) {
           m.i32(-1);
         } else {
@@ -1059,7 +1077,10 @@ public class PostgresServer implements AutoCloseable {
         send('n', new Msg()); // NoData
       } else {
         sendRowDescription(
-            processor.describedLabels(), oids(columns, null, processor.describedOids()), formats);
+            processor.describedLabels(),
+            oids(columns, null, processor.describedOids()),
+            processor.describedTypmods(),
+            formats);
       }
     }
 
@@ -1108,7 +1129,7 @@ public class PostgresServer implements AutoCloseable {
       }
     }
 
-    private void sendRowDescription(List<String> labels, int[] oids, short[] formats)
+    private void sendRowDescription(List<String> labels, int[] oids, int[] typmods, short[] formats)
         throws IOException {
       Msg m = new Msg().i16(labels.size());
       for (int i = 0; i < labels.size(); i++) {
@@ -1117,7 +1138,7 @@ public class PostgresServer implements AutoCloseable {
             .i16(0)
             .i32(oids[i])
             .i16(size(oids[i]))
-            .i32(-1)
+            .i32(i < typmods.length ? typmods[i] : -1) // numeric(10,2): drivers read p and s here
             .i16(format(formats, i));
       }
       send('T', m);
@@ -1130,8 +1151,12 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void error(String severity, String code, String message) throws IOException {
-      send(
-          'E',
+      error(severity, code, message, null);
+    }
+
+    private void error(String severity, String code, String message, @Nullable String detail)
+        throws IOException {
+      Msg m =
           new Msg()
               .i8('S')
               .str(severity)
@@ -1140,8 +1165,11 @@ public class PostgresServer implements AutoCloseable {
               .i8('C')
               .str(code)
               .i8('M')
-              .str(message)
-              .i8(0));
+              .str(message);
+      if (detail != null) {
+        m.i8('D').str(detail);
+      }
+      send('E', m.i8(0));
     }
 
     /** A failure that is the server's fault, whose own text means nothing to the client. */
@@ -1189,7 +1217,11 @@ public class PostgresServer implements AutoCloseable {
       } else {
         logger.debug("Statement failed: {}", message); // the SQL text may hold data: not at INFO
       }
-      error(code.equals("28000") ? "FATAL" : "ERROR", code, message); // 28000 closes the session
+      error(
+          code.equals("28000") ? "FATAL" : "ERROR", // 28000 closes the session
+          code,
+          message,
+          e instanceof PgException ? ((PgException) e).detail() : null);
       return code;
     }
 
@@ -1540,6 +1572,12 @@ public class PostgresServer implements AutoCloseable {
     return oids;
   }
 
+  /** A char(n) value as PostgreSQL returns it: blank-padded to n characters. */
+  static String padded(String s, int n) {
+    int missing = n - s.codePointCount(0, s.length());
+    return missing > 0 ? s + " ".repeat(missing) : s;
+  }
+
   private static final LocalDateTime PG_EPOCH = LocalDateTime.of(2000, 1, 1, 0, 0);
 
   /** A value in PostgreSQL's binary result format for the type {@code oid}. */
@@ -1576,6 +1614,17 @@ public class PostgresServer implements AutoCloseable {
       case 701:
         return ByteBuffer.allocate(8).putDouble(number(value).doubleValue()).array();
       case 1700:
+        if (value instanceof Number && !Evaluator.isFinite(value)) {
+          // NaN and the infinities: no digits, the sign word says which
+          double d = ((Number) value).doubleValue();
+          int sign = Double.isNaN(d) ? 0xC000 : d > 0 ? 0xD000 : 0xF000;
+          return ByteBuffer.allocate(8)
+              .putShort((short) 0)
+              .putShort((short) 0)
+              .putShort((short) sign)
+              .putShort((short) 0)
+              .array();
+        }
         return numeric(
             value instanceof java.math.BigDecimal
                 ? (java.math.BigDecimal) value

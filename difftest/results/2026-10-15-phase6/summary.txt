@@ -1,0 +1,22 @@
+Differential run of 2026-10-15 for Phase 6 of docs/plans/2026-10-14-001-feat-keep-type-modifiers-exact-numeric-plan.md
+(branch type-modifiers-phase0 at 29ed7ce, the last code change of the plan; Phase 6 itself changes no engine code).
+
+Setup as in results/2026-10-14-phase0/summary.txt, plus numeric_setup.sql and character_setup.sql, on a fresh
+PostgreSQL 18 cluster (C locale) for both sides.
+
+Results, every set against its baseline:
+  character        OK 33, BOTH_ERR 7
+  numeric          OK 52, BOTH_ERR 7
+  read             OK 259, BOTH_ERR 15, NUM_FMT 1, DIFF 1, PG_ERR 1
+  types            OK 17, BOTH_ERR 5        (boundary cases of 2026-10-08 included)
+  session          OK 18, BOTH_ERR 18, FE_ERR 11, CODE 1   (boundary cases of 2026-10-08 included)
+  bind             OK 18, BOTH_ERR 1, FE_ERR 1, CODE 1
+  write            OK 19, FE_ERR 12, BOTH_ERR 13
+  write_ac         OK 49, FE_ERR 1, BOTH_ERR 3
+  sql92 s01        OK 18, BOTH_ERR 8        (17 differences before the plan; none now)
+  sql92 s02-s11    as their baselines, except s02_11_1_create_schema_authorization CODE -> FE_ERR, the
+                   fresh-database effect noted for Phase 0.
+  fuzz             seeds 7, 11, 23 x 300: no DIFF (NUM_FMT 0 / 3 / 3 and one FE_ERR in seed 23, as in every
+                   run since Phase 0).
+
+No baseline changed in Phase 6.
