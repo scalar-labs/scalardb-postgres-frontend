@@ -313,6 +313,41 @@ text, such as `CONF::`, and cannot appear in `WHERE` or `ORDER BY` (`0A000`). A 
 
 [difftest/cluster-security](../difftest/cluster-security/README.md) runs both against a local Cluster node.
 
+## Case-insensitive text
+
+Text compares in ScalarDB's collation. By default that is byte order, as PostgreSQL's `C` collation;
+ScalarDB can instead compare with an ICU locale, set in `scalardb.properties`:
+
+```properties
+scalar.db.collation=ICU
+# und: the root locale; -u-ks-level2: case-insensitive, accent-sensitive (level1 ignores accents too)
+scalar.db.collation.icu.locale=und-u-ks-level2
+```
+
+Then `'alice' = 'ALICE'`, keys included: `WHERE name = 'ALICE'`, `GROUP BY`, `DISTINCT`, joins and
+`UNION` treat the two as one, `ORDER BY` follows the locale, and inserting `'ALICE'` next to a key
+`'alice'` is a duplicate (`23505`). It works like a PostgreSQL column with a nondeterministic ICU
+collation, which psql's `\d` shows (`und-u-ks-level2-x-icu`), and like one in PostgreSQL 16,
+`LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions and substring searches (`position`, `strpos`,
+`replace`, `starts_with`) on table text fail with `0A000`.
+
+The backing database compares keys and pushed-down conditions itself, so it must use the same
+collation. On PostgreSQL, a nondeterministic collation cannot be a database's default: create the
+tables through the frontend, then alter each character column on the backing database, as
+[backend.sql](../difftest/collation-icu/backend.sql) does for the schema `sdb`:
+
+```sql
+CREATE COLLATION ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+ALTER TABLE sdb.people ALTER COLUMN name TYPE varchar(128) COLLATE ci;  -- and every other text column
+```
+
+Run that again after each `CREATE TABLE` or `ADD COLUMN`. On MySQL, set the database's default
+collation before creating the tables instead (`utf8mb4_0900_as_ci` approximates the example). With
+Cluster, set `scalar.db.collation` on the nodes and the same value in the frontend's properties.
+
+[difftest/collation-icu](../difftest/collation-icu/README.md) compares the frontend under ICU with
+PostgreSQL.
+
 ## Limitations to know
 
 What the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL is listed

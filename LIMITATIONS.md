@@ -140,14 +140,21 @@ at the end of this section.
   `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
   stronger level than the engine runs at (`BEGIN ISOLATION LEVEL SERIALIZABLE`,
   `SET TRANSACTION ...`) is refused with `0A000` rather than ignored.
-- **TEXT comparison follows the backing database's collation.** On MySQL (default
-  `utf8mb4_0900_ai_ci`) and on PostgreSQL databases created with a locale other than `C`, keys and
-  predicates compare case- and accent-insensitively, so `UPDATE ... WHERE k = 'A'` can change the
-  row `'a'`. Create the backing database with a binary collation (`C` locale, `utf8mb4_bin`) until
-  ScalarDB's collation support lands.
+- **One collation for all text: ScalarDB's.** Text compares in `scalar.db.collation`: byte order
+  (`BINARY`, the default) or an ICU locale (`ICU`), and the backing database must be set up to
+  compare the same way, since keys and pushed-down conditions are compared there. Under `BINARY`, create
+  it with a binary collation (`C` locale, `utf8mb4_0900_bin`); for `ICU` see [Case-insensitive
+  text](getting-started/README.md#case-insensitive-text). With Cluster, set the same
+  `scalar.db.collation` in the frontend's properties as on the nodes.
+- **Under `ICU`, pattern matching on table text is refused** with `0A000`, as PostgreSQL 16 refuses it
+  on a nondeterministic collation: `LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions, and `position`,
+  `strpos`, `replace` and `starts_with`. Literals, parameters and catalog names are not affected, so
+  psql's and drivers' catalog queries work.
 - **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
   fail with a clear error.
-- **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` other than `"C"`/`POSIX`,
+- **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` naming a collation other than
+  ScalarDB's (`"C"`/`POSIX` under `BINARY`, the ICU one that `pg_collation` lists under `ICU`), a
+  `COLLATE` other than `"default"` in a column definition,
   `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
   data-modifying statement inside `WITH`, an expression index (`CREATE INDEX ... ON t (lower(name))`),
   a column `DEFAULT` other than `DEFAULT NULL` (an omitted column always reads NULL here, so the
@@ -180,14 +187,16 @@ the result is not what PostgreSQL would return.
   the new column and the old before-image: clients see an extra column named `before_<old name>`,
   and writes to the table can fail. Repair it outside the frontend by renaming that before-image column
   to `before_<new ScalarDB name>` in the backing database (todo 054).
-- **Text comparison under a non-binary collation.** On MySQL, and on PostgreSQL databases created
-  with a locale other than `C`, whatever is pushed down follows the database's collation while the
-  same expression evaluated in the frontend is binary, so one query can answer differently depending
-  on the path it takes. Affected shapes: a range predicate on text (`WHERE name < 'a'`), `ORDER BY`
+- **Text when the backing database's collation is not ScalarDB's.** On MySQL (default
+  `utf8mb4_0900_ai_ci`), or on PostgreSQL databases created with a locale other than `C`, under the
+  default `BINARY`, whatever is pushed down follows the database's collation while the same expression
+  evaluated in the frontend follows ScalarDB's, so one query can answer differently depending on the
+  path it takes. Affected shapes: a range predicate on text (`WHERE name < 'a'`), `ORDER BY`
   on a clustering key, a lookup by text key or secondary index (`WHERE k = 'a'` matches the row `'A'`
   on MySQL), and a `JOIN` whose inner side is such a lookup (`JOIN t ON t.k = s.k` pairs `'a'` with
-  `'A'`, while the same join with the sides swapped pairs nothing). Create the backing database with a
-  binary collation until ScalarDB's collation support lands.
+  `'A'`, while the same join with the sides swapped pairs nothing). Set the backing database up to
+  match `scalar.db.collation`. Under `ICU`, a comparison of two literals (`SELECT 'alice' < 'BOB'`)
+  also follows ScalarDB's collation, where PostgreSQL uses the database's.
 - **Sub-millisecond timestamps.** A `TIMESTAMP` or `TIMESTAMPTZ` value is rounded to milliseconds on
   write, so `WHERE ts = '2024-01-01 00:00:00.123456'` finds nothing after inserting that value.
 - **Reads are per record, not per statement, under `SNAPSHOT`.** A multi-row read next to a

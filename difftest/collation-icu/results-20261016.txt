@@ -1,0 +1,68 @@
+=== BOTH_ERR key_duplicate
+INSERT INTO tags VALUES ('Red', 9);
+  pg: ERROR:  23505: duplicate key value violates unique constraint "tags_pkey"
+DETAIL:  Key (tag)=(Red) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  tags
+CONSTRAINT NAME:  tags_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:670
+  fe: ERROR:  23505: duplicate key value violates unique constraint "tags_pkey"
+=== BOTH_ERR key_duplicate_in_tx
+BEGIN;
+INSERT INTO tags VALUES ('BLUE', 9);
+COMMIT;
+  pg: ERROR:  23505: duplicate key value violates unique constraint "tags_pkey"
+DETAIL:  Key (tag)=(BLUE) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  tags
+CONSTRAINT NAME:  tags_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:670
+  fe: ERROR:  23505: duplicate key value violates unique constraint "tags_pkey"
+=== BOTH_ERR like_refused
+SELECT id FROM people WHERE name LIKE 'a%';
+  pg: ERROR:  0A000: nondeterministic collations are not supported for LIKE
+LOCATION:  GenericMatchText, like.c:160
+  fe: ERROR:  0A000: nondeterministic collations are not supported for LIKE
+=== BOTH_ERR ilike_refused
+SELECT id FROM people WHERE name ILIKE 'a%';
+  pg: ERROR:  0A000: nondeterministic collations are not supported for ILIKE
+LOCATION:  Generic_Text_IC_like, like.c:201
+  fe: ERROR:  0A000: nondeterministic collations are not supported for ILIKE
+=== BOTH_ERR regex_refused
+SELECT id FROM people WHERE upper(name) ~ 'A';
+  pg: ERROR:  0A000: nondeterministic collations are not supported for regular expressions
+LOCATION:  pg_set_regex_collation, regc_pg_locale.c:269
+  fe: ERROR:  0A000: nondeterministic collations are not supported for regular expressions
+=== BOTH_ERR similar_refused
+SELECT id FROM people WHERE name SIMILAR TO 'a%';
+  pg: ERROR:  0A000: nondeterministic collations are not supported for regular expressions
+LOCATION:  pg_set_regex_collation, regc_pg_locale.c:269
+  fe: ERROR:  0A000: nondeterministic collations are not supported for regular expressions
+=== BOTH_ERR strpos_refused
+SELECT strpos(name, 'b') FROM people;
+  pg: ERROR:  0A000: nondeterministic collations are not supported for substring searches
+LOCATION:  text_position_setup, varlena.c:1209
+  fe: ERROR:  0A000: nondeterministic collations are not supported for substring searches
+=== BOTH_ERR replace_refused
+SELECT replace(name, 'b', 'x') FROM people;
+  pg: ERROR:  0A000: nondeterministic collations are not supported for substring searches
+LOCATION:  text_position_setup, varlena.c:1209
+  fe: ERROR:  0A000: nondeterministic collations are not supported for substring searches
+=== BOTH_ERR like_cast_refused
+SELECT id FROM people WHERE name::text LIKE 'a%';
+  pg: ERROR:  0A000: nondeterministic collations are not supported for LIKE
+LOCATION:  GenericMatchText, like.c:160
+  fe: ERROR:  0A000: nondeterministic collations are not supported for LIKE
+=== FE_ERR collate_c_refused
+SELECT id FROM people ORDER BY name COLLATE "C", id;
+  pg: 
+  fe: ERROR:  0A000: collation "C" is not supported: only "und-u-ks-level2-x-icu" is available
+=== DIFF literals_compare
+SELECT 'alice' < 'BOB';
+--- pg
++++ fe
+@@ -1,3 +1,3 @@
+ ?column?
+-f
++t
+ (1 row)

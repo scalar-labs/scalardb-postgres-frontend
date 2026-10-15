@@ -1,7 +1,7 @@
 ---
 title: "feat: Compare text through ScalarDB's configured collation"
 type: feat
-status: active
+status: completed
 date: 2026-10-15
 ---
 
@@ -90,10 +90,11 @@ The output value of a group is the first spelling met, as in PostgreSQL.
 down under ICU. Check PostgreSQL 16 for which text functions also refuse a nondeterministic collation
 (`position`, `strpos`, `replace`, `split_part`, ...) and do the same for those.
 
-**Catalog exemption.** psql and drivers match catalog names with regexes and `LIKE`
-(`relname OPERATOR(pg_catalog.~) '^(t)$' COLLATE pg_catalog.default`). In PostgreSQL, catalog `name` columns
-are byte-ordered whatever the database collation, so these queries work there and must work here. Rule: a
-query whose tables are all catalog relations (`pg_catalog`, `information_schema`) evaluates text in BINARY.
+**What counts as table text.** As in PostgreSQL, the refusal follows the operand's collation: an operand
+that refers to a text column of a ScalarDB table (`name`, `upper(name)`, `name::text`, `name || 'x'`) is
+refused; literals, parameters, numbers cast to text and catalog columns are not, so psql's
+`relname OPERATOR(pg_catalog.~) '^(t)$'` keeps working (`QueryParser.collatedText`). A column that can't be
+resolved to a source counts as table text unless every source is a catalog.
 
 ### 5. `COLLATE`
 
@@ -105,8 +106,8 @@ query whose tables are all catalog relations (`pg_catalog`, `information_schema`
 
 ### 6. Catalog and settings
 
-- `pg_database.datcollate`/`datctype`, `datlocprovider` (`c` or `i`), `daticulocale`, and `SHOW lc_collate`
-  report the setting: `C` under BINARY; the ICU locale (root as `und`) under ICU.
+- `pg_database.datlocprovider` (`c` or `i`) and `datlocale`/`daticulocale` report the setting (the ICU
+  locale under ICU). `SHOW lc_collate` stays unrecognized, as in PostgreSQL 16, which removed it.
 - `pg_collation` lists the configured collation under one name, with `collprovider = 'i'` and
   `collisdeterministic = false` under ICU. `attcollation` on text columns points at it.
 
