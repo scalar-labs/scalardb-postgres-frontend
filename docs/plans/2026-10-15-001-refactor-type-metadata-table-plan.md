@@ -185,3 +185,47 @@ Rough size: one phase, similar to Phase 5.
 3. Namespace and service user `scalardb_postgres_frontend`, table `column_types`.
 4. The row format is ours to define and may become core's baseline: core's key layout, standard SQL type
    names, declaration separate from encoding.
+
+## Progress
+
+**2026-10-15: implemented** (items 1-6 of "Work"; the TPC-C rerun is pending). Where the code differs from the
+text above:
+
+- **A missing password fails lazily, not at startup.** With auth on and no `metadata_password`, the frontend
+  starts; once `column_types` exists, reading any table's types fails with `55000` naming the property. A
+  deployment that never declares such types needs no setup, and an existing auth deployment keeps starting
+  after the upgrade.
+- **`IF NOT EXISTS` is the frontend's.** `CREATE TABLE` checks `tableExists` first and leaves an existing
+  table's rows alone; otherwise it writes the rows, then calls ScalarDB without `ifNotExists`, and on a failure
+  takes its rows back, or, when the table turns out to exist (another session's), puts back the rows it
+  replaced and, with `IF NOT EXISTS`, succeeds. `ADD COLUMN` and `RENAME COLUMN` follow the same helper
+  (`QueryParser.withTypes`) with their column as the scope, so a leftover row under the new name is removed.
+- **The catalog reads one partition per table**, next to the `getTableMetadata` it already does per table,
+  since the partition key is the table (core's layout) rather than the namespace.
+- **The command prints rows only with auth**; without, it returns just its tag.
+- `ColumnMap` keeps only types and the write guard for rows it cannot read: no name translation is left, and
+  `UNKNOWN_ENCODING` now means a row with an encoding this frontend does not know.
+
+Checked: `./gradlew check` (315 tests; `MemoryTypeStore` runs the real `TypeStore` over an in-memory table;
+removing the restore, or running the DDL before writing the rows, fails the DDL tests). Live against a Cluster
+node with auth on: alice's typed DDL before setup is `55000`; alice running the command is refused by Cluster
+(superuser only); admin's run prints the password; without it configured, reads are `55000`; with it, alice
+writes 19.995 and reads 20.00, `\d` shows `numeric(10,2)`, `character(3)`, `character varying(5)`,
+`smallint`, the backend holds 2000 under `amount` and four rows in `column_types`; RENAME moves the row; a
+rerun keeps the password; DROP TABLE deletes the rows. A read right after RENAME COLUMN fails on the node's
+stale metadata cache, on `main` too (todo 056). Getting-started schema and tour: as before.
+Difftest on fresh databases (PostgreSQL 18, C locale): every set as its baseline (read, types, numeric,
+character, session, write, write_ac, bind, SQL-92 s01-s11), except `s02_11_1_create_schema_authorization`
+CODE -> FE_ERR, the fresh-database effect noted since Phase 0; fuzz seeds 7, 11, 23 x 300: no DIFF.
+
+**2026-10-15: review fixes.** A correctness and a security review of the change found: a DROP TABLE or RENAME
+COLUMN deleting rows another session wrote between the DDL and its cleanup (fixed: the cleanup deletes only rows
+still carrying the token they had before, `TypeStore.tokens` / `deleteUnchanged`); a cleanup failure after a DDL
+that took effect reported as the statement's error (now logged); a failure inside the undo hiding the DDL's own
+error (now suppressed under it); `undo` deleting then re-upserting one key in a transaction (now one upsert);
+`"a.b".c` and `a."b.c"` sharing a key (dots refused in new table and schema names); DML on `column_types`
+through the frontend (refused, as DDL is); the catalog asking `tableExists` per table while the metadata table
+is missing (once per namespace). Documented rather than fixed: a DDL reported as failed although ScalarDB
+applied it, and a table recreated by another ScalarDB client inheriting rows (docs/type-encoding.md). Not
+real: a non-superuser half-creating the setup (Cluster allows namespaces to superusers only, seen live).
+`./gradlew check`: 320 tests; a cleanup deleting regardless of the token fails the two race tests.

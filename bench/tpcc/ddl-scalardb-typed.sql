@@ -5,6 +5,7 @@
 -- c_ytd_payment is FLOAT in BenchBase too. Foreign keys, NOT NULL and DEFAULT are dropped as in
 -- ddl-scalardb.sql.
 CREATE COORDINATOR TABLES IF NOT EXISTS;
+CREATE FRONTEND METADATA TABLES;  -- where NUMERIC, VARCHAR(n), CHAR(n) and SMALLINT record their types
 CREATE SCHEMA IF NOT EXISTS tpcc;
 DROP TABLE IF EXISTS history;
 DROP TABLE IF EXISTS new_order;

@@ -593,6 +593,7 @@ final class Catalog {
   private final DistributedTransactionAdmin admin;
   final String database;
   String user = OWNER; // the connecting user, for current_user
+  TypeStore typeStore = TypeStore.NONE; // the declared types of columns
   boolean clusterUsers; // pg_roles lists Cluster's users and roles, not the OWNER placeholder
   private boolean acls; // pg_class.relacl holds Cluster's grants: one call per grantee and table
   private boolean aclsLoaded;
@@ -952,8 +953,10 @@ final class Catalog {
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
     long oid = 16384;
     for (String namespace : new TreeSet<>(admin.getNamespaceNames())) {
-      if (namespace.equals("scalardb") || namespace.equals("coordinator")) {
-        continue; // ScalarDB's own namespaces
+      if (namespace.equals("scalardb")
+          || namespace.equals("coordinator")
+          || namespace.equals(TypeStore.NAMESPACE)) {
+        continue; // ScalarDB's own namespaces, and the frontend's
       }
       long namespaceOid = oid++;
       String schema = schemaName(namespace); // the connected namespace is PostgreSQL's public
@@ -987,14 +990,20 @@ final class Catalog {
           false,
           -1L);
       row(t, "information_schema.schemata", database, schema);
+      boolean typed = typeStore.exists(); // asked once, not per table, while there is no table
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
         TableMetadata stored = admin.getTableMetadata(namespace, table);
         if (stored == null) {
           continue;
         }
-        // columns, keys and indexes under the names clients use (amount, not amount__pg_n10_2)
-        ColumnMap columnMap = ColumnMap.of(namespace, table, stored);
-        TableMetadata metadata = columnMap.clientView();
+        // columns with their declared types (numeric(10,2), not the bigint it is stored as)
+        ColumnMap columnMap =
+            ColumnMap.of(
+                namespace,
+                table,
+                stored,
+                typed ? typeStore.read(namespace, table, stored) : Collections.emptyMap());
+        TableMetadata metadata = columnMap.metadata();
         long relOid = oid++;
         relation(
             t,

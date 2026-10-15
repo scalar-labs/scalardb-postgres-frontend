@@ -44,9 +44,9 @@ public class CharacterColumnTest {
   private static final TableMetadata STORED =
       TableMetadata.newBuilder()
           .addColumn("k", DataType.INT)
-          .addColumn("c__pg_c5", DataType.TEXT)
-          .addColumn("v__pg_v7", DataType.TEXT)
-          .addColumn("s__pg_s", DataType.INT)
+          .addColumn("c", DataType.TEXT)
+          .addColumn("v", DataType.TEXT)
+          .addColumn("s", DataType.INT)
           .addPartitionKey("k")
           .build();
 
@@ -59,9 +59,9 @@ public class CharacterColumnTest {
   private static Result row(int k, String c, String v, int s) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("k", IntColumn.of("k", k));
-    columns.put("c__pg_c5", TextColumn.of("c__pg_c5", c));
-    columns.put("v__pg_v7", TextColumn.of("v__pg_v7", v));
-    columns.put("s__pg_s", IntColumn.of("s__pg_s", s));
+    columns.put("c", TextColumn.of("c", c));
+    columns.put("v", TextColumn.of("v", v));
+    columns.put("s", IntColumn.of("s", s));
     return new ResultImpl(columns, STORED);
   }
 
@@ -72,6 +72,11 @@ public class CharacterColumnTest {
     when(admin.getNamespaceNames()).thenReturn(Collections.singleton(NS));
     when(admin.getNamespaceTableNames(NS)).thenReturn(Collections.singleton("w"));
     parser = new QueryParser(admin, NS);
+    MemoryTypeStore types = new MemoryTypeStore(admin);
+    types.seed(NS, "w", "c", ColumnType.declared("char(5)", ColumnType.MAX_SCALED_PRECISION));
+    types.seed(NS, "w", "v", ColumnType.declared("varchar(7)", ColumnType.MAX_SCALED_PRECISION));
+    types.seed(NS, "w", "s", ColumnType.declared("smallint", ColumnType.MAX_SCALED_PRECISION));
+    parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
     table.add(row(1, "ab", "xyz", 7));
     table.add(row(2, "abc", "x", -32768));
@@ -116,8 +121,7 @@ public class CharacterColumnTest {
     org.mockito.ArgumentCaptor<TableMetadata> metadata =
         org.mockito.ArgumentCaptor.forClass(TableMetadata.class);
     verify(admin).createTable(eq(NS), eq("q"), metadata.capture(), eq(false));
-    assertThat(metadata.getValue().getColumnNames())
-        .containsExactly("id", "c__pg_c5", "b__pg_c1", "v__pg_v7", "s__pg_s", "t");
+    assertThat(metadata.getValue().getColumnNames()).containsExactly("id", "c", "b", "v", "s", "t");
   }
 
   @Test
@@ -125,8 +129,8 @@ public class CharacterColumnTest {
     parser.parse("INSERT INTO w VALUES (3, 'ab   ', 'abc    ', 12)").open(transaction);
     Insert insert = (Insert) executed.get(0);
     // a char is stored without its padding; spaces beyond a varchar's length are cut
-    assertThat(insert.getColumns().get("c__pg_c5").getTextValue()).isEqualTo("ab");
-    assertThat(insert.getColumns().get("v__pg_v7").getTextValue()).isEqualTo("abc    ");
+    assertThat(insert.getColumns().get("c").getTextValue()).isEqualTo("ab");
+    assertThat(insert.getColumns().get("v").getTextValue()).isEqualTo("abc    ");
     assertThat(
             state(
                 () -> parser.parse("INSERT INTO w VALUES (4, 'abcdef', 'x', 1)").open(transaction)))
@@ -162,7 +166,7 @@ public class CharacterColumnTest {
         .satisfies(
             op ->
                 assertThat(((Selection) op).getConjunctions().iterator().next().getConditions())
-                    .containsExactly(ConditionBuilder.column("c__pg_c5").isEqualToText("ab")));
+                    .containsExactly(ConditionBuilder.column("c").isEqualToText("ab")));
     // no smallint holds 40000: nothing matches, and nothing fails
     assertThat(parser.parse("SELECT k FROM w WHERE s = 40000").execute(transaction)).isEmpty();
     // LIKE on a char is not pushed: the stored value has no padding

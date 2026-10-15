@@ -45,8 +45,8 @@ public class NumericTextColumnTest {
   private static final TableMetadata STORED =
       TableMetadata.newBuilder()
           .addColumn("k", DataType.INT)
-          .addColumn("b__pg_t", DataType.TEXT)
-          .addColumn("c__pg_t30_10", DataType.TEXT)
+          .addColumn("b", DataType.TEXT)
+          .addColumn("c", DataType.TEXT)
           .addPartitionKey("k")
           .build();
 
@@ -59,8 +59,8 @@ public class NumericTextColumnTest {
   private static Result row(int k, String b, String c) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("k", IntColumn.of("k", k));
-    columns.put("b__pg_t", TextColumn.of("b__pg_t", b));
-    columns.put("c__pg_t30_10", TextColumn.of("c__pg_t30_10", c));
+    columns.put("b", TextColumn.of("b", b));
+    columns.put("c", TextColumn.of("c", c));
     return new ResultImpl(columns, STORED);
   }
 
@@ -71,6 +71,11 @@ public class NumericTextColumnTest {
     when(admin.getNamespaceNames()).thenReturn(Collections.singleton(NS));
     when(admin.getNamespaceTableNames(NS)).thenReturn(Collections.singleton("u"));
     parser = new QueryParser(admin, NS);
+    MemoryTypeStore types = new MemoryTypeStore(admin);
+    types.seed(NS, "u", "b", ColumnType.declared("numeric", ColumnType.MAX_SCALED_PRECISION));
+    types.seed(
+        NS, "u", "c", ColumnType.declared("numeric(30,10)", ColumnType.MAX_SCALED_PRECISION));
+    parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
     // as text, "10" sorts before "9" and "1.10" differs from "1.1"
     table.add(row(1, "9", "1.0000000000"));
@@ -116,8 +121,8 @@ public class NumericTextColumnTest {
     org.mockito.ArgumentCaptor<TableMetadata> metadata =
         org.mockito.ArgumentCaptor.forClass(TableMetadata.class);
     verify(admin).createTable(eq(NS), eq("q"), metadata.capture(), eq(false));
-    assertThat(metadata.getValue().getColumnDataType("a__pg_t")).isEqualTo(DataType.TEXT);
-    assertThat(metadata.getValue().getColumnDataType("b__pg_t30_10")).isEqualTo(DataType.TEXT);
+    assertThat(metadata.getValue().getColumnDataType("a")).isEqualTo(DataType.TEXT);
+    assertThat(metadata.getValue().getColumnDataType("b")).isEqualTo(DataType.TEXT);
     // as text, ScalarDB would order and match the key wrongly
     assertThat(state(() -> parser.parse("CREATE TABLE q (a NUMERIC PRIMARY KEY)")))
         .isEqualTo("0A000");
@@ -142,12 +147,10 @@ public class NumericTextColumnTest {
             .collect(Collectors.toList());
     assertThat(inserts).hasSize(2);
     // numeric keeps the scale it was written with; numeric(30,10) has ten fraction digits
-    assertThat(inserts.get(0).getColumns().get("b__pg_t").getTextValue()).isEqualTo("1.50");
-    assertThat(inserts.get(0).getColumns().get("c__pg_t30_10").getTextValue())
-        .isEqualTo("10.0000000000");
-    assertThat(inserts.get(1).getColumns().get("b__pg_t").getTextValue()).isEqualTo("NaN");
-    assertThat(inserts.get(1).getColumns().get("c__pg_t30_10").getTextValue())
-        .isEqualTo("-0.0000000001");
+    assertThat(inserts.get(0).getColumns().get("b").getTextValue()).isEqualTo("1.50");
+    assertThat(inserts.get(0).getColumns().get("c").getTextValue()).isEqualTo("10.0000000000");
+    assertThat(inserts.get(1).getColumns().get("b").getTextValue()).isEqualTo("NaN");
+    assertThat(inserts.get(1).getColumns().get("c").getTextValue()).isEqualTo("-0.0000000001");
     assertThat(state(() -> parser.parse("INSERT INTO u VALUES (7, 1, 1e20)").open(transaction)))
         .isEqualTo("22003");
     assertThat(

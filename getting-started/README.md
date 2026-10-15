@@ -65,6 +65,7 @@ The same file takes the frontend's own settings, all optional:
 | `scalar.db.postgres.auth` | `none` | `userpass` or `oidc_jwt` to log in as Cluster users: see [Connect as a user](#connect-as-a-user) |
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | none | PEM certificate chain and key, to accept TLS |
 | `scalar.db.postgres.ssl.require` | `true` with `auth` on | Refuse clients that do not use TLS |
+| `scalar.db.postgres.metadata_user`, `scalar.db.postgres.metadata_password` | `scalardb_postgres_frontend`, none | With `auth` on, the service user that reads and writes the declared types of columns (`NUMERIC(p,s)`, `VARCHAR(n)`, ...); `CREATE FRONTEND METADATA TABLES`, run once as a superuser, creates it and prints both |
 
 Two ScalarDB settings get different defaults from the frontend, unless the file sets them:
 `scalar.db.metadata.cache_expiration_time_secs` is `1` (not 60), so sessions see DDL from others

@@ -11,7 +11,7 @@ It also emulates enough of `pg_catalog` for psql's meta-commands, and supports D
 
 **Status: experimental.** Authentication and TLS only in front of ScalarDB Cluster, whose users and privileges
 then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)); no `COPY`; `NUMERIC` exact
-but filtered in the frontend beyond 18 digits, and declared types recorded in ScalarDB column names
+but filtered in the frontend beyond 18 digits, and declared types recorded in a metadata table of the frontend's
 ([docs/type-encoding.md](docs/type-encoding.md)); text comparison following the backing database's collation; and no
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.
@@ -49,7 +49,7 @@ whole setup with sample data, psql and JDBC, and through the container image
 | [`difftest/`](difftest/README.md) | differential tests against native PostgreSQL, and a concurrency test |
 | [`bench/`](bench/README.md) | benchmarks against native PostgreSQL, including BenchBase TPC-C |
 | [`compat/`](compat/README.md) | small client programs for other languages' PostgreSQL drivers |
-| `docs/` | design notes: [running in ScalarDB Cluster nodes](docs/integration-design.md), [authentication](docs/auth-design.md) and [declared types in column names](docs/type-encoding.md) |
+| `docs/` | design notes: [running in ScalarDB Cluster nodes](docs/integration-design.md), [authentication](docs/auth-design.md) and [declared types](docs/type-encoding.md) |
 
 Changes the frontend needs in ScalarDB core itself are described in design notes kept with ScalarDB
 (`scan-read-your-writes-design.md`, `text-collation-design.md`, `core-todo.md`), currently on the

@@ -7,19 +7,17 @@ import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.TextColumn;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Properties;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 /**
  * A column's declared PostgreSQL type where ScalarDB cannot hold it, and the rules that keep it.
  * ScalarDB has no decimal type, no type modifiers and no free-form metadata, so the declaration is
- * recorded in the ScalarDB column name: {@code amount numeric(10,2)} is the ScalarDB column {@code
- * amount__pg_n10_2}, a BIGINT holding the value times 100. The name is the contract (see
- * docs/type-encoding.md): a column without a suffix is {@link Kind#NATIVE} and behaves as before.
+ * recorded in the frontend's own table, {@link TypeStore}: {@code amount numeric(10,2)} is a
+ * ScalarDB BIGINT column {@code amount} holding the value times 100, and a row saying so. A column
+ * without a row is {@link Kind#NATIVE} and behaves as before (see docs/type-encoding.md).
  *
  * <p>Values cross three ways. {@link #coerce} applies the write rules (round to the scale, strip
  * trailing spaces, refuse what does not fit). {@link #exact} turns an already coerced value, or a
@@ -44,12 +42,9 @@ final class ColumnType {
     CHAR,
     /** smallint: an INT within -32768..32767. */
     SMALLINT,
-    /** A name with this frontend's suffix that it cannot read: shown raw, never written. */
+    /** A recorded type this frontend cannot read: shown as stored, never written. */
     UNKNOWN_ENCODING
   }
-
-  /** The marker between a client name and its code. A client name may not contain it. */
-  static final String MARKER = "__pg_";
 
   // ponytail: fixed limits, chosen at CREATE TABLE from the configured storage; a property when a
   // deployment needs a different one (docs/type-encoding.md warns about n16-n18 on 2^53 storages)
@@ -59,11 +54,6 @@ final class ColumnType {
   /** Cosmos DB and object storage keep a BIGINT exact only up to 2^53: 15 decimal digits. */
   static final int MAX_SCALED_PRECISION_53_BITS = 15;
 
-  /** ScalarDB keeps a before_ copy of each column within PostgreSQL's 63 bytes. */
-  private static final int MAX_COLUMN_BYTES = 63 - "before_".length();
-
-  private static final Pattern CODE =
-      Pattern.compile("^(.+)__pg_(?:n(\\d+)_(m?\\d+)|t(?:(\\d+)_(m?\\d+))?|v(\\d+)|c(\\d+)|s)$");
   private static final Pattern DECIMAL_TEXT = Pattern.compile("-?\\d+(\\.\\d+)?");
 
   final Kind kind;
@@ -159,55 +149,101 @@ final class ColumnType {
   }
 
   /**
-   * The declared type of a ScalarDB column, from its name: {@link Kind#NATIVE} for a name without a
-   * suffix, {@link Kind#UNKNOWN_ENCODING} for a suffix this frontend cannot read or whose code does
-   * not match the stored type.
+   * The declared type a {@link TypeStore} row records for a column ScalarDB stores as {@code
+   * stored}: {@link Kind#UNKNOWN_ENCODING} for a row this frontend cannot read (a newer encoding,
+   * or values out of range), which keeps the column readable as stored and unwritable.
    */
-  static ColumnType parse(String storageName, DataType storage) {
-    if (!storageName.contains(MARKER)) {
-      return of(storage); // the fast path: every table created before type modifiers were kept
-    }
-    Matcher m = CODE.matcher(storageName);
-    ColumnType unknown = new ColumnType(Kind.UNKNOWN_ENCODING, storage, 0, 0, 0);
-    if (!m.matches()) {
-      return unknown;
-    }
-    try {
-      ColumnType t;
-      if (m.group(2) != null) {
-        int p = Integer.parseInt(m.group(2));
-        int s = scaleOf(m.group(3));
+  static ColumnType fromRow(
+      String sqlType,
+      @Nullable Integer precision,
+      @Nullable Integer scale,
+      @Nullable Integer length,
+      String encoding,
+      DataType stored) {
+    ColumnType unknown = new ColumnType(Kind.UNKNOWN_ENCODING, stored, 0, 0, 0);
+    int p = precision == null ? 0 : precision;
+    int s = scale == null ? 0 : scale;
+    int n = length == null ? 0 : length;
+    ColumnType t;
+    switch (sqlType + "/" + encoding) {
+      case "NUMERIC/SCALED_BIGINT":
         if (p < 1 || p > MAX_SCALED_PRECISION || s < -1000 || s > 1000) {
           return unknown;
         }
         t = new ColumnType(Kind.NUMERIC_SCALED, DataType.BIGINT, p, s, 0);
-      } else if (storageName.endsWith(MARKER + "t")) {
-        t = unboundedNumeric();
-      } else if (m.group(4) != null) {
-        int p = Integer.parseInt(m.group(4));
-        int s = scaleOf(m.group(5));
-        if (p < 1 || p > 1000 || s < -1000 || s > 1000) {
+        break;
+      case "NUMERIC/DECIMAL_TEXT":
+        if (precision == null ? scale != null : p < 1 || p > 1000 || s < -1000 || s > 1000) {
           return unknown;
         }
         t = new ColumnType(Kind.NUMERIC_TEXT, DataType.TEXT, p, s, 0);
-      } else if (m.group(6) != null || m.group(7) != null) {
-        boolean varchar = m.group(6) != null;
-        int n = Integer.parseInt(varchar ? m.group(6) : m.group(7));
+        break;
+      case "VARCHAR/TEXT":
+      case "CHAR/TRIMMED_TEXT":
         if (n < 1 || n > 10485760) {
           return unknown;
         }
-        t = new ColumnType(varchar ? Kind.VARCHAR : Kind.CHAR, DataType.TEXT, 0, 0, n);
-      } else {
+        t =
+            new ColumnType(
+                sqlType.equals("VARCHAR") ? Kind.VARCHAR : Kind.CHAR, DataType.TEXT, 0, 0, n);
+        break;
+      case "SMALLINT/INT":
         t = new ColumnType(Kind.SMALLINT, DataType.INT, 0, 0, 0);
-      }
-      return t.storage == storage ? t : unknown;
-    } catch (NumberFormatException tooManyDigits) {
-      return unknown;
+        break;
+      default:
+        return unknown;
+    }
+    return t.storage == stored ? t : unknown;
+  }
+
+  /** The row's {@code sql_type}: the standard SQL name of the declared type. */
+  String sqlType() {
+    switch (kind) {
+      case NUMERIC_SCALED:
+      case NUMERIC_TEXT:
+        return "NUMERIC";
+      case VARCHAR:
+        return "VARCHAR";
+      case CHAR:
+        return "CHAR";
+      case SMALLINT:
+        return "SMALLINT";
+      default:
+        throw new IllegalStateException("No row for a " + kind + " column");
     }
   }
 
-  private static int scaleOf(String code) {
-    return code.startsWith("m") ? -Integer.parseInt(code.substring(1)) : Integer.parseInt(code);
+  /** The row's {@code type_precision}: a numeric's digits; null without a precision. */
+  @Nullable Integer rowPrecision() {
+    return isNumeric() && precision > 0 ? precision : null;
+  }
+
+  /** The row's {@code type_scale}: a numeric's scale; null without a precision. */
+  @Nullable Integer rowScale() {
+    return isNumeric() && precision > 0 ? scale : null;
+  }
+
+  /** The row's {@code type_length}: n of varchar(n) and char(n); null for the others. */
+  @Nullable Integer rowLength() {
+    return kind == Kind.VARCHAR || kind == Kind.CHAR ? length : null;
+  }
+
+  /** The row's {@code encoding}: how the value is stored. */
+  String encoding() {
+    switch (kind) {
+      case NUMERIC_SCALED:
+        return "SCALED_BIGINT";
+      case NUMERIC_TEXT:
+        return "DECIMAL_TEXT";
+      case VARCHAR:
+        return "TEXT";
+      case CHAR:
+        return "TRIMMED_TEXT";
+      case SMALLINT:
+        return "INT";
+      default:
+        throw new IllegalStateException("No row for a " + kind + " column");
+    }
   }
 
   /**
@@ -261,80 +297,9 @@ final class ColumnType {
     return kind == Kind.NUMERIC_SCALED || kind == Kind.NUMERIC_TEXT;
   }
 
-  /** True for a type recorded in the column name (any kind but NATIVE). */
+  /** True for a type recorded in the frontend's table (any kind but NATIVE). */
   boolean encoded() {
     return kind != Kind.NATIVE;
-  }
-
-  /**
-   * The suffix code of this type: {@code n10_2}, {@code t}, {@code v255}, {@code c3}, {@code s}.
-   */
-  String code() {
-    switch (kind) {
-      case NUMERIC_SCALED:
-        return "n" + precision + "_" + scaleCode();
-      case NUMERIC_TEXT:
-        return precision == 0 ? "t" : "t" + precision + "_" + scaleCode();
-      case VARCHAR:
-        return "v" + length;
-      case CHAR:
-        return "c" + length;
-      case SMALLINT:
-        return "s";
-      default:
-        throw new IllegalStateException("No code for a " + kind + " column");
-    }
-  }
-
-  private String scaleCode() {
-    return scale < 0 ? "m" + -scale : String.valueOf(scale);
-  }
-
-  /**
-   * The ScalarDB column name for a client column of this type: the client name itself for a native
-   * column, else the client name and the code. A client name may not contain the marker (42602),
-   * and the whole name must fit the 56 bytes every column has (42622).
-   */
-  String storageName(String clientName) {
-    checkClientName(clientName);
-    if (!encoded()) {
-      return clientName;
-    }
-    String name = clientName + MARKER + code();
-    if (name.getBytes(StandardCharsets.UTF_8).length > MAX_COLUMN_BYTES) {
-      int room = MAX_COLUMN_BYTES - (MARKER + code()).length();
-      throw new PgException.Argument(
-          "42622",
-          "identifier \""
-              + clientName
-              + "\" is too long for a column of type "
-              + sqlName()
-              + ": at most "
-              + room
-              + " bytes, since ScalarDB records the type in the column name");
-    }
-    return name;
-  }
-
-  /** The client's name for a ScalarDB column of this type: the name without its code. */
-  String clientName(String storageName) {
-    return kind == Kind.NATIVE || kind == Kind.UNKNOWN_ENCODING
-        ? storageName
-        : storageName.substring(0, storageName.lastIndexOf(MARKER));
-  }
-
-  /** Refuses a client column name containing the marker, which would decode as another type. */
-  static String checkClientName(String clientName) {
-    if (clientName.contains(MARKER)) {
-      throw new PgException.Argument(
-          "42602",
-          "invalid name \""
-              + clientName
-              + "\": \""
-              + MARKER
-              + "\" is reserved for the type the frontend records in a column name");
-    }
-    return clientName;
   }
 
   /** The PostgreSQL type OID clients see. */
@@ -828,14 +793,12 @@ final class ColumnType {
     return new PgException.Argument(
         "XX001", // data_corrupted
         "invalid value stored in column \""
-            + clientName(stored.getName())
+            + stored.getName()
             + "\" of table \""
             + table
             + "\": it does not fit "
             + sqlName()
-            + ", the type its ScalarDB name ("
-            + stored.getName()
-            + ") records; another client may have written it");
+            + ", the type recorded for it; another client may have written it");
   }
 
   private PgException.Argument unknownEncoding() {

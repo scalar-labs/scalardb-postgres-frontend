@@ -50,10 +50,10 @@ public class NumericColumnTest {
   private static final TableMetadata STORED =
       TableMetadata.newBuilder()
           .addColumn("k", DataType.INT)
-          .addColumn("p__pg_n10_2", DataType.BIGINT)
-          .addColumn("a__pg_n10_2", DataType.BIGINT)
+          .addColumn("p", DataType.BIGINT)
+          .addColumn("a", DataType.BIGINT)
           .addPartitionKey("k")
-          .addClusteringKey("p__pg_n10_2")
+          .addClusteringKey("p")
           .build();
 
   private DistributedTransaction transaction;
@@ -64,8 +64,8 @@ public class NumericColumnTest {
   private static Result row(int k, long p, long a) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("k", IntColumn.of("k", k));
-    columns.put("p__pg_n10_2", BigIntColumn.of("p__pg_n10_2", p));
-    columns.put("a__pg_n10_2", BigIntColumn.of("a__pg_n10_2", a));
+    columns.put("p", BigIntColumn.of("p", p));
+    columns.put("a", BigIntColumn.of("a", a));
     return new ResultImpl(columns, STORED);
   }
 
@@ -86,13 +86,17 @@ public class NumericColumnTest {
     when(admin.getNamespaceNames()).thenReturn(Collections.singleton(NS));
     when(admin.getNamespaceTableNames(NS)).thenReturn(Collections.singleton("m"));
     parser = new QueryParser(admin, NS);
+    MemoryTypeStore types = new MemoryTypeStore(admin);
+    types.seed(NS, "m", "p", ColumnType.declared("numeric(10,2)", ColumnType.MAX_SCALED_PRECISION));
+    types.seed(NS, "m", "a", ColumnType.declared("numeric(10,2)", ColumnType.MAX_SCALED_PRECISION));
+    parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
     table.add(row(1, 100, 1990)); // p 1.00, a 19.90
     table.add(row(1, 250, 5)); // p 2.50, a 0.05
     Map<String, Column<?>> nullA = new LinkedHashMap<>();
     nullA.put("k", IntColumn.of("k", 2));
-    nullA.put("p__pg_n10_2", BigIntColumn.of("p__pg_n10_2", 0));
-    nullA.put("a__pg_n10_2", BigIntColumn.ofNull("a__pg_n10_2"));
+    nullA.put("p", BigIntColumn.of("p", 0));
+    nullA.put("a", BigIntColumn.ofNull("a"));
     table.add(new ResultImpl(nullA, STORED)); // k 2, p 0.00, a NULL
     when(transaction.get(any()))
         .thenAnswer(
@@ -155,8 +159,8 @@ public class NumericColumnTest {
     parser.parse("INSERT INTO m (k, p, a) VALUES (2, 19.905, '1.005'::float8)").open(transaction);
     Insert insert = (Insert) mutations().get(0);
     assertThat(insert.getClusteringKey().get().getColumns())
-        .containsExactly(BigIntColumn.of("p__pg_n10_2", 1991));
-    assertThat(insert.getColumns().get("a__pg_n10_2").getBigIntValue()).isEqualTo(101);
+        .containsExactly(BigIntColumn.of("p", 1991));
+    assertThat(insert.getColumns().get("a").getBigIntValue()).isEqualTo(101);
   }
 
   @Test
@@ -188,7 +192,7 @@ public class NumericColumnTest {
 
   @Test
   public void where_ShouldPushScaledBoundsDown() throws Exception {
-    // a > 1.005 holds for exactly the stored values from 1.01 up: a__pg_n10_2 >= 101
+    // a > 1.005 holds for exactly the stored values from 1.01 up: a >= 101
     parser.parse("SELECT k FROM m WHERE k = 1 AND a > 1.005").execute(transaction);
     assertThat(executed)
         .singleElement()
@@ -196,7 +200,7 @@ public class NumericColumnTest {
             op ->
                 assertThat(((Selection) op).getConjunctions().iterator().next().getConditions())
                     .containsExactly(
-                        ConditionBuilder.column("a__pg_n10_2").isGreaterThanOrEqualToBigInt(101)));
+                        ConditionBuilder.column("a").isGreaterThanOrEqualToBigInt(101)));
     // a numeric(10,2) column never equals 1.005
     assertThat(parser.parse("SELECT k FROM m WHERE k = 1 AND a = 1.005").execute(transaction))
         .isEmpty();
@@ -215,7 +219,7 @@ public class NumericColumnTest {
     assertThat(plan.execute(transaction))
         .extracting(r -> r.get("a"))
         .containsExactly(new BigDecimal("1990.00"));
-    assertThat(((Update) mutations().get(0)).getColumns().get("a__pg_n10_2").getBigIntValue())
+    assertThat(((Update) mutations().get(0)).getColumns().get("a").getBigIntValue())
         .isEqualTo(199000);
     assertThat(plan.outputOids()).containsExactly(1700);
     assertThat(plan.outputTypmods()).containsExactly(NUMERIC_10_2);

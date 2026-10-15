@@ -166,6 +166,7 @@ public class PostgresServer implements AutoCloseable {
       throws IOException {
     this.manager = manager;
     this.admin = admin;
+    this.typeStore = new TypeStore(manager, admin, new java.util.Properties());
     this.serverSocket = new ServerSocket(port, 50, address);
   }
 
@@ -183,6 +184,8 @@ public class PostgresServer implements AutoCloseable {
   // numeric(p,s) up to this many digits is stored as a scaled bigint
   // (ColumnType.maxScaledPrecision)
   private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
+  // the declared types of columns, read and written as the service user with authentication
+  private volatile TypeStore typeStore;
 
   /**
    * Applies the settings that depend on the ScalarDB configuration the manager was created from:
@@ -230,6 +233,7 @@ public class PostgresServer implements AutoCloseable {
       sslRequire = Boolean.parseBoolean(require);
     }
     maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
+    typeStore = new TypeStore(manager, admin, properties);
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -615,6 +619,7 @@ public class PostgresServer implements AutoCloseable {
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
         processor.setMaxScaledPrecision(maxScaledPrecision);
+        processor.setTypeStore(typeStore);
         if (identity != null) {
           processor.setIdentity(identity);
         } else if (!user.isEmpty()) {

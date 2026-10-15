@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** The declared-type codec: names, write coercion, exact conversion and validated decoding. */
+/** The declared-type codec: rows, write coercion, exact conversion and validated decoding. */
 public class ColumnTypeTest {
   private static final int MAX = ColumnType.MAX_SCALED_PRECISION;
 
@@ -35,30 +35,46 @@ public class ColumnTypeTest {
 
   @ParameterizedTest
   @CsvSource({
-    "'NUMERIC(10,2)', NUMERIC_SCALED, n10_2",
-    "'decimal(10, 2)', NUMERIC_SCALED, n10_2",
-    "'numeric(10)', NUMERIC_SCALED, n10_0",
-    "'numeric(18,4)', NUMERIC_SCALED, n18_4",
-    "'numeric(19,4)', NUMERIC_TEXT, t19_4",
-    "'numeric(30,10)', NUMERIC_TEXT, t30_10",
-    "'numeric', NUMERIC_TEXT, t",
-    "'DECIMAL', NUMERIC_TEXT, t",
-    "'numeric(5,-2)', NUMERIC_SCALED, n5_m2",
-    "'numeric(2,5)', NUMERIC_SCALED, n2_5",
-    "'varchar(255)', VARCHAR, v255",
-    "'character varying(20)', VARCHAR, v20",
-    "'char(3)', CHAR, c3",
-    "'character', CHAR, c1",
-    "'CHAR', CHAR, c1",
-    "'bpchar(4)', CHAR, c4",
-    "'smallint', SMALLINT, s",
-    "'int2', SMALLINT, s",
+    "'NUMERIC(10,2)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 10, 2, ",
+    "'decimal(10, 2)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 10, 2, ",
+    "'numeric(10)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 10, 0, ",
+    "'numeric(18,4)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 18, 4, ",
+    "'numeric(19,4)', NUMERIC_TEXT, NUMERIC, DECIMAL_TEXT, 19, 4, ",
+    "'numeric(30,10)', NUMERIC_TEXT, NUMERIC, DECIMAL_TEXT, 30, 10, ",
+    "'numeric', NUMERIC_TEXT, NUMERIC, DECIMAL_TEXT, , , ",
+    "'DECIMAL', NUMERIC_TEXT, NUMERIC, DECIMAL_TEXT, , , ",
+    "'numeric(5,-2)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 5, -2, ",
+    "'numeric(2,5)', NUMERIC_SCALED, NUMERIC, SCALED_BIGINT, 2, 5, ",
+    "'varchar(255)', VARCHAR, VARCHAR, TEXT, , , 255",
+    "'character varying(20)', VARCHAR, VARCHAR, TEXT, , , 20",
+    "'char(3)', CHAR, CHAR, TRIMMED_TEXT, , , 3",
+    "'character', CHAR, CHAR, TRIMMED_TEXT, , , 1",
+    "'CHAR', CHAR, CHAR, TRIMMED_TEXT, , , 1",
+    "'bpchar(4)', CHAR, CHAR, TRIMMED_TEXT, , , 4",
+    "'smallint', SMALLINT, SMALLINT, INT, , , ",
+    "'int2', SMALLINT, SMALLINT, INT, , , ",
   })
-  public void declared_ModifiedTypes_ShouldHaveTheirCode(
-      String type, ColumnType.Kind kind, String code) {
+  public void declared_ModifiedTypes_ShouldHaveTheirRowAndReadItBack(
+      String type,
+      ColumnType.Kind kind,
+      String sqlType,
+      String encoding,
+      Integer precision,
+      Integer scale,
+      Integer length) {
     ColumnType t = declared(type);
     assertThat(t.kind).isEqualTo(kind);
-    assertThat(t.code()).isEqualTo(code);
+    assertThat(t.sqlType()).isEqualTo(sqlType);
+    assertThat(t.encoding()).isEqualTo(encoding);
+    assertThat(t.rowPrecision()).isEqualTo(precision);
+    assertThat(t.rowScale()).isEqualTo(scale);
+    assertThat(t.rowLength()).isEqualTo(length);
+    ColumnType read = ColumnType.fromRow(sqlType, precision, scale, length, encoding, t.storage);
+    assertThat(read.kind).isEqualTo(t.kind);
+    assertThat(read.storage).isEqualTo(t.storage);
+    assertThat(read.precision).isEqualTo(t.precision);
+    assertThat(read.scale).isEqualTo(t.scale);
+    assertThat(read.length).isEqualTo(t.length);
   }
 
   @Test
@@ -106,69 +122,43 @@ public class ColumnTypeTest {
     assertThat(ColumnType.maxScaledPrecision(p)).isEqualTo(15);
   }
 
-  @ParameterizedTest
-  @CsvSource({
-    "amount, 'numeric(10,2)', amount__pg_n10_2, BIGINT",
-    "big, 'numeric(30,10)', big__pg_t30_10, TEXT",
-    "total, 'numeric', total__pg_t, TEXT",
-    "r, 'numeric(5,-2)', r__pg_n5_m2, BIGINT",
-    "email, 'varchar(255)', email__pg_v255, TEXT",
-    "code, 'char(3)', code__pg_c3, TEXT",
-    "qty, 'smallint', qty__pg_s, INT",
-    "id, 'integer', id, INT",
-  })
-  public void storageNameAndParse_ShouldRoundTrip(
-      String client, String type, String storage, DataType storageType) {
-    ColumnType t = declared(type);
-    assertThat(t.storageName(client)).isEqualTo(storage);
-    assertThat(t.storage).isEqualTo(storageType);
-    ColumnType parsed = ColumnType.parse(storage, storageType);
-    assertThat(parsed.kind).isEqualTo(t.kind);
-    assertThat(parsed.precision).isEqualTo(t.precision);
-    assertThat(parsed.scale).isEqualTo(t.scale);
-    assertThat(parsed.length).isEqualTo(t.length);
-    assertThat(parsed.clientName(storage)).isEqualTo(client);
-  }
-
   @Test
-  public void parse_SuffixesThisFrontendCannotRead_ShouldBeUnknownEncoding() {
-    // a code that does not match the stored type, an unknown code, a code out of bounds
-    for (Object[] c :
-        new Object[][] {
-          {"amount__pg_n10_2", DataType.TEXT},
-          {"code__pg_c3", DataType.INT},
-          {"x__pg_zz", DataType.TEXT},
-          {"x__pg_n19_2", DataType.BIGINT},
-          {"x__pg_n10_m1001", DataType.BIGINT},
-          {"x__pg_v0", DataType.TEXT},
-          {"x__pg_c99999999999", DataType.TEXT},
-          {"__pg_s", DataType.INT},
-        }) {
-      ColumnType t = ColumnType.parse((String) c[0], (DataType) c[1]);
-      assertThat(t.kind).as((String) c[0]).isEqualTo(ColumnType.Kind.UNKNOWN_ENCODING);
-      assertThat(t.clientName((String) c[0])).isEqualTo(c[0]); // shown raw
+  public void fromRow_RowsThisFrontendCannotRead_ShouldBeUnknownEncoding() {
+    // an encoding that does not match the stored type, an unknown one, values out of bounds
+    Object[][] rows = {
+      {"NUMERIC", 10, 2, null, "SCALED_BIGINT", DataType.TEXT},
+      {"CHAR", null, null, 3, "TRIMMED_TEXT", DataType.INT},
+      {"NUMERIC", 10, 2, null, "PACKED_DECIMAL", DataType.BIGINT},
+      {"MONEY", null, null, null, "INT", DataType.INT},
+      {"NUMERIC", 19, 2, null, "SCALED_BIGINT", DataType.BIGINT},
+      {"NUMERIC", 10, -1001, null, "SCALED_BIGINT", DataType.BIGINT},
+      {"NUMERIC", null, 2, null, "DECIMAL_TEXT", DataType.TEXT},
+      {"VARCHAR", null, null, 0, "TEXT", DataType.TEXT},
+      {"CHAR", null, null, null, "TRIMMED_TEXT", DataType.TEXT},
+      {"VARCHAR", null, null, 10485761, "TEXT", DataType.TEXT},
+    };
+    for (Object[] r : rows) {
+      ColumnType t =
+          ColumnType.fromRow(
+              (String) r[0],
+              (Integer) r[1],
+              (Integer) r[2],
+              (Integer) r[3],
+              (String) r[4],
+              (DataType) r[5]);
+      assertThat(t.kind)
+          .as(java.util.Arrays.toString(r))
+          .isEqualTo(ColumnType.Kind.UNKNOWN_ENCODING);
+      assertThat(t.storage).isEqualTo(r[5]); // read as stored
     }
-    assertThat(ColumnType.parse("amount", DataType.BIGINT).kind).isEqualTo(ColumnType.Kind.NATIVE);
   }
 
   @Test
   public void unknownEncoding_ShouldReadRawAndRefuseWrites() {
-    ColumnType t = ColumnType.parse("x__pg_zz", DataType.TEXT);
-    assertThat(t.decode(TextColumn.of("x__pg_zz", "raw"), "t")).isEqualTo("raw");
+    ColumnType t = ColumnType.fromRow("NUMERIC", null, null, null, "ZZ", DataType.TEXT);
+    assertThat(t.decode(TextColumn.of("x", "raw"), "t")).isEqualTo("raw");
     assertThat(state(() -> t.coerce("a"))).isEqualTo("0A000");
-    assertThat(state(() -> t.exact("x__pg_zz", "a"))).isEqualTo("0A000");
-  }
-
-  @Test
-  public void storageName_ReservedMarkerOrTooLong_ShouldFail() {
-    assertThat(state(() -> ColumnType.checkClientName("a__pg_b"))).isEqualTo("42602");
-    assertThat(state(() -> declared("integer").storageName("x__pg_s"))).isEqualTo("42602");
-    ColumnType money = declared("numeric(10,2)"); // suffix __pg_n10_2: 10 bytes of the 56
-    assertThat(money.storageName("a".repeat(46))).hasSize(56);
-    assertThatThrownBy(() -> money.storageName("a".repeat(47)))
-        .hasMessageContaining("at most 46 bytes")
-        .hasMessageContaining("numeric(10,2)");
-    assertThat(state(() -> money.storageName("a".repeat(47)))).isEqualTo("42622");
+    assertThat(state(() -> t.exact("x", "a"))).isEqualTo("0A000");
   }
 
   @Test
@@ -360,8 +350,7 @@ public class ColumnTypeTest {
     };
     for (Object[] c : cases) {
       ColumnType t = declared((String) c[0]);
-      String name = t.storageName("x");
-      Column<?> stored = t.exact(name, t.coerce(c[1]));
+      Column<?> stored = t.exact("x", t.coerce(c[1]));
       // and what was stored reads back as the coerced value
       assertThat(t.decode(stored, "t")).as(c[0] + " " + c[1]).isEqualTo(t.coerce(c[1]));
     }
@@ -372,39 +361,37 @@ public class ColumnTypeTest {
   @Test
   public void decode_ValidStoredValues_ShouldBeTheDeclaredType() {
     ColumnType money = declared("numeric(10,2)");
-    BigDecimal d = (BigDecimal) money.decode(BigIntColumn.of("a__pg_n10_2", 1991), "t");
+    BigDecimal d = (BigDecimal) money.decode(BigIntColumn.of("a", 1991), "t");
     assertThat(d).isEqualTo(new BigDecimal("19.91"));
     assertThat(d.toPlainString()).isEqualTo("19.91");
-    assertThat(String.valueOf(money.decode(BigIntColumn.of("a__pg_n10_2", 1990), "t")))
+    assertThat(String.valueOf(money.decode(BigIntColumn.of("a", 1990), "t")))
         .isEqualTo("19.90"); // the scale is kept
-    assertThat(money.decode(BigIntColumn.ofNull("a__pg_n10_2"), "t")).isNull();
-    assertThat(declared("numeric(5,-2)").decode(BigIntColumn.of("r__pg_n5_m2", 123), "t"))
+    assertThat(money.decode(BigIntColumn.ofNull("a"), "t")).isNull();
+    assertThat(declared("numeric(5,-2)").decode(BigIntColumn.of("r", 123), "t"))
         .isEqualTo(new BigDecimal("12300"));
     ColumnType t = declared("numeric");
-    assertThat(t.decode(TextColumn.of("x__pg_t", "1.10"), "t")).isEqualTo(new BigDecimal("1.10"));
-    assertThat(t.decode(TextColumn.of("x__pg_t", "NaN"), "t")).isEqualTo(Double.NaN);
-    assertThat(t.decode(TextColumn.of("x__pg_t", "-Infinity"), "t"))
-        .isEqualTo(Double.NEGATIVE_INFINITY);
-    assertThat(declared("numeric(30,10)").decode(TextColumn.of("w__pg_t30_10", "1.5"), "t"))
+    assertThat(t.decode(TextColumn.of("x", "1.10"), "t")).isEqualTo(new BigDecimal("1.10"));
+    assertThat(t.decode(TextColumn.of("x", "NaN"), "t")).isEqualTo(Double.NaN);
+    assertThat(t.decode(TextColumn.of("x", "-Infinity"), "t")).isEqualTo(Double.NEGATIVE_INFINITY);
+    assertThat(declared("numeric(30,10)").decode(TextColumn.of("w", "1.5"), "t"))
         .isEqualTo(new BigDecimal("1.5000000000"));
-    assertThat(declared("char(3)").decode(TextColumn.of("c__pg_c3", "ab "), "t")).isEqualTo("ab");
-    assertThat(declared("varchar(3)").decode(TextColumn.of("v__pg_v3", "ab "), "t"))
-        .isEqualTo("ab ");
-    assertThat(declared("smallint").decode(IntColumn.of("s__pg_s", -32768), "t")).isEqualTo(-32768);
+    assertThat(declared("char(3)").decode(TextColumn.of("c", "ab "), "t")).isEqualTo("ab");
+    assertThat(declared("varchar(3)").decode(TextColumn.of("v", "ab "), "t")).isEqualTo("ab ");
+    assertThat(declared("smallint").decode(IntColumn.of("s", -32768), "t")).isEqualTo(-32768);
     assertThat(ColumnType.of(DataType.INT).decode(IntColumn.of("id", 5), "t")).isEqualTo(5);
   }
 
   @Test
   public void decode_ValuesBreakingTheContract_ShouldFailWithXx001WithoutTheValue() {
     Object[][] cases = {
-      {declared("numeric(10,2)"), BigIntColumn.of("a__pg_n10_2", 10_000_000_000L)},
-      {declared("numeric"), TextColumn.of("x__pg_t", "abc")},
-      {declared("numeric"), TextColumn.of("x__pg_t", "1e3")},
-      {declared("numeric(30,10)"), TextColumn.of("w__pg_t30_10", "1.00000000001")},
-      {declared("numeric(30,10)"), TextColumn.of("w__pg_t30_10", "Infinity")},
-      {declared("varchar(3)"), TextColumn.of("v__pg_v3", "abcd")},
-      {declared("char(3)"), TextColumn.of("c__pg_c3", "abcd")},
-      {declared("smallint"), IntColumn.of("s__pg_s", 40000)},
+      {declared("numeric(10,2)"), BigIntColumn.of("a", 10_000_000_000L)},
+      {declared("numeric"), TextColumn.of("x", "abc")},
+      {declared("numeric"), TextColumn.of("x", "1e3")},
+      {declared("numeric(30,10)"), TextColumn.of("w", "1.00000000001")},
+      {declared("numeric(30,10)"), TextColumn.of("w", "Infinity")},
+      {declared("varchar(3)"), TextColumn.of("v", "abcd")},
+      {declared("char(3)"), TextColumn.of("c", "abcd")},
+      {declared("smallint"), IntColumn.of("s", 40000)},
     };
     for (Object[] c : cases) {
       ColumnType t = (ColumnType) c[0];
@@ -413,7 +400,7 @@ public class ColumnTypeTest {
           .as(stored.toString())
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo("XX001"))
-          .hasMessageContaining("column \"" + t.clientName(stored.getName()) + "\"")
+          .hasMessageContaining("column \"" + stored.getName() + "\"")
           .hasMessageContaining("table \"orders\"")
           .hasMessageNotContaining(String.valueOf(stored.getValueAsObject()));
     }
@@ -446,20 +433,20 @@ public class ColumnTypeTest {
     assertThat(declared("integer").comparableWhenStored()).isTrue();
     assertThat(declared("numeric").comparableWhenStored()).isFalse(); // "10" < "9" as text
     assertThat(declared("numeric(30,10)").comparableWhenStored()).isFalse();
-    assertThat(ColumnType.parse("x__pg_zz", DataType.TEXT).comparableWhenStored()).isFalse();
+    assertThat(
+            ColumnType.fromRow("NUMERIC", null, null, null, "ZZ", DataType.TEXT)
+                .comparableWhenStored())
+        .isFalse();
   }
 
   @Test
   public void decode_SmallestLong_ShouldNotPassTheBoundCheck() {
     assertThatThrownBy(
-            () ->
-                declared("numeric(18,0)")
-                    .decode(BigIntColumn.of("a__pg_n18_0", Long.MIN_VALUE), "t"))
+            () -> declared("numeric(18,0)").decode(BigIntColumn.of("a", Long.MIN_VALUE), "t"))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("XX001"));
     assertThat(
-            declared("numeric(18,0)")
-                .decode(BigIntColumn.of("a__pg_n18_0", 999_999_999_999_999_999L), "t"))
+            declared("numeric(18,0)").decode(BigIntColumn.of("a", 999_999_999_999_999_999L), "t"))
         .isEqualTo(new BigDecimal("999999999999999999"));
   }
 

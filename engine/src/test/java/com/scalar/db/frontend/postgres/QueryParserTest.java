@@ -76,6 +76,7 @@ public class QueryParserTest {
     when(admin.getNamespaceNames()).thenReturn(Collections.singleton(NS));
     when(admin.getNamespaceTableNames(NS)).thenReturn(Collections.singleton("t"));
     parser = new QueryParser(admin, NS);
+    parser.setTypeStore(new MemoryTypeStore(admin).store);
     transaction = mock(DistributedTransaction.class);
     when(transaction.get(any())).thenReturn(java.util.Optional.empty());
     TestScanners.stub(transaction);
@@ -1144,11 +1145,11 @@ public class QueryParserTest {
             "c",
             TableMetadata.newBuilder()
                 .addColumn("id", DataType.INT)
-                .addColumn("name__pg_v20", DataType.TEXT) // varchar(20), its length recorded
+                .addColumn("name", DataType.TEXT) // varchar(20), its length in column_types
                 .addColumn("created", DataType.TIMESTAMPTZ)
                 .addPartitionKey("id")
                 .build(),
-            true);
+            false); // IF NOT EXISTS is the frontend's: it checks, then creates
     assertThatThrownBy(() -> parser.parse("CREATE TABLE nokey (id int, name text)"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("PRIMARY KEY");
@@ -1531,16 +1532,15 @@ public class QueryParserTest {
         org.mockito.ArgumentCaptor.forClass(TableMetadata.class);
     verify(admin).createTable(eq(NS), eq("n"), metadata.capture(), eq(false));
     assertThat(metadata.getValue().getColumnDataType("f")).isEqualTo(DataType.FLOAT);
-    // numeric(10,2) is a bigint holding the value times 100, its type recorded in its name
-    assertThat(metadata.getValue().getColumnDataType("m__pg_n10_2")).isEqualTo(DataType.BIGINT);
-    assertThat(metadata.getValue().getColumnNames()).doesNotContain("m");
+    // numeric(10,2) is a bigint holding the value times 100, its type recorded in column_types
+    assertThat(metadata.getValue().getColumnDataType("m")).isEqualTo(DataType.BIGINT);
     assertThat(parser.parse("CREATE TABLE p (id INT, PRIMARY KEY (id))").notices).isEmpty();
     // DEC(5,1) is the same type, though the parser keeps its modifiers apart from its name
     QueryParser.Plan dec = parser.parse("CREATE TABLE q (id INT, d DEC(5,1), PRIMARY KEY (id))");
     assertThat(dec.notices).isEmpty();
     dec.getDdl().run();
     verify(admin).createTable(eq(NS), eq("q"), metadata.capture(), eq(false));
-    assertThat(metadata.getValue().getColumnDataType("d__pg_n5_1")).isEqualTo(DataType.BIGINT);
+    assertThat(metadata.getValue().getColumnDataType("d")).isEqualTo(DataType.BIGINT);
   }
 
   @Test

@@ -144,6 +144,9 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
  * primary key map to ScalarDB mutations, with extra {@code AND} conditions as mutation conditions.
  */
 public class QueryParser {
+  private static final org.slf4j.Logger logger =
+      org.slf4j.LoggerFactory.getLogger(QueryParser.class);
+
   private final DistributedTransactionAdmin admin;
   // ponytail: fixed per storage (18, or 15 for Cosmos DB, object storage and Cluster); a property
   // when a Cluster on JDBC needs scaled numeric(16..18)
@@ -168,6 +171,14 @@ public class QueryParser {
 
   void setMaxScaledPrecision(int digits) {
     maxScaledPrecision = digits;
+  }
+
+  // the declared types of columns; none until the server sets the deployment's store
+  private volatile TypeStore typeStore = TypeStore.NONE;
+
+  void setTypeStore(TypeStore store) {
+    typeStore = store;
+    catalog.typeStore = store;
   }
 
   /** Forgets cached table metadata, after DDL, in every session of this process. */
@@ -318,7 +329,7 @@ public class QueryParser {
 
   /** Runs ScalarDB reads; failures are wrapped so evaluation code stays free of checked types. */
   interface Reader {
-    /** Runs a Get or Scan written with client names; the results carry storage names. */
+    /** Runs a Get or Scan; the results carry stored values, see {@link ColumnMap#value}. */
     List<Result> read(Operation operation);
 
     /** The column map of the table an operation names; null when none is known. */
@@ -827,7 +838,7 @@ public class QueryParser {
       if (!mutations.isEmpty()) {
         boolean inserts = mutations.stream().allMatch(m -> m instanceof Insert);
         try {
-          crud.mutate(ColumnMap.toStorage(mutations, columnMaps));
+          crud.mutate(ColumnMap.checked(mutations, columnMaps));
         } catch (TransactionException | IllegalArgumentException e) {
           if (inserts
               && e.getMessage() != null
@@ -867,10 +878,10 @@ public class QueryParser {
           return ColumnMap.forOperation(operation, columnMaps);
         }
 
-        /** The operation with storage names, where its table records types in them. */
+        /** The operation, checked against its table's columns that are never written. */
         private <T extends Operation> T stored(T operation) {
           ColumnMap map = columnMap(operation);
-          return map == null ? operation : map.toStorage(operation);
+          return map == null ? operation : map.checked(operation);
         }
 
         @Nullable @Override
@@ -1235,7 +1246,7 @@ public class QueryParser {
         unsatisfied = false;
         boolean inserts = mutations().stream().allMatch(m -> m instanceof Insert);
         try {
-          crud.mutate(ColumnMap.toStorage(mutations(), columnMaps));
+          crud.mutate(ColumnMap.checked(mutations(), columnMaps));
         } catch (TransactionException | IllegalArgumentException e) {
           // ScalarDB reports an existing key as a conflict (DB-CORE-20013, also raised by real
           // write-write conflicts on upserts) or, within one transaction, as DB-CORE-10146. For a
@@ -1612,8 +1623,7 @@ public class QueryParser {
       for (Result result : reader().read(scan)) {
         List<Object> key = new ArrayList<>();
         for (String name : keyNames) {
-          String stored = map == null ? name : map.storageName(name);
-          key.add(Objects.requireNonNull(result.getColumns().get(stored), name).getValueAsObject());
+          key.add(Objects.requireNonNull(result.getColumns().get(name), name).getValueAsObject());
         }
         byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(result);
       }
@@ -1788,15 +1798,15 @@ public class QueryParser {
   static Map<String, Object> rowOf(
       String qualifier, List<String> columns, @Nullable ColumnMap map, Result result) {
     Map<String, Object> row = new LinkedHashMap<>();
-    if (map == null || !map.renames()) {
+    if (map == null || !map.decodes()) {
       for (String name : result.getContainedColumnNames()) {
         row.put(qualifier + "." + name, result.getAsObject(name));
       }
     } else {
-      // stored names and values to the client's: amount__pg_n10_2 = 1990 is amount = 19.90
+      // stored values to the client's: amount = 1990 in a numeric(10,2) column is 19.90
       Map<String, Column<?>> stored = result.getColumns();
       for (String name : result.getContainedColumnNames()) {
-        row.put(qualifier + "." + map.clientName(name), map.value(name, result, stored));
+        row.put(qualifier + "." + name, map.value(name, result, stored));
       }
     }
     for (String name : columns) {
@@ -2722,6 +2732,8 @@ public class QueryParser {
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
+  private static final Pattern FRONTEND_TABLES =
+      Pattern.compile("(?is)CREATE\\s+FRONTEND\\s+METADATA\\s+TABLES(\\s+IF\\s+NOT\\s+EXISTS)?");
 
   /**
    * The statement without surrounding whitespace and one final {@code ;}, which is what the
@@ -2765,7 +2777,7 @@ public class QueryParser {
     Matcher schema = CREATE_SCHEMA.matcher(trimmed);
     if (schema.matches()) {
       boolean ifNotExists = schema.group(1) != null;
-      String name = checkedName(namespace(schema.group(2)), false);
+      String name = userNamespace(checkedName(namespace(schema.group(2)), false));
       return Plan.ddl(() -> admin.createNamespace(name, ifNotExists), "CREATE SCHEMA");
     }
     Matcher explain = EXPLAIN.matcher(trimmed);
@@ -2785,6 +2797,23 @@ public class QueryParser {
     }
     if (VACUUM.matcher(trimmed).matches()) {
       return Plan.ddl(() -> {}, "VACUUM"); // nothing to vacuum; tools run it after bulk loads
+    }
+    if (FRONTEND_TABLES.matcher(trimmed).matches()) {
+      // creates only what is missing, so IF NOT EXISTS changes nothing; with authentication the
+      // rows hold the service user's new password, filled in when the statement runs
+      if (!typeStore.authenticated()) {
+        return Plan.ddl(typeStore::create, "CREATE FRONTEND METADATA TABLES");
+      }
+      List<Map<String, Object>> rows = new ArrayList<>();
+      Plan plan =
+          Plan.constant(
+              Arrays.asList("property", "value"), rows, "CREATE FRONTEND METADATA TABLES");
+      plan.ddl =
+          () -> {
+            rows.clear();
+            rows.addAll(typeStore.create());
+          };
+      return plan;
     }
     Matcher coordinator = COORDINATOR_TABLES.matcher(trimmed);
     if (coordinator.matches()) {
@@ -2917,7 +2946,19 @@ public class QueryParser {
   // ---- DDL ----
 
   private String namespaceOf(Table table) {
-    return checkedCharacters(namespace(table.getSchemaName()));
+    return userNamespace(checkedCharacters(namespace(table.getSchemaName())));
+  }
+
+  /** Refuses DDL in the frontend's own namespace, which only its setup command manages. */
+  private static String userNamespace(String namespace) {
+    if (namespace.equals(TypeStore.NAMESPACE)) {
+      throw new PgException.Argument(
+          "42501",
+          "permission denied: schema \""
+              + namespace
+              + "\" holds the frontend's metadata; CREATE FRONTEND METADATA TABLES manages it");
+    }
+    return namespace;
   }
 
   /** The user the client connected as, for {@code current_user}. */
@@ -3003,8 +3044,7 @@ public class QueryParser {
     }
     TableMetadata.Builder builder = TableMetadata.newBuilder();
     List<String> columns = new ArrayList<>();
-    Map<String, String> stored = new HashMap<>(); // client name -> ScalarDB name
-    Map<String, ColumnType> declaredTypes = new HashMap<>();
+    Map<String, ColumnType> declaredTypes = new LinkedHashMap<>();
     List<String> primaryKey = new ArrayList<>();
     List<String> notices = new ArrayList<>();
     for (ColumnDefinition definition : create.getColumnDefinitions()) {
@@ -3034,9 +3074,8 @@ public class QueryParser {
       columns.add(column);
       ColumnType declared = recorded(declaredText(definition.getColDataType()));
       declaredTypes.put(column, declared);
-      stored.put(column, declared.storageName(column));
       builder.addColumn(
-          stored.get(column),
+          column,
           declared.encoded()
               ? declared.storage
               : columnType(declaredText(definition.getColDataType())));
@@ -3089,7 +3128,7 @@ public class QueryParser {
       }
       java.util.Objects.requireNonNull(declaredTypes.get(column.trim()))
           .checkKeyable(column.trim(), maxScaledPrecision);
-      builder.addPartitionKey(stored.getOrDefault(column.trim(), column.trim()));
+      builder.addPartitionKey(column.trim());
     }
     for (String spec : clusteringKey) {
       String[] parts = spec.trim().split("\\s+", -1);
@@ -3099,14 +3138,29 @@ public class QueryParser {
       java.util.Objects.requireNonNull(declaredTypes.get(parts[0]))
           .checkKeyable(parts[0], maxScaledPrecision);
       boolean desc = parts.length > 1 && parts[1].equalsIgnoreCase("DESC");
-      builder.addClusteringKey(
-          stored.getOrDefault(parts[0], parts[0]),
-          desc ? Scan.Ordering.Order.DESC : Scan.Ordering.Order.ASC);
+      builder.addClusteringKey(parts[0], desc ? Scan.Ordering.Order.DESC : Scan.Ordering.Order.ASC);
     }
     TableMetadata metadata = builder.build();
     boolean ifNotExists = create.isIfNotExists();
+    Map<String, ColumnType> recorded = new LinkedHashMap<>(declaredTypes);
+    recorded.values().removeIf(t -> !t.encoded());
     Plan plan =
-        Plan.ddl(() -> admin.createTable(namespace, name, metadata, ifNotExists), "CREATE TABLE");
+        Plan.ddl(
+            () -> {
+              if (admin.tableExists(namespace, name)) {
+                admin.createTable(namespace, name, metadata, ifNotExists); // as ScalarDB answers
+                return;
+              }
+              withTypes(
+                  namespace,
+                  name,
+                  recorded,
+                  null,
+                  () -> admin.createTable(namespace, name, metadata, false),
+                  () -> admin.tableExists(namespace, name),
+                  ifNotExists);
+            },
+            "CREATE TABLE");
     plan.notices.addAll(notices);
     return plan;
   }
@@ -3227,11 +3281,10 @@ public class QueryParser {
         Plan.ddl(
             () -> {
               ColumnMap map = columnMap(namespace, name);
-              if (map != null && map.clientView().getColumnNames().contains(column)) {
+              if (map != null && map.metadata().getColumnNames().contains(column)) {
                 map.type(column).checkKeyable(column, maxScaledPrecision);
               }
-              admin.createIndex(
-                  namespace, name, map == null ? column : map.storageName(column), false);
+              admin.createIndex(namespace, name, column, false);
               if (given != null && !given.equals(generated)) {
                 INDEX_NAMES.put(namespace + "." + given, new String[] {name, column});
               }
@@ -3275,11 +3328,17 @@ public class QueryParser {
         {
           String namespace = namespaceOf(target);
           String name = checkedCharacters(unquote(target.getName()));
-          return Plan.ddl(() -> admin.dropTable(namespace, name, ifExists), "DROP TABLE");
+          return Plan.ddl(
+              () -> {
+                Map<String, String> rows = typeStore.tokens(namespace, name);
+                admin.dropTable(namespace, name, ifExists);
+                afterDdl(() -> typeStore.deleteUnchanged(namespace, name, rows));
+              },
+              "DROP TABLE");
         }
       case "SCHEMA":
         {
-          String namespace = checkedCharacters(unquote(target.getName()));
+          String namespace = userNamespace(checkedCharacters(unquote(target.getName())));
           if (namespace.equals("public")) {
             throw new IllegalArgumentException(
                 "cannot drop schema public: it is the connected database's namespace; drop it by name");
@@ -3293,7 +3352,9 @@ public class QueryParser {
               () -> {
                 if (cascade && admin.namespaceExists(namespace)) {
                   for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
+                    Map<String, String> rows = typeStore.tokens(namespace, table);
                     admin.dropTable(namespace, table, true);
+                    afterDdl(() -> typeStore.deleteUnchanged(namespace, table, rows));
                   }
                 }
                 admin.dropNamespace(namespace, ifExists);
@@ -3308,26 +3369,18 @@ public class QueryParser {
           return Plan.ddl(
               () -> {
                 String[] named = INDEX_NAMES.remove(namespace + "." + indexName);
-                if (named != null) {
-                  ColumnMap columns = columnMap(namespace, named[0]);
-                  String stored =
-                      columns == null || !columns.clientView().getColumnNames().contains(named[1])
-                          ? named[1]
-                          : columns.storageName(named[1]);
-                  if (admin.indexExists(namespace, named[0], stored)) {
-                    admin.dropIndex(namespace, named[0], stored); // the name given at CREATE INDEX
-                    return;
-                  }
+                if (named != null && admin.indexExists(namespace, named[0], named[1])) {
+                  admin.dropIndex(namespace, named[0], named[1]); // the name given at CREATE INDEX
+                  return;
                 }
                 for (String table : admin.getNamespaceTableNames(namespace)) {
                   TableMetadata metadata = admin.getTableMetadata(namespace, table);
                   if (metadata == null) {
                     continue;
                   }
-                  ColumnMap columns = ColumnMap.of(namespace, table, metadata);
-                  for (String column : columns.clientView().getSecondaryIndexNames()) {
+                  for (String column : metadata.getSecondaryIndexNames()) {
                     if (indexName.equals(table + "_" + column + "_idx")) {
-                      admin.dropIndex(namespace, table, columns.storageName(column));
+                      admin.dropIndex(namespace, table, column);
                       return;
                     }
                   }
@@ -3362,13 +3415,26 @@ public class QueryParser {
                   : String.join(" ", c.getColumnSpecs()).toUpperCase(Locale.ROOT);
           notices.addAll(unenforced(column, declaredText(c.getColDataType()), specs, false));
           ColumnType declared = recorded(declaredText(c.getColDataType()));
-          String storedName = declared.storageName(column);
           DataType type =
               declared.encoded() ? declared.storage : columnType(declaredText(c.getColDataType()));
+          Map<String, ColumnType> rows =
+              declared.encoded()
+                  ? Collections.singletonMap(column, declared)
+                  : Collections.<String, ColumnType>emptyMap();
           steps.add(
               () -> {
                 checkNewColumn(freshColumnMap(namespace, name), column, null);
-                admin.addNewColumnToTable(namespace, name, storedName, type);
+                withTypes(
+                    namespace,
+                    name,
+                    rows,
+                    Collections.singleton(column),
+                    () -> admin.addNewColumnToTable(namespace, name, column, type),
+                    () -> {
+                      TableMetadata now = admin.getTableMetadata(namespace, name);
+                      return now != null && now.getColumnNames().contains(column);
+                    },
+                    false);
               });
         }
       } else if (expression.getOperation() == AlterOperation.RENAME
@@ -3378,28 +3444,30 @@ public class QueryParser {
         steps.add(
             () -> {
               ColumnMap columns = freshColumnMap(namespace, name);
-              if (oldName.contains(ColumnType.MARKER)) {
-                // a column shown under its ScalarDB name: its type is unknown here, or its name
-                // collides with another's, so renaming it could lose what the name records
-                throw new PgException.Argument(
-                    "0A000",
-                    "RENAME COLUMN is not supported for column \""
-                        + oldName
-                        + "\": its ScalarDB name records a type this frontend does not handle");
-              }
-              String oldStored = oldName;
-              String newStored = newName;
+              Map<String, ColumnType> rows = Collections.emptyMap();
               if (columns != null) {
-                if (!columns.clientView().getColumnNames().contains(oldName)) {
+                if (!columns.metadata().getColumnNames().contains(oldName)) {
                   throw new PgException.Argument(
                       "42703", "column \"" + oldName + "\" does not exist");
                 }
-                checkNewColumn(columns, newName, oldName); // 42701 before any 42622
-                // the type stays recorded: amount__pg_n10_2 becomes total__pg_n10_2
-                oldStored = columns.storageName(oldName);
-                newStored = columns.type(oldName).storageName(newName); // 42622 when too long
+                checkNewColumn(columns, newName, oldName);
+                columns.checkWritable(oldName); // a type it cannot read, it cannot carry over
+                ColumnType type = columns.type(oldName);
+                if (type.encoded()) {
+                  rows = Collections.singletonMap(newName, type); // the type follows the column
+                }
               }
-              admin.renameColumn(namespace, name, oldStored, newStored);
+              Map<String, String> old = new HashMap<>(typeStore.tokens(namespace, name));
+              old.keySet().retainAll(Collections.singleton(oldName));
+              withTypes(
+                  namespace,
+                  name,
+                  rows,
+                  Collections.singleton(newName),
+                  () -> admin.renameColumn(namespace, name, oldName, newName),
+                  () -> false,
+                  false);
+              afterDdl(() -> typeStore.deleteUnchanged(namespace, name, old));
               // an index named at CREATE INDEX follows its column
               INDEX_NAMES.replaceAll(
                   (key, indexed) ->
@@ -3454,30 +3522,92 @@ public class QueryParser {
 
   /**
    * The declared type of a new column as this frontend records it: numeric, char(n), varchar(n) and
-   * smallint in the column's ScalarDB name; anything else as its native ScalarDB type.
+   * smallint in its metadata table; anything else as its native ScalarDB type.
    */
   private ColumnType recorded(String declaredType) {
     ColumnType declared = ColumnType.declared(declaredType, maxScaledPrecision);
     return declared.encoded() ? declared : ColumnType.of(columnType(declaredType));
   }
 
-  /** A table's column map from ScalarDB now, not the session's cache; null if there is none. */
-  @Nullable private ColumnMap freshColumnMap(String namespace, String table) throws ExecutionException {
-    TableMetadata stored = admin.getTableMetadata(namespace, table);
-    return stored == null ? null : ColumnMap.of(namespace, table, stored);
+  /** Whether a table or column exists now, asked after a DDL that would have created it failed. */
+  private interface Exists {
+    boolean now() throws ExecutionException;
   }
 
   /**
-   * Refuses a new column name that a column already has as clients see it (42701): ScalarDB would
-   * accept {@code amount} next to {@code amount__pg_n10_2}, and both would then be shown raw and
-   * never written. Compared without regard to case, as the JDBC backends compare column names.
+   * Runs a DDL that creates columns with the types they record: the rows first, then the DDL, so a
+   * failure in between leaves an inert row rather than a column without its type (TypeStore). Rows
+   * left under the names in {@code scope} (the whole table when null) are removed. If the DDL
+   * fails, this statement's rows are taken back; if what it would have created exists after all
+   * (another session's), the rows that were there are put back, and with {@code ifNotExists} that
+   * is no error. Without types and without the metadata table, the DDL simply runs.
+   */
+  private void withTypes(
+      String namespace,
+      String table,
+      Map<String, ColumnType> types,
+      @Nullable Set<String> scope,
+      Ddl ddl,
+      Exists exists,
+      boolean ifNotExists)
+      throws ExecutionException {
+    if (types.isEmpty() && !typeStore.exists()) {
+      ddl.run();
+      return;
+    }
+    if (!types.isEmpty()) {
+      typeStore.requireTable();
+    }
+    String token = java.util.UUID.randomUUID().toString();
+    Map<String, Result> previous = typeStore.write(namespace, table, types, scope, token);
+    try {
+      ddl.run();
+    } catch (ExecutionException | RuntimeException e) {
+      boolean other;
+      try {
+        other = exists.now();
+        typeStore.undo(namespace, table, types.keySet(), token, previous, other);
+      } catch (ExecutionException | RuntimeException undo) {
+        e.addSuppressed(undo); // the DDL's own failure is the one to report
+        throw e;
+      }
+      if (other && ifNotExists) {
+        return;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Deletes rows a DDL that has taken effect no longer needs. A failure only leaves inert rows, so
+   * it is logged rather than reported as the statement's: the DDL itself succeeded.
+   */
+  private static void afterDdl(Ddl cleanup) {
+    try {
+      cleanup.run();
+    } catch (ExecutionException | RuntimeException e) {
+      logger.warn("Leftover rows in the frontend's metadata table after DDL: {}", e.toString());
+    }
+  }
+
+  /** A table's column map from ScalarDB now, not the session's cache; null if there is none. */
+  @Nullable private ColumnMap freshColumnMap(String namespace, String table) throws ExecutionException {
+    TableMetadata stored = admin.getTableMetadata(namespace, table);
+    return stored == null
+        ? null
+        : ColumnMap.of(namespace, table, stored, typeStore.read(namespace, table, stored));
+  }
+
+  /**
+   * Refuses a new column name that a column already has (42701), compared without regard to case,
+   * as the JDBC backends compare column names.
    */
   private static void checkNewColumn(
       @Nullable ColumnMap columns, String newName, @Nullable String renamed) {
     if (columns == null) {
       return;
     }
-    for (String existing : columns.clientView().getColumnNames()) {
+    for (String existing : columns.metadata().getColumnNames()) {
       // a rename may change only the case of its own column's name, not keep the name
       if (existing.equalsIgnoreCase(newName)
           && (!existing.equals(renamed) || existing.equals(newName))) {
@@ -3519,8 +3649,11 @@ public class QueryParser {
    */
   static String checkedName(String name, boolean column) {
     checkedCharacters(name);
-    if (column) {
-      ColumnType.checkClientName(name); // "__pg_" would read back as a declared type
+    if (!column && name.indexOf('.') >= 0) {
+      // namespace.table names a table in ScalarDB's metadata and in the frontend's: a dot would
+      // make "a.b".c and a."b.c" the same table there
+      throw new PgException.Argument(
+          "42602", "invalid name \"" + name + "\": a table or schema name may not contain a dot");
     }
     int max = column ? 63 - "before_".length() : 63;
     if (name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > max) {
@@ -6250,13 +6383,13 @@ public class QueryParser {
   static final class Target {
     final String namespace;
     final String table;
-    final TableMetadata metadata; // as the client sees it: client names (ColumnMap.clientView)
+    final TableMetadata metadata; // ScalarDB's (ColumnMap.metadata); types in columns
     final ColumnMap columns;
 
     Target(String namespace, String table, ColumnMap columns) {
       this.namespace = namespace;
       this.table = table;
-      this.metadata = columns.clientView();
+      this.metadata = columns.metadata();
       this.columns = columns;
     }
   }
@@ -6270,7 +6403,7 @@ public class QueryParser {
       if (stored == null) {
         return null;
       }
-      columns = ColumnMap.of(namespace, table, stored);
+      columns = ColumnMap.of(namespace, table, stored, typeStore.read(namespace, table, stored));
       columnMaps.put(key, columns);
     }
     return columns;
@@ -6284,7 +6417,7 @@ public class QueryParser {
             // has it
             : Collections.singletonList(namespace(table.getSchemaName()));
     for (String namespace : candidates) {
-      ColumnMap columns = columnMap(namespace, name);
+      ColumnMap columns = columnMap(userNamespace(namespace), name);
       if (columns != null) {
         return new Target(namespace, name, columns);
       }

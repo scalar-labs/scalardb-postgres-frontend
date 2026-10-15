@@ -918,7 +918,10 @@ public class QueryProcessor {
         planCache.clear();
         lastCommandTag = plan.commandTag(0);
         settleMetadata(lastCommandTag);
-        Rows rows = new Rows(null, QueryParser.Cursor.EMPTY);
+        Rows rows =
+            plan.getOutputColumns().isEmpty()
+                ? new Rows(null, QueryParser.Cursor.EMPTY)
+                : new Rows(plan, plan.open(manager, identity)); // what the DDL reports
         rows.notices = plan.notices;
         return rows;
       }
@@ -1077,6 +1080,11 @@ public class QueryProcessor {
    * bigint: 18, or 15 where the storage keeps a bigint exact only up to 2^53 (see {@link
    * ColumnType#maxScaledPrecision}).
    */
+  /** The deployment's store of declared column types. */
+  void setTypeStore(TypeStore store) {
+    parser.setTypeStore(store);
+  }
+
   public void setMaxScaledPrecision(int digits) {
     parser.setMaxScaledPrecision(digits);
   }

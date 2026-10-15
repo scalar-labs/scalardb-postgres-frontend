@@ -3,6 +3,7 @@
 --   psql -h localhost -p 15432 -d demo -f schema.sql
 -- The first PRIMARY KEY column is the partition key; the others are clustering keys.
 CREATE COORDINATOR TABLES IF NOT EXISTS;
+CREATE FRONTEND METADATA TABLES;  -- where NUMERIC, VARCHAR(n), CHAR(n) and SMALLINT record their types
 CREATE SCHEMA IF NOT EXISTS demo;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS items;

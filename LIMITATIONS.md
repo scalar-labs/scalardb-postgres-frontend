@@ -78,11 +78,14 @@ at the end of this section.
   `UNIQUE`, `CHECK`, `REFERENCES` and `DEFAULT` are accepted by `CREATE TABLE` with a `NOTICE`
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
-- **Declared types are recorded in the ScalarDB column name** (`docs/type-encoding.md`): `CHAR(n)`,
+- **Declared types are recorded in the frontend's metadata table** (`docs/type-encoding.md`): `CHAR(n)`,
   `VARCHAR(n)`, `SMALLINT` and `NUMERIC` keep their declaration and PostgreSQL's rules for it
-  (`amount NUMERIC(10,2)` is the ScalarDB column `amount__pg_n10_2`). The suffix counts against the
-  56-byte column-name limit, so a long name with a type suffix can be refused (`42622`). Other ScalarDB
-  clients see the encoded names and stored values. A column's type cannot be changed afterwards
+  (`amount NUMERIC(10,2)` is a ScalarDB `BIGINT` column `amount` holding cents, and a row in
+  `scalardb_postgres_frontend.column_types` saying so). The table is created once with `CREATE FRONTEND
+  METADATA TABLES`; until then such a declaration is refused (`55000`). With Cluster authentication the
+  frontend reads and writes it as a service user, whose password is the `scalar.db.postgres.metadata_password`
+  property. Other ScalarDB clients see the stored values (1990, not 19.90) unless they read that table. A
+  column's type cannot be changed afterwards
   (`ALTER COLUMN ... TYPE` is refused with `0A000`; RENAME COLUMN keeps the type). Columns created by an
   earlier release keep their plain ScalarDB types. A modifier PostgreSQL itself rejects
   (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`. Known differences for
@@ -112,7 +115,8 @@ at the end of this section.
   and on a PostgreSQL backend the `before_` copies halve what fits. A schema, table, column or index
   name may not contain a quote (`'`, `"`, a backquote), a bracket, a backslash, a semicolon or a
   control character (`42602`): PostgreSQL allows them in quoted identifiers, but ScalarDB's JDBC
-  storage writes names into SQL without escaping them.
+  storage writes names into SQL without escaping them. A table or schema name may not contain a dot
+  either (`42602`): ScalarDB, and the frontend's metadata table, key tables by `namespace.table`.
 - **Keys, and the MySQL backend.** ScalarDB refuses an empty string as a partition key value
   (`22023`). On MySQL, ScalarDB creates key and indexed `TEXT` columns as `varchar(128)`
   (`scalar.db.jdbc.mysql.variable_key_column_size`), so a longer value fails at commit (`22001`),
