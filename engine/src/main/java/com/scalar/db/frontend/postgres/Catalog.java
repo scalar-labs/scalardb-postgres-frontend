@@ -29,6 +29,7 @@ final class Catalog {
   static final String OWNER = "scalardb";
   static final String TABLEOID = "tableoid";
   private static final long OWNER_OID = 10;
+  private static final long ICU_COLLATION_OID = 16383; // ScalarDB's ICU collation, below table oids
   private static final long HEAP_AM = 2;
   private static final long BTREE_AM = 403;
   private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
@@ -857,6 +858,24 @@ final class Catalog {
     for (String name : INFORMATION_SCHEMA.keySet()) {
       t.put("information_schema." + name, new ArrayList<>());
     }
+    String icu = Evaluator.icuCollationName();
+    if (!icu.isEmpty()) {
+      String locale = icu.substring(0, icu.length() - "-x-icu".length());
+      row(
+          t,
+          "pg_catalog.pg_collation",
+          ICU_COLLATION_OID,
+          icu,
+          11L, // pg_catalog
+          "i",
+          false, // ICU equality is many-to-one
+          -1L,
+          null,
+          null,
+          locale,
+          locale,
+          null);
+    }
     row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t", "heap_tableam_handler");
     row(t, "pg_catalog.pg_am", BTREE_AM, "btree", "i", "bthandler");
     row(t, "pg_catalog.pg_tablespace", DEFAULT_TABLESPACE, "pg_default", OWNER_OID, null, null);
@@ -978,11 +997,11 @@ final class Catalog {
           namespace,
           OWNER_OID,
           6L,
-          "c",
+          icu.isEmpty() ? "c" : "i",
           "C",
           "C",
-          null,
-          null,
+          icu.isEmpty() ? null : icu.substring(0, icu.length() - "-x-icu".length()),
+          icu.isEmpty() ? null : icu.substring(0, icu.length() - "-x-icu".length()),
           null,
           null,
           DEFAULT_TABLESPACE,
@@ -1066,7 +1085,11 @@ final class Catalog {
               key,
               false,
               false,
-              0L,
+              // ScalarDB's ICU collation, which psql's \d shows as the column's collation
+              !Evaluator.icuCollationName().isEmpty()
+                      && (typeOid == 25 || typeOid == 1042 || typeOid == 1043)
+                  ? ICU_COLLATION_OID
+                  : 0L,
               "",
               "",
               "p",

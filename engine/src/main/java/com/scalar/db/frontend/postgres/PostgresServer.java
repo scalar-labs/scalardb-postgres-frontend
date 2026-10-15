@@ -3,6 +3,7 @@ package com.scalar.db.frontend.postgres;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
 import com.scalar.db.common.CollationComparator;
+import com.scalar.db.config.Collation;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
@@ -234,7 +235,12 @@ public class PostgresServer implements AutoCloseable {
       sslRequire = Boolean.parseBoolean(require);
     }
     maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
-    Evaluator.setCollation(CollationComparator.from(new DatabaseConfig(properties)));
+    DatabaseConfig config = new DatabaseConfig(properties);
+    Evaluator.setCollation(
+        CollationComparator.from(config),
+        config.getCollation() == Collation.ICU
+            ? config.getCollationIcuLocale().orElse("und")
+            : null);
     typeStore = new TypeStore(manager, admin, properties);
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short

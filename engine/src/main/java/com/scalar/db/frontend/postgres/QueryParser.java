@@ -1623,14 +1623,16 @@ public class QueryParser {
       for (Result result : reader().read(scan)) {
         List<Object> key = new ArrayList<>();
         for (String name : keyNames) {
-          key.add(Objects.requireNonNull(result.getColumns().get(name), name).getValueAsObject());
+          key.add(
+              Operators.normalize(
+                  Objects.requireNonNull(result.getColumns().get(name), name).getValueAsObject()));
         }
         byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(result);
       }
       for (int i : group) {
         List<Object> key = new ArrayList<>();
         for (Column<?> column : ((Get) operations.get(i)).getClusteringKey().get().getColumns()) {
-          key.add(column.getValueAsObject());
+          key.add(Operators.normalize(column.getValueAsObject())); // ICU: 'a' finds 'A'
         }
         results[i] =
             rowsOf(
@@ -6615,6 +6617,7 @@ public class QueryParser {
       LikeExpression like = (LikeExpression) e;
       // ScalarDB's LIKE is case-sensitive, so ILIKE (and RLIKE/REGEXP) stay in memory
       if (like.getLikeKeyWord() != LikeExpression.KeyWord.LIKE
+          || Evaluator.collation().hasCanonicalTextForm() // refused under ICU, in memory
           || !isColumn(like.getLeftExpression())
           || !(like.getRightExpression() instanceof StringValue
               || like.getRightExpression() instanceof JdbcParameter)
@@ -6816,6 +6819,28 @@ public class QueryParser {
   }
 
   // ---- expressions, literals, and identifiers ----
+
+  /**
+   * Whether {@code e} holds text from a ScalarDB table, which has ScalarDB's collation, as a
+   * PostgreSQL column has its own. Catalog text is byte-ordered whatever the database's collation,
+   * as in PostgreSQL, and so are literals and parameters. A column not resolved to a source counts
+   * as table text unless every source is a catalog.
+   */
+  static boolean collatedText(Expression e, List<LogicalPlan.Source> sources) {
+    boolean catalogOnly =
+        !sources.isEmpty() && sources.stream().allMatch(s -> s.catalogTable != null);
+    for (net.sf.jsqlparser.schema.Column c : columnRefs(e)) {
+      LogicalPlan.Source s = sourceOf(c, sources);
+      if (s == null ? !catalogOnly : s.catalogTable == null && isTextOid(inferOid(c, sources))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isTextOid(int oid) {
+    return oid == 0 || oid == 25 || oid == 1042 || oid == 1043; // unknown, text, bpchar, varchar
+  }
 
   /** The column references in {@code e}, not descending into subqueries. */
   static List<net.sf.jsqlparser.schema.Column> columnRefs(Expression e) {
