@@ -693,6 +693,13 @@ the type notices are no longer emitted then withdrawn; `ColumnType.convertsValue
 native numeric precisions in information_schema. Not changed: a char passed through an aggregate comes back
 unpadded (documented).
 
+Second review fixes (same day, after commit fd0a51c): the evaluator compares a char as bpchar (trailing spaces
+not counting) against a char, varchar, quoted literal or parameter in every comparison form, and `charSemantics`
+reaches char columns through subqueries and CTEs; RENAME gives 42703 for a missing column and 42701 for a rename
+to itself; lpad / rpad lengths must be integers; information_schema has numeric_precision_radix. Documented:
+padding seen by concat, to_json, octet_length and through UNION. Deferred as todo 055: quoted integer input in
+comparisons for every integer type, and PostgreSQL 16+ integer literal forms.
+
 **Not done, recorded as todo 054:** orphan before-images after an interrupted rename, and the 42703 mapping of
 stale storage names. Detection is ambiguous (the plan says so), a repair through the transaction admin would itself
 run ScalarDB's two-step rename, and neither can be tested without fault injection. LIMITATIONS.md gives the

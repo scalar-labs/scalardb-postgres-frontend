@@ -29,3 +29,12 @@ sm_quoted_range BOTH_ERR
 sm_quoted_syntax BOTH_ERR
 pad_functions OK
 ch_max OK
+ch_between_pad OK
+ch_distinct_pad OK
+ch_case_pad OK
+ch_in_left_pad OK
+ch_vs_text OK
+ch_derived OK
+ch_cte_like OK
+pad_numeric_length BOTH_ERR
+ch_numeric_info OK

@@ -207,11 +207,45 @@ public class CharacterColumnTest {
   }
 
   @Test
+  public void charComparisons_ShouldIgnoreTrailingSpacesAsBpchar() throws Exception {
+    // every comparison of char with char, varchar, a quoted value or a parameter; not with text
+    assertThat(
+            parser
+                .parse(
+                    "SELECT k, c BETWEEN 'ab ' AND 'ab ' AS b, c IS NOT DISTINCT FROM 'ab ' AS d,"
+                        + " CASE c WHEN 'ab ' THEN 1 ELSE 0 END AS w, 'ab ' IN (c) AS i,"
+                        + " c = $1 AS p, c = 'ab '::text AS t FROM w",
+                    Collections.singletonList("ab "))
+                .execute(transaction))
+        .containsExactly(
+            map("k", 1, "b", true, "d", true, "w", 1L, "i", true, "p", true, "t", false),
+            map("k", 2, "b", false, "d", false, "w", 0L, "i", false, "p", false, "t", false));
+    // the same through a subquery, LIKE seeing the padded value there too
+    assertThat(
+            parser
+                .parse(
+                    "SELECT k, d.c = 'ab ' AS e, d.c LIKE 'ab' AS l, d.c LIKE 'ab   ' AS p"
+                        + " FROM (SELECT k, c FROM w) d")
+                .execute(transaction))
+        .containsExactly(
+            map("k", 1, "e", true, "l", false, "p", true),
+            map("k", 2, "e", false, "l", false, "p", false));
+  }
+
+  @Test
   public void quotedSmallint_ShouldBeSmallintInput() {
     assertThatThrownBy(() -> parser.parse("SELECT k FROM w WHERE s = '40000'").execute(transaction))
         .hasMessage("value \"40000\" is out of range for type smallint");
     assertThatThrownBy(() -> parser.parse("SELECT k FROM w WHERE s < '1.5'").execute(transaction))
         .hasMessage("invalid input syntax for type smallint: \"1.5\"");
+    // through a subquery the in-memory comparison refuses it, though naming numeric
+    assertThat(
+            state(
+                () ->
+                    parser
+                        .parse("SELECT * FROM (SELECT k, s FROM w) d WHERE d.s = 'abc'")
+                        .execute(transaction)))
+        .isEqualTo("22P02");
   }
 
   @Test
@@ -225,6 +259,10 @@ public class CharacterColumnTest {
         .containsExactly(map("r", "ab   |", "l", "007", "t", "abc", "f", "abax"));
     assertThatThrownBy(() -> parser.parse("SELECT rpad('x', 10000001) AS r").execute(transaction))
         .hasMessage("requested length too large");
+    assertThatThrownBy(() -> parser.parse("SELECT lpad('a', 2.9) AS r").execute(transaction))
+        .hasMessage("function lpad(text, numeric) does not exist");
+    assertThatThrownBy(() -> parser.parse("SELECT rpad('a', 5000000000) AS r").execute(transaction))
+        .hasMessage("function rpad(text, bigint) does not exist");
   }
 
   private static Map<String, Object> map(Object... namesAndValues) {

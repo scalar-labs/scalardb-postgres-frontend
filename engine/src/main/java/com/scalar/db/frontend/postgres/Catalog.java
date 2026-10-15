@@ -367,6 +367,7 @@ final class Catalog {
             "character_maximum_length",
             "column_default",
             "numeric_precision",
+            "numeric_precision_radix",
             "numeric_scale",
             "datetime_precision"));
     type(16, "bool", "boolean");
@@ -501,7 +502,6 @@ final class Catalog {
     return 0;
   }
 
-  /** pg_type.typlen, which RowDescription reports too. */
   /** information_schema's numeric_precision of a fixed numeric type: bits for binary ones. */
   @Nullable private static Long nativePrecision(long oid) {
     switch ((int) oid) {
@@ -525,6 +525,7 @@ final class Catalog {
     return oid == 21 || oid == 23 || oid == 20 ? 0L : null;
   }
 
+  /** pg_type.typlen, which RowDescription reports too. */
   static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
@@ -1071,6 +1072,7 @@ final class Catalog {
               characters ? (Object) (long) declared.length : null,
               null,
               bounded ? (Object) (long) declared.precision : nativePrecision(typeOid),
+              typeOid == 1700 ? (Object) 10L : nativePrecision(typeOid) != null ? 2L : null,
               bounded ? (Object) (long) declared.scale : nativeScale(typeOid),
               null);
         }

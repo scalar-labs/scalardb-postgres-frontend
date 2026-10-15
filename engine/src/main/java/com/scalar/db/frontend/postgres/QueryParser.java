@@ -3387,10 +3387,14 @@ public class QueryParser {
                         + oldName
                         + "\": its ScalarDB name records a type this frontend does not handle");
               }
-              checkNewColumn(columns, newName, oldName); // 42701 before any 42622
               String oldStored = oldName;
               String newStored = newName;
-              if (columns != null && columns.clientView().getColumnNames().contains(oldName)) {
+              if (columns != null) {
+                if (!columns.clientView().getColumnNames().contains(oldName)) {
+                  throw new PgException.Argument(
+                      "42703", "column \"" + oldName + "\" does not exist");
+                }
+                checkNewColumn(columns, newName, oldName); // 42701 before any 42622
                 // the type stays recorded: amount__pg_n10_2 becomes total__pg_n10_2
                 oldStored = columns.storageName(oldName);
                 newStored = columns.type(oldName).storageName(newName); // 42622 when too long
@@ -3474,7 +3478,9 @@ public class QueryParser {
       return;
     }
     for (String existing : columns.clientView().getColumnNames()) {
-      if (existing.equalsIgnoreCase(newName) && !existing.equals(renamed)) {
+      // a rename may change only the case of its own column's name, not keep the name
+      if (existing.equalsIgnoreCase(newName)
+          && (!existing.equals(renamed) || existing.equals(newName))) {
         throw new PgException.Argument(
             "42701",
             "column \"" + newName + "\" of relation \"" + columns.table + "\" already exists");
@@ -5236,17 +5242,29 @@ public class QueryParser {
         });
   }
 
-  /** The n of a char(n) table column {@code e} refers to, or 0 when it is no such column. */
+  /**
+   * The n of the char(n) column {@code e} refers to, of a table or through a subquery or CTE, or 0
+   * when it is no such column.
+   */
   private static int charLength(Expression e, Scope scope) {
     if (!isColumn(e) || ((net.sf.jsqlparser.schema.Column) e).getTable() == null) {
       return 0; // analyze qualifies every column, so a bare name is current_user or the like
     }
     LogicalPlan.Source s = scope.resolve((net.sf.jsqlparser.schema.Column) e);
-    if (s.target == null || !s.target.metadata.getColumnNames().contains(columnName(e))) {
-      return 0;
+    String name = columnName(e);
+    if (s.target != null) {
+      ColumnType type = declaredType(s.target, name);
+      return type != null && type.kind == ColumnType.Kind.CHAR ? type.length : 0;
     }
-    ColumnType type = s.target.columns.type(columnName(e));
-    return type.kind == ColumnType.Kind.CHAR ? type.length : 0;
+    if (s.derived != null) {
+      int i = s.columns.indexOf(name);
+      int[] oids = s.derived.outputOids();
+      int[] typmods = s.derived.outputTypmods();
+      return i >= 0 && i < oids.length && i < typmods.length && oids[i] == 1042 && typmods[i] > 4
+          ? typmods[i] - 4
+          : 0;
+    }
+    return 0;
   }
 
   /** A column's type for the checks below: a numeric stored as text is no text column. */

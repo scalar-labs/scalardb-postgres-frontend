@@ -65,3 +65,21 @@ SELECT k FROM ch WHERE s < '1.5';
 SELECT rpad('ab', 5) || '|' AS r, lpad('7', 3, '0') AS l, rpad('abcdef', 3) AS t, lpad('x', 4, 'ab') AS f, rpad('a', 0) AS z;
 -- @ch_max
 SELECT '|' || max(c) || '|' AS m FROM ch;
+-- @ch_between_pad ordered
+SELECT k FROM ch WHERE c BETWEEN 'ab ' AND 'abc ' ORDER BY k;
+-- @ch_distinct_pad ordered
+SELECT k FROM ch WHERE c IS NOT DISTINCT FROM 'ab ' OR k = 3 ORDER BY k;
+-- @ch_case_pad ordered
+SELECT k, CASE c WHEN 'ab ' THEN 'two' WHEN 'abcde  ' THEN 'five' ELSE 'other' END AS w FROM ch ORDER BY k;
+-- @ch_in_left_pad ordered
+SELECT k FROM ch WHERE 'ab  ' IN (c, v) ORDER BY k;
+-- @ch_vs_text ordered
+SELECT k, c = 'ab '::text AS t, c = 'ab '::varchar AS v FROM ch ORDER BY k;
+-- @ch_derived ordered
+SELECT k, d.c = 'ab ' AS e, d.c LIKE 'ab' AS l, d.c LIKE 'ab   ' AS p FROM (SELECT k, c FROM ch) d ORDER BY k;
+-- @ch_cte_like ordered
+WITH x AS (SELECT k, c FROM ch) SELECT k FROM x WHERE c LIKE 'abc  ' ORDER BY k;
+-- @pad_numeric_length
+SELECT lpad('a', 2.9);
+-- @ch_numeric_info ordered
+SELECT column_name, numeric_precision, numeric_precision_radix, numeric_scale FROM information_schema.columns WHERE table_name = 'ch' ORDER BY ordinal_position;

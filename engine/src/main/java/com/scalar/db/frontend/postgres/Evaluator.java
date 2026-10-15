@@ -115,6 +115,8 @@ final class Evaluator {
     final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
     final List<LogicalPlan.Source> sources; // the plan's FROM items, for plan-time types
     final Map<Expression, Integer> widenings; // CASE, COALESCE, ... -> what it widens to
+    // a comparison's right operand -> whether it compares as bpchar (see Evaluator.bpchar)
+    final Map<Expression, Boolean> bpchars = new java.util.IdentityHashMap<>();
 
     Context(
         @Nullable Map<String, Object> outer,
@@ -426,6 +428,50 @@ final class Evaluator {
       }
       return null;
     }
+  }
+
+  /**
+   * True when PostgreSQL compares {@code a} with {@code b} as bpchar, where trailing spaces do not
+   * count: one is a char(n) value and the other a char, a varchar, a quoted literal or a parameter.
+   * Against text, char loses its padding and the text keeps its own ('ab'::char(5) = 'ab '::text is
+   * false). Decided once per operand pair from plan-time types.
+   */
+  // ponytail: a parameter is taken as untyped or varchar (pgjdbc's default), so one the client
+  // declared text compares as bpchar here; and ANY(ARRAY['ab ']), rewritten to IN, compares as
+  // bpchar where PostgreSQL's text[] does not. Parameter types in the Context would close both
+  private static boolean bpchar(Expression a, Expression b, Context ctx) {
+    return ctx.bpchars.computeIfAbsent(
+        b,
+        k ->
+            (isBpchar(a, ctx) && comparesAsBpchar(b, ctx))
+                || (isBpchar(b, ctx) && comparesAsBpchar(a, ctx)));
+  }
+
+  private static boolean isBpchar(Expression e, Context ctx) {
+    return QueryParser.inferOid(e, ctx.sources) == 1042;
+  }
+
+  private static boolean comparesAsBpchar(Expression e, Context ctx) {
+    Expression u = QueryParser.unwrap(e);
+    if (u instanceof StringValue || u instanceof JdbcParameter) {
+      return true;
+    }
+    if (u instanceof CastExpression) {
+      // inferOid types every character cast as text
+      String type = ((CastExpression) u).getColDataType().getDataType().toLowerCase(Locale.ROOT);
+      return BPCHAR_PEER_CAST.matcher(type).lookingAt();
+    }
+    int oid = QueryParser.inferOid(u, ctx.sources);
+    return oid == 1042 || oid == 1043;
+  }
+
+  /** A text value without its trailing spaces; anything else unchanged. */
+  private static Object rtrim(Object v) {
+    return v instanceof String ? TRAILING_SPACES.matcher((String) v).replaceFirst("") : v;
+  }
+
+  @Nullable private static Object rtrimNullable(@Nullable Object v) {
+    return v == null ? null : rtrim(v);
   }
 
   /** {@code v >= lo AND v <= hi} in three-valued logic. */
@@ -1006,7 +1052,12 @@ final class Evaluator {
         }
       } else if (in.getRightExpression() instanceof ExpressionList) {
         for (Expression item : (ExpressionList<?>) in.getRightExpression()) {
-          values.add(eval(item, group, ctx));
+          Object x = eval(item, group, ctx);
+          if (bpchar(in.getLeftExpression(), item, ctx)) {
+            v = rtrimNullable(v);
+            x = rtrimNullable(x);
+          }
+          values.add(x);
         }
       } else {
         throw new PgException.Argument("0A000", "Unsupported IN expression: " + e);
@@ -1029,6 +1080,12 @@ final class Evaluator {
       Object v = eval(b.getLeftExpression(), group, ctx);
       Object lo = eval(b.getBetweenExpressionStart(), group, ctx);
       Object hi = eval(b.getBetweenExpressionEnd(), group, ctx);
+      if (bpchar(b.getLeftExpression(), b.getBetweenExpressionStart(), ctx)
+          || bpchar(b.getLeftExpression(), b.getBetweenExpressionEnd(), ctx)) {
+        v = rtrimNullable(v);
+        lo = rtrimNullable(lo);
+        hi = rtrimNullable(hi);
+      }
       // v >= lo AND v <= hi in three-valued logic: 5 BETWEEN NULL AND 3 is false (todo 017)
       Boolean in = between(v, lo, hi);
       if (b.isUsingSymmetric()) {
@@ -1079,6 +1136,9 @@ final class Evaluator {
         }
         l = order;
         r = 0;
+      } else if (bpchar(op.getLeftExpression(), op.getRightExpression(), ctx)) {
+        l = rtrim(l);
+        r = rtrim(r);
       }
       Boolean result = compared(op, compare(l, r));
       if (result != null) {
@@ -1142,6 +1202,10 @@ final class Evaluator {
           (net.sf.jsqlparser.expression.operators.relational.IsDistinctExpression) e;
       Object l = eval(d.getLeftExpression(), group, ctx);
       Object r = eval(d.getRightExpression(), group, ctx);
+      if (bpchar(d.getLeftExpression(), d.getRightExpression(), ctx)) {
+        l = rtrimNullable(l);
+        r = rtrimNullable(r);
+      }
       boolean distinct = l == null || r == null ? (l == null) != (r == null) : compare(l, r) != 0;
       return distinct != d.isNot();
     }
@@ -2316,10 +2380,17 @@ final class Evaluator {
         c.getSwitchExpression() == null ? null : eval(c.getSwitchExpression(), group, ctx);
     for (WhenClause when : c.getWhenClauses()) {
       Object condition = eval(when.getWhenExpression(), group, ctx);
+      boolean bpchar =
+          c.getSwitchExpression() != null
+              && bpchar(c.getSwitchExpression(), when.getWhenExpression(), ctx);
       boolean matches =
           c.getSwitchExpression() == null
               ? isTrue(condition)
-              : subject != null && condition != null && compare(subject, condition) == 0;
+              : subject != null
+                  && condition != null
+                  && (bpchar
+                      ? compare(rtrim(subject), rtrim(condition)) == 0
+                      : compare(subject, condition) == 0);
       if (matches) {
         return widened(eval(when.getThenExpression(), group, ctx), c, branches(c), group, ctx);
       }
@@ -2472,6 +2543,8 @@ final class Evaluator {
 
   private static final Pattern TYPE_LENGTH = Pattern.compile("\\((\\d+)\\)");
   private static final Pattern TRAILING_SPACES = Pattern.compile(" +$");
+  private static final Pattern BPCHAR_PEER_CAST =
+      Pattern.compile("(pg_catalog\\.)?(varchar|character varying|char|character|bpchar)\\b");
 
   /**
    * Integer input as PostgreSQL reads it: digits with a sign, surrounding spaces allowed; '1.5' and
@@ -3052,7 +3125,7 @@ final class Evaluator {
       case "RPAD":
         return pad(
             str(args, 0),
-            num(args, 1).longValue(),
+            int4(args, 1, name),
             args.size() > 2 ? str(args, 2) : " ",
             name.equals("LPAD"));
       case "DATE_PART":
@@ -3296,6 +3369,23 @@ final class Evaluator {
       throw new IllegalArgumentException("Missing function argument " + (i + 1));
     }
     return text(args.get(i));
+  }
+
+  /**
+   * An argument PostgreSQL declares {@code integer}: a bigint, numeric or double value has no such
+   * function there (42883), rather than being cut to fit.
+   */
+  private static int int4(List<Object> args, int i, String function) {
+    Number n = num(args, i);
+    if ((n instanceof Long || n instanceof Integer || n instanceof Short)
+        && n.longValue() == n.intValue()) {
+      return n.intValue();
+    }
+    String type =
+        n instanceof Long ? "bigint" : n instanceof BigDecimal ? "numeric" : "double precision";
+    throw new PgException.Argument(
+        "42883",
+        "function " + function.toLowerCase(Locale.ROOT) + "(text, " + type + ") does not exist");
   }
 
   private static Number num(List<Object> args, int i) {

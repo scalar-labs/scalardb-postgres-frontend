@@ -83,8 +83,10 @@ at the end of this section.
   (`amount NUMERIC(10,2)` is the ScalarDB column `amount__pg_n10_2`). The suffix counts against the
   56-byte column-name limit, so a long name with a type suffix can be refused (`42622`). Other ScalarDB
   clients see the encoded names and stored values. Known differences: a `CHAR(n)` is stored without its
-  padding and padded back when a column is returned as such, so `octet_length` counts no padding and
-  a value passed through an aggregate or expression (`max(c)`, `COALESCE(c, c)`) comes back unpadded;
+  padding and padded back when a column is returned as such, so `octet_length`, `concat` and `to_json`
+  see no padding, and a value passed through an aggregate, expression or `UNION` (`max(c)`,
+  `COALESCE(c, 'x')`) comes back unpadded; a parameter declared `text` compares with a `CHAR(n)` as if
+  it were untyped, ignoring trailing spaces;
   `SMALLINT` arithmetic does not overflow at 32767. Columns created by an earlier release keep their plain ScalarDB types. A
   modifier PostgreSQL itself rejects (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with
   `22023`.

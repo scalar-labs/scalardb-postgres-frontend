@@ -65,7 +65,7 @@ ROLLBACK;
 -- @num_format_type ordered
 SELECT attname, format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = 'nm'::regclass AND attnum > 0 ORDER BY attnum;
 -- @num_information_schema ordered
-SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'nm' AND column_name <> 'k' ORDER BY ordinal_position;
+SELECT column_name, data_type, numeric_precision, numeric_precision_radix, numeric_scale FROM information_schema.columns WHERE table_name = 'nm' AND column_name <> 'k' ORDER BY ordinal_position;
 -- @num_float_eq
 SELECT k FROM nm WHERE a = 0.1::float8 + 0.91::float8;
 -- @num_float_eq_exact
@@ -133,7 +133,7 @@ ROLLBACK;
 -- @numt_format_type ordered
 SELECT attname, format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = 'nt'::regclass AND attnum > 0 ORDER BY attnum;
 -- @numt_information_schema ordered
-SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'nt' AND column_name <> 'k' ORDER BY ordinal_position;
+SELECT column_name, data_type, numeric_precision, numeric_precision_radix, numeric_scale FROM information_schema.columns WHERE table_name = 'nt' AND column_name <> 'k' ORDER BY ordinal_position;
 -- @numt_like_cte
 WITH x AS (SELECT b FROM nt) SELECT b FROM x WHERE b LIKE '1%';
 -- @numt_like_typed

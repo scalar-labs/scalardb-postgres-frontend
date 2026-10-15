@@ -595,6 +595,16 @@ public class ColumnMapTest {
                         .get()
                         .run()))
         .isEqualTo("42701"); // the name is taken: that, before any length check
+    for (String rename : new String[] {"name TO name", "nosuch TO k"}) {
+      assertThat(
+              state(
+                  () ->
+                      Optional.ofNullable(
+                              parser.parse("ALTER TABLE e RENAME COLUMN " + rename).getDdl())
+                          .get()
+                          .run()))
+          .isEqualTo(rename.startsWith("name") ? "42701" : "42703");
+    }
     assertThat(
             state(
                 () ->

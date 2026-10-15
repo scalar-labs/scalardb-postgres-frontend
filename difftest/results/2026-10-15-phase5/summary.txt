@@ -32,3 +32,15 @@ now reports integer, bigint, real and double precision precisions as PostgreSQL.
   sql92 s01        s01_6_1_describe_column_types DIFF -> OK: every s01 case is now OK or BOTH_ERR. Baseline
                    updated.
   every other set and fuzz seeds 7, 11, 23: as above.
+
+Rerun after the second code review (of commit fd0a51c), which found that a char compared outside the first fix's
+shapes (BETWEEN, IS DISTINCT FROM, CASE c WHEN, 'x' IN (c), a parameter, a varchar) and a char reached through a
+subquery or CTE still compared with trailing spaces; the evaluator now compares as bpchar where PostgreSQL does.
+Also: RENAME of a missing column gives 42703 and RENAME a TO a 42701; lpad / rpad refuse a numeric or bigint
+length (42883); information_schema.columns has numeric_precision_radix. Nine character cases added; the numeric
+information_schema cases now read numeric_precision_radix too.
+  character        OK 33, BOTH_ERR 7 (pad_numeric_length: same SQLSTATE, PostgreSQL names the literal unknown
+                   where the frontend says text), baseline updated.
+  numeric          OK 52, BOTH_ERR 7, as the baseline.
+  every other set and fuzz seeds 7, 11, 23: as their baselines (s02_11_1_create_schema_authorization CODE ->
+                   FE_ERR, the fresh-database effect).
