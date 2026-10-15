@@ -923,6 +923,13 @@ final class Catalog {
           continue;
         }
         long relOid = oid++;
+        // as CREATE TABLE ... WITH (encrypted = '...') set them, for \d+ to show
+        List<String> encrypted = new ArrayList<>();
+        for (String column : metadata.getColumnNames()) {
+          if (metadata.getEncryptedColumnNames().contains(column)) {
+            encrypted.add(column);
+          }
+        }
         relation(
             t,
             relOid,
@@ -931,7 +938,10 @@ final class Catalog {
             "r",
             HEAP_AM,
             true,
-            grantees.isEmpty() ? null : acl(grantees, namespaceGrants, namespace, table));
+            grantees.isEmpty() ? null : acl(grantees, namespaceGrants, namespace, table),
+            encrypted.isEmpty()
+                ? null
+                : Collections.singletonList("encrypted=" + String.join(",", encrypted)));
         relationOids.put(namespace + "." + table, relOid);
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
@@ -1038,7 +1048,7 @@ final class Catalog {
               (long) (k + 1));
         }
         long pkeyOid = oid++;
-        relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null);
+        relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null, null);
         row(
             t,
             "pg_catalog.pg_index",
@@ -1101,7 +1111,7 @@ final class Catalog {
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
           String indexName = table + "_" + index + "_idx";
-          relation(t, indexOid, indexName, namespaceOid, "i", BTREE_AM, false, null);
+          relation(t, indexOid, indexName, namespaceOid, "i", BTREE_AM, false, null, null);
           int indexPosition = new ArrayList<>(metadata.getColumnNames()).indexOf(index) + 1;
           long indexAttnum = indexPosition;
           row(
@@ -1310,7 +1320,8 @@ final class Catalog {
       String kind,
       long am,
       boolean hasIndex,
-      @Nullable List<String> acl) {
+      @Nullable List<String> acl,
+      @Nullable List<String> options) {
     row(
         t,
         "pg_catalog.pg_class",
@@ -1332,7 +1343,7 @@ final class Catalog {
         "d",
         0L,
         0L,
-        null,
+        options,
         null,
         -1.0,
         acl,

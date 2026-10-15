@@ -34,6 +34,15 @@ at the end of this section.
   supported (`0A000`): `PUBLIC`, column privileges, `CASCADE`, `GRANTED BY`, other object kinds than
   tables and schemas, and role options other than `PASSWORD`, `SUPERUSER` and `LOGIN`. Dropping
   several names is not atomic.
+- **Encryption and ABAC are Cluster's, and partly outside SQL.** `CREATE TABLE ... WITH (encrypted =
+  'a, b')` encrypts columns, but `ALTER TABLE ADD COLUMN` cannot add an encrypted one, and an encrypted
+  column cannot be a key, be indexed, be renamed or change type. A condition or sort on an encrypted
+  column runs in the frontend, after the read: `WHERE ssn = '...'` alone reads the whole table. ABAC
+  policies and user tags are managed with ScalarDB SQL or `AbacAdmin`, not SQL here, and the data tag
+  column cannot be filtered or sorted on (`0A000`, Cluster's refusal). Per-statement read and write
+  tags (Cluster's `abac-read-tag-*` and `abac-write-tag-*` operation attributes) cannot be set: every
+  statement runs with the user's own tags. See [Encrypted columns and row-level
+  access](getting-started/README.md#encrypted-columns-and-row-level-access).
 - **`COPY` is not supported;** load data with INSERTs.
 - **Resource limits PostgreSQL does not have.** A sort, aggregate, window or join side holds its
   rows in memory, so one of them may hold at most a million rows

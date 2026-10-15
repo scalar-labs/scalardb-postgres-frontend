@@ -2856,7 +2856,7 @@ public class QueryParser {
   /**
    * CREATE TABLE: the first PRIMARY KEY column is the partition key and the rest are clustering
    * keys, unless {@code WITH (partition_key = 'a, b', clustering_key = 'c DESC, d')} says
-   * otherwise.
+   * otherwise. {@code WITH (encrypted = 'e, f')} encrypts those columns in ScalarDB Cluster.
    */
   private Plan createTable(CreateTable create) {
     if (create.getCreateOptionsStrings() != null
@@ -2965,9 +2965,29 @@ public class QueryParser {
       builder.addClusteringKey(parts[0], desc ? Scan.Ordering.Order.DESC : Scan.Ordering.Order.ASC);
     }
     TableMetadata metadata = builder.build();
+    if (options.containsKey("encrypted")) {
+      // ScalarDB Cluster's encryption: the values are stored as ciphertext, so a key column, which
+      // the storage looks rows up by, cannot be one
+      TableMetadata.Builder encrypted = TableMetadata.newBuilder(metadata);
+      for (String column : options.get("encrypted").split("\\s*,\\s*", -1)) {
+        column = column.trim();
+        if (!columns.contains(column)) {
+          throw new PgException.Argument(
+              "42703", "column \"" + column + "\" named in encrypted does not exist");
+        }
+        if (metadata.getPartitionKeyNames().contains(column)
+            || metadata.getClusteringKeyNames().contains(column)) {
+          throw new PgException.Argument(
+              "0A000", "key column \"" + column + "\" cannot be encrypted");
+        }
+        encrypted.addColumn(column, metadata.getColumnDataType(column), true);
+      }
+      metadata = encrypted.build();
+    }
+    TableMetadata table = metadata;
     boolean ifNotExists = create.isIfNotExists();
     Plan plan =
-        Plan.ddl(() -> admin.createTable(namespace, name, metadata, ifNotExists), "CREATE TABLE");
+        Plan.ddl(() -> admin.createTable(namespace, name, table, ifNotExists), "CREATE TABLE");
     plan.notices.addAll(notices);
     return plan;
   }
@@ -4926,7 +4946,9 @@ public class QueryParser {
       List<OrderByElement> orderBy,
       int limit) {
     Target t = s.table();
-    List<String> projections = s.star ? Collections.emptyList() : new ArrayList<>(s.projections);
+    // Every column by name: Cluster's ABAC leaves its data tag column out of a read that names none
+    List<String> projections =
+        new ArrayList<>(s.star ? t.metadata.getColumnNames() : s.projections);
     if (!s.star && projections.isEmpty()) {
       // count(*), EXISTS, SELECT 1: no column is read, but an empty projection list means every
       // column to ScalarDB, so ask for the partition key alone (todo 033)
@@ -5807,6 +5829,19 @@ public class QueryParser {
    * when the condition cannot be pushed, or when its value is NULL, which matches nothing.
    */
   @Nullable static ConditionalExpression pushable(
+      Expression e,
+      TableMetadata metadata,
+      @Nullable Map<String, Object> row,
+      @Nullable Evaluator.Context ctx) {
+    ConditionalExpression p = condition(e, metadata, row, ctx);
+    // Cluster stores an encrypted column as ciphertext and refuses it in a condition, so it is
+    // compared here, on the decrypted value
+    return p == null || metadata.getEncryptedColumnNames().contains(p.getColumn().getName())
+        ? null
+        : p;
+  }
+
+  @Nullable private static ConditionalExpression condition(
       Expression e,
       TableMetadata metadata,
       @Nullable Map<String, Object> row,

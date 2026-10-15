@@ -193,6 +193,26 @@ public class PostgresServerTest {
   }
 
   @Test
+  public void error_ScalarDbRefusal_ShouldKeepItsMessage() throws Exception {
+    doThrow(
+            new UnsupportedOperationException(
+                "DB-CORE-10143: The encryption feature is not enabled."))
+        .when(admin)
+        .createTable(any(), any(), any(), anyBoolean());
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(
+              () ->
+                  statement.execute(
+                      "CREATE TABLE e (id INT PRIMARY KEY, s TEXT) WITH (encrypted = 's')"))
+          .isInstanceOf(SQLException.class)
+          .hasMessageContaining("The encryption feature is not enabled")
+          .extracting(e -> ((SQLException) e).getSQLState())
+          .isEqualTo("0A000");
+    }
+  }
+
+  @Test
   public void error_ShouldBeReportedAsInternalErrorAndConnectionStayUsable() throws Exception {
     when(manager.begin()).thenThrow(new AssertionError("boom"));
     try (Connection connection = connect("");

@@ -283,6 +283,34 @@ ALTER USER carol PASSWORD 'newpw';                -- not psql's \password, which
 DROP USER carol;
 ```
 
+## Encrypted columns and row-level access
+
+ScalarDB Cluster's encryption and attribute-based access control (ABAC) work through the frontend,
+when the Cluster nodes have them enabled.
+
+**Encryption.** Name the columns when creating the table; Cluster stores them as ciphertext and
+decrypts them for the reader:
+
+```sql
+CREATE TABLE people (id int PRIMARY KEY, name text, ssn text, card text)
+  WITH (encrypted = 'ssn, card');
+```
+
+A key column cannot be encrypted (`0A000`), and neither can an indexed one. `WHERE`, `ORDER BY` and
+joins on an encrypted column work, but the frontend evaluates them after reading the rows, so a
+filter on an encrypted column alone reads the whole table. `\d+ people` lists the encrypted columns
+under `Options`. Without encryption enabled, the `CREATE TABLE` fails with `0A000`.
+
+**ABAC.** Set up policies, levels, compartments, groups and user tags with ScalarDB SQL or Cluster's
+`AbacAdmin`; there is no PostgreSQL syntax for them. Then log in as a user ([Connect as a
+user](#connect-as-a-user)), and Cluster applies the user's tags to every statement: rows the user may
+not read are left out of every `SELECT`, `UPDATE` and `DELETE` without an error, as PostgreSQL's
+row-level security does, and an `INSERT` is tagged with the user's default row tag unless it sets the
+data tag column itself (`42501` if the user may not write that tag). The data tag column reads as
+text, such as `CONF::`, and cannot appear in `WHERE` or `ORDER BY` (`0A000`). A superuser bypasses ABAC.
+
+[difftest/cluster-security](../difftest/cluster-security/README.md) runs both against a local Cluster node.
+
 ## Limitations to know
 
 What the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL is listed

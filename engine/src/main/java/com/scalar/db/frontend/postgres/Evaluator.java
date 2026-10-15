@@ -1066,6 +1066,21 @@ final class Evaluator {
     if (e instanceof Concat) {
       Object l = evalText(((Concat) e).getLeftExpression(), group, ctx);
       Object r = evalText(((Concat) e).getRightExpression(), group, ctx);
+      if (l instanceof List || r instanceof List) {
+        // array || array, array || element, element || array; a NULL array is the other side
+        if (l == null || r == null) {
+          return l == null ? r : l;
+        }
+        List<Object> out = new ArrayList<>();
+        for (Object side : new Object[] {l, r}) {
+          if (side instanceof List) {
+            out.addAll((List<?>) side);
+          } else {
+            out.add(side);
+          }
+        }
+        return out;
+      }
       if (l == null || r == null) {
         return null;
       }

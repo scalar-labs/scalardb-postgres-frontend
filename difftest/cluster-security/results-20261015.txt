@@ -1,0 +1,32 @@
+PASS CREATE TABLE ... WITH (encrypted)
+PASS an encrypted key is refused
+PASS an unknown encrypted column is refused
+PASS \d+ shows the encrypted columns
+PASS inserts
+PASS reads decrypt
+PASS the database holds ciphertext
+PASS = on an encrypted column
+PASS = on the key and an encrypted column
+PASS LIKE and IS NULL in an OR
+PASS a bound parameter
+PASS ORDER BY an encrypted column
+PASS a join on an encrypted column
+PASS a keyed UPDATE with an encrypted condition
+PASS ... and one that does not match
+PASS DELETE by an encrypted column
+PASS the writes landed
+PASS an index on an encrypted column is refused
+PASS alice (CONF) sees both rows
+PASS bob (PUB) sees the public row only
+PASS bob's Get of the CONF row is empty
+PASS SELECT * shows the data tag
+PASS the data tag column in WHERE is refused
+PASS alice's insert takes her level
+PASS alice may write a lower level
+PASS bob may not write a higher level
+PASS bob cannot update a row he cannot see
+PASS bob cannot delete a row he cannot see
+PASS bob's scan-driven UPDATE skips it too
+PASS the CONF rows are untouched
+PASS the superuser bypasses ABAC
+31 passed, 0 failed

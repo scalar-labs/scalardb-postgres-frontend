@@ -167,6 +167,7 @@ public class QueryParserTest {
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
                 .start(Key.ofBigInt("seq", -2), false)
+                .projections("id", "seq", "name", "price", "active")
                 .ordering(Scan.Ordering.desc("seq"))
                 .limit(12)
                 .where(ConditionBuilder.column("price").isLessThanDouble(3.5))
@@ -180,6 +181,39 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_ConditionOnEncryptedColumn_ShouldBeEvaluatedHereNotPushedDown()
+      throws Exception {
+    TableMetadata encrypted =
+        TableMetadata.newBuilder()
+            .addColumn("id", DataType.INT)
+            .addColumn("ssn", DataType.TEXT, true)
+            .addColumn("v", DataType.INT)
+            .addPartitionKey("id")
+            .build();
+    when(admin.getTableMetadata(NS, "e")).thenReturn(encrypted);
+    QueryParser.Plan plan = parser.parse("SELECT v FROM e WHERE id = 1 AND ssn = 'x' AND v > 0");
+    assertThat(plan.getOperations())
+        .containsExactly(
+            Get.newBuilder()
+                .namespace(NS)
+                .table("e")
+                .partitionKey(Key.ofInt("id", 1))
+                .projections("id", "ssn", "v")
+                .where(ConditionBuilder.column("v").isGreaterThanInt(0))
+                .build());
+    Map<String, Column<?>> columns = new LinkedHashMap<>();
+    columns.put("id", IntColumn.of("id", 1));
+    columns.put("ssn", TextColumn.of("ssn", "y"));
+    columns.put("v", IntColumn.of("v", 5));
+    when(transaction.get(any()))
+        .thenReturn(java.util.Optional.of(new ResultImpl(columns, encrypted)));
+    assertThat(plan.execute(transaction)).isEmpty();
+    // a keyed UPDATE whose condition names an encrypted column reads the row and compares here
+    assertThat(parser.parse("UPDATE e SET v = 2 WHERE id = 1 AND ssn = 'x'").getOperations())
+        .noneMatch(o -> o instanceof com.scalar.db.api.Update);
+  }
+
+  @Test
   public void parse_SelectWithIndexColumn_ShouldReturnIndexScan() throws Exception {
     assertThat(parser.parse("SELECT * FROM t WHERE name = 'x' AND price >= 1").getOperations())
         .containsExactly(
@@ -187,6 +221,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .indexKey(Key.ofText("name", "x"))
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("price").isGreaterThanOrEqualToDouble(1))
                 .build());
   }
@@ -1001,7 +1036,7 @@ public class QueryParserTest {
                     + found.get(0).get("oid")
                     + "'")
             .execute(transaction);
-    assertThat(header).containsExactly(map("relkind", "r", "options", null, "amname", "heap"));
+    assertThat(header).containsExactly(map("relkind", "r", "options", "", "amname", "heap"));
   }
 
   @Test
@@ -1152,6 +1187,34 @@ public class QueryParserTest {
     assertThatThrownBy(() -> parser.parse("CREATE TABLE nokey (id int, name text)"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("PRIMARY KEY");
+  }
+
+  @Test
+  public void parse_CreateTableWithEncrypted_ShouldEncryptThoseColumns() throws Exception {
+    parser
+        .parse(
+            "CREATE TABLE s (id int PRIMARY KEY, ssn text, card text, v int) "
+                + "WITH (encrypted = 'ssn, card')")
+        .getDdl()
+        .run();
+    verify(admin)
+        .createTable(
+            NS,
+            "s",
+            TableMetadata.newBuilder()
+                .addColumn("id", DataType.INT)
+                .addColumn("ssn", DataType.TEXT, true)
+                .addColumn("card", DataType.TEXT, true)
+                .addColumn("v", DataType.INT)
+                .addPartitionKey("id")
+                .build(),
+            false);
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE s (id int PRIMARY KEY) WITH (encrypted = 'nope')"))
+        .hasMessage("column \"nope\" named in encrypted does not exist");
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE s (id int PRIMARY KEY) WITH (encrypted = 'id')"))
+        .hasMessage("key column \"id\" cannot be encrypted");
   }
 
   @Test
@@ -2907,6 +2970,19 @@ public class QueryParserTest {
                 .parse("SELECT * FROM unnest($1)", Collections.singletonList("{p,q}"))
                 .execute(transaction))
         .containsExactly(map("unnest", "p"), map("unnest", "q"));
+    // || on arrays concatenates them, as psql's \\d+ does with reloptions
+    assertThat(
+            parser
+                .parse(
+                    "SELECT ARRAY[1, 2] || ARRAY[3] AS a, ARRAY[1] || 2 AS b, 0 || ARRAY[1] AS c, "
+                        + "NULL::int[] || ARRAY[1] AS d")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a", Arrays.asList(1L, 2L, 3L),
+                "b", Arrays.asList(1L, 2L),
+                "c", Arrays.asList(0L, 1L),
+                "d", Arrays.asList(1L)));
   }
 
   @Test
@@ -2999,6 +3075,6 @@ public class QueryParserTest {
     assertThat(String.join("\n", parser.explain(parser.parse("SELECT count(*) FROM t"))))
         .contains("projections=[id]");
     assertThat(String.join("\n", parser.explain(parser.parse("SELECT * FROM t"))))
-        .contains("projections=[all]");
+        .contains("projections=[id, seq, name, price, active]");
   }
 }

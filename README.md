@@ -10,7 +10,9 @@ It also emulates enough of `pg_catalog` for psql's meta-commands, and supports D
 `ON CONFLICT`, `EXPLAIN [ANALYZE]` and transactions.
 
 **Status: experimental.** Authentication and TLS only in front of ScalarDB Cluster, whose users and privileges
-then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)); no `COPY`; type modifiers such
+then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)), as do its encryption and
+ABAC ([Encrypted columns and row-level access](getting-started/README.md#encrypted-columns-and-row-level-access));
+no `COPY`; type modifiers such
 as `NUMERIC(10,2)` kept only as a `NOTICE`; text comparison following the backing database's collation; and no
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.

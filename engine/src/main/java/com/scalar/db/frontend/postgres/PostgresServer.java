@@ -1150,7 +1150,9 @@ public class PostgresServer implements AutoCloseable {
           || e instanceof NullPointerException
           || e instanceof ClassCastException
           || e instanceof IndexOutOfBoundsException
-          || e instanceof UnsupportedOperationException
+          // ScalarDB's own refusals (DB-CORE-10143, encryption not enabled) carry an error code
+          || (e instanceof UnsupportedOperationException
+              && !String.valueOf(e.getMessage()).startsWith("DB-"))
           || e instanceof java.util.ConcurrentModificationException;
     }
 
@@ -1331,6 +1333,30 @@ public class PostgresServer implements AutoCloseable {
     }
     if (m.contains("DB-AUTH-")) {
       return "42501"; // insufficient_privilege
+    }
+    // Cluster's ABAC: a data tag column in a WHERE or ORDER BY, a malformed tag, a dead token, and
+    // every other refusal, which is a tag the user may not read or write
+    if (m.contains("DB-ABAC-10037") || m.contains("DB-ABAC-10042")) {
+      return "0A000"; // feature_not_supported
+    }
+    if (m.contains("DB-ABAC-10030")
+        || m.contains("DB-ABAC-10031")
+        || m.contains("DB-ABAC-10032")
+        || m.contains("DB-ABAC-10033")) {
+      return "22023"; // invalid_parameter_value
+    }
+    if (m.contains("DB-ABAC-10039")) {
+      return "28000"; // invalid_authorization_specification, as DB-AUTH-10006
+    }
+    if (m.contains("DB-ABAC-1")) {
+      return "42501"; // insufficient_privilege
+    }
+    // Cluster's encryption refusing an encrypted key, index, rename or type change, and core
+    // refusing an encrypted column, or ABAC, when Cluster does not provide them
+    if (m.contains("DB-ENCRYPTION-1")
+        || m.contains("DB-CORE-10143")
+        || m.contains("DB-CORE-10152")) {
+      return "0A000"; // feature_not_supported
     }
     if (m.contains("DB-CORE-10026")) {
       return "22025"; // invalid_escape_sequence

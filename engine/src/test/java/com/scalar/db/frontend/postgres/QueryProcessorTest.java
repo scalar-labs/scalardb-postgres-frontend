@@ -67,7 +67,8 @@ public class QueryProcessorTest {
 
     assertThat(actual).containsExactly(Collections.singletonMap("id", 1));
     assertThat(processor.inTransaction()).isFalse();
-    verify(transaction).scan(Scan.newBuilder().namespace("ns").table("t").all().build());
+    verify(transaction)
+        .scan(Scan.newBuilder().namespace("ns").table("t").all().projections("id").build());
     verify(transaction).commit();
     verify(manager, never()).scan(any());
     // outside a transaction COMMIT and ROLLBACK only warn, as in PostgreSQL

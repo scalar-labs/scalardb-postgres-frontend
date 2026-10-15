@@ -354,6 +354,8 @@ final class Optimizer {
         if (column == null
             || other == null
             || params.containsKey(column)
+            // an encrypted column is compared in memory, as QueryParser.pushable says
+            || s.table().metadata.getEncryptedColumnNames().contains(column)
             || !QueryParser.subselects(other).isEmpty()
             || !refersOnlyToEarlier(other, sources, i)) {
           continue;
