@@ -102,6 +102,9 @@ does, shows it everywhere a client can look, and stores `NUMERIC` exactly:
 | `CHAR(n)`, `CHAR` = `CHAR(1)` | `TEXT`, trailing spaces trimmed (padded to n on output) | length → 22001 |
 | `SMALLINT`, `INT2`, `SMALLSERIAL` | `INT` | 16-bit range → 22003 |
 
+> **Revised 2026-10-15:** the user chose a frontend metadata table, not the column-name encoding below; see
+> [2026-10-15-001-refactor-type-metadata-table-plan.md](2026-10-15-001-refactor-type-metadata-table-plan.md).
+
 The declared type is recorded **in the ScalarDB column name** (`amount` declared `NUMERIC(10,2)` is the
 ScalarDB column `amount__pg_n10_2`), and every client-facing surface shows the client name and declared type.
 This is an interim until ScalarDB core has a decimal type or type modifiers; the encoding is specified so core
