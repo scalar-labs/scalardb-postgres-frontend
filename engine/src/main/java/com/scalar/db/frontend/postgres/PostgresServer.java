@@ -2,6 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
+import com.scalar.db.common.CollationComparator;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
@@ -233,6 +234,7 @@ public class PostgresServer implements AutoCloseable {
       sslRequire = Boolean.parseBoolean(require);
     }
     maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
+    Evaluator.setCollation(CollationComparator.from(new DatabaseConfig(properties)));
     typeStore = new TypeStore(manager, admin, properties);
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
@@ -1386,11 +1388,12 @@ public class PostgresServer implements AutoCloseable {
     if (m.contains("DB-ABAC-1")) {
       return "42501"; // insufficient_privilege
     }
-    // Cluster's encryption refusing an encrypted key, index, rename or type change, and core
-    // refusing an encrypted column, or ABAC, when Cluster does not provide them
+    // Cluster's encryption refusing an encrypted key, index, rename or type change, core refusing
+    // an encrypted column, or ABAC, when Cluster does not provide them, and LIKE under ICU
     if (m.contains("DB-ENCRYPTION-1")
         || m.contains("DB-CORE-10143")
-        || m.contains("DB-CORE-10152")) {
+        || m.contains("DB-CORE-10152")
+        || m.contains("DB-CORE-10309")) {
       return "0A000"; // feature_not_supported
     }
     if (m.contains("DB-CORE-10026")) {

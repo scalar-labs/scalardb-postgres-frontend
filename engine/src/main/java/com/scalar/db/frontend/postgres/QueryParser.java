@@ -3199,7 +3199,8 @@ public class QueryParser {
     String col = "column \"" + column + "\"";
     Matcher collate = Pattern.compile("COLLATE\\s+(\\S+)").matcher(specs);
     if (collate.find()) {
-      Evaluator.checkCollation(collate.group(1));
+      Evaluator.checkColumnCollation(collate.group(1));
+      specs = collate.replaceFirst(""); // COLLATE "default" is not a DEFAULT
     }
     if (specs.contains("NOT NULL") && !keyColumn) {
       out.add("NOT NULL on " + col + " is not enforced by ScalarDB");

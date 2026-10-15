@@ -1,5 +1,6 @@
 package com.scalar.db.frontend.postgres;
 
+import com.scalar.db.common.CollationComparator;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -102,7 +103,19 @@ final class Evaluator {
           "STRING_AGG",
           "ARRAY_AGG");
 
+  // ScalarDB's text order (scalar.db.collation), so text compared here agrees with what is pushed
+  // down
+  private static volatile CollationComparator collation = CollationComparator.binary();
+
   private Evaluator() {}
+
+  static void setCollation(CollationComparator c) {
+    collation = c;
+  }
+
+  static CollationComparator collation() {
+    return collation;
+  }
 
   /** The outer row of a correlated subquery and the plans of the subqueries in the expression. */
   static final class Context {
@@ -768,8 +781,7 @@ final class Evaluator {
    * collation would silently sort differently from PostgreSQL.
    */
   static void checkCollation(String name) {
-    String collation = name.replace("\"", "").toLowerCase(Locale.ROOT);
-    collation = collation.substring(collation.lastIndexOf('.') + 1);
+    String collation = collationName(name);
     if (!collation.equals("c")
         && !collation.equals("posix")
         && !collation.equals("ucs_basic")
@@ -780,6 +792,26 @@ final class Evaluator {
               + name.replace("\"", "")
               + "\" is not supported: only \"C\" (byte order) is available");
     }
+  }
+
+  /**
+   * A column has the one collation ScalarDB is configured with, so a column definition can name
+   * only that, as {@code "default"}.
+   */
+  static void checkColumnCollation(String name) {
+    if (!collationName(name).equals("default")) {
+      throw new PgException.Argument(
+          "0A000",
+          "collation \""
+              + name.replace("\"", "")
+              + "\" is not supported for a column: every column uses the database's collation");
+    }
+  }
+
+  /** The collation's name without quotes or schema, lower-cased. */
+  private static String collationName(String name) {
+    String collation = name.replace("\"", "").toLowerCase(Locale.ROOT);
+    return collation.substring(collation.lastIndexOf('.') + 1);
   }
 
   @Nullable static Object eval(Expression e, List<Map<String, Object>> group, Context ctx) {
@@ -1631,6 +1663,9 @@ final class Evaluator {
         return x < y ? -1 : x > y ? 1 : 0; // -0.0 equals 0.0
       }
       return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString()));
+    }
+    if (a instanceof String && b instanceof String) {
+      return collation.textComparator().compare((String) a, (String) b);
     }
     if (a instanceof Comparable && a.getClass().equals(b.getClass())) {
       @SuppressWarnings("unchecked")

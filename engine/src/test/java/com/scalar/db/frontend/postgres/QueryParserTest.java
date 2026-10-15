@@ -1730,6 +1730,13 @@ public class QueryParserTest {
         .hasMessageContaining("collation");
     assertThat(parser.parse("SELECT 'b' COLLATE \"C\" AS c").execute(transaction))
         .containsExactly(map("c", "b"));
+    // a column has ScalarDB's one collation, so a definition may name only "default"
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE x (id int PRIMARY KEY, n text COLLATE \"C\")"))
+        .isInstanceOf(PgException.class)
+        .hasMessageContaining("for a column");
+    assertThat(parser.parse("CREATE TABLE x (id int PRIMARY KEY, n text COLLATE \"default\")"))
+        .isNotNull();
     assertThatThrownBy(() -> parser.parse("SELECT DISTINCT name FROM t ORDER BY price"))
         .hasMessageContaining("for SELECT DISTINCT");
     assertThat(parser.parse("SELECT DISTINCT name FROM t ORDER BY name").getWrite()).isNull();
