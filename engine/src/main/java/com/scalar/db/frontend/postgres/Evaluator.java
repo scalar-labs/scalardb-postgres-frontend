@@ -3278,8 +3278,9 @@ final class Evaluator {
     if (fill.isEmpty()) {
       return s;
     }
-    // ponytail: a fixed cap well under PostgreSQL's 1 GB value limit, which it reports the same way
-    if (n > 100_000_000) {
+    // ponytail: a fixed 10M-character cap, far under PostgreSQL's 1 GB, because one shared JVM
+    // serves every session; make it a property if someone needs longer padded values
+    if (n > 10_000_000) {
       throw new PgException.Argument("54000", "requested length too large");
     }
     StringBuilder padding = new StringBuilder();

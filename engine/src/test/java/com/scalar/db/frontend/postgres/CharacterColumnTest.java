@@ -223,6 +223,8 @@ public class CharacterColumnTest {
                         + " rpad('abcdef', 3) AS t, lpad('x', 4, 'ab') AS f")
                 .execute(transaction))
         .containsExactly(map("r", "ab   |", "l", "007", "t", "abc", "f", "abax"));
+    assertThatThrownBy(() -> parser.parse("SELECT rpad('x', 10000001) AS r").execute(transaction))
+        .hasMessage("requested length too large");
   }
 
   private static Map<String, Object> map(Object... namesAndValues) {
