@@ -142,9 +142,7 @@ at the end of this section.
   `SET TRANSACTION ...`) is refused with `0A000` rather than ignored.
 - **One collation for all text: ScalarDB's.** Text compares in `scalar.db.collation`: byte order
   (`BINARY`, the default) or an ICU locale (`ICU`), and the backing database must be set up to
-  compare the same way, since keys and pushed-down conditions are compared there. Under `BINARY`, create
-  it with a binary collation (`C` locale, `utf8mb4_0900_bin`); for `ICU` see [Case-insensitive
-  text](getting-started/README.md#case-insensitive-text). With Cluster, set the same
+  compare the same way, since keys and pushed-down conditions are compared there. With Cluster, set the same
   `scalar.db.collation` in the frontend's properties as on the nodes.
 - **Under `ICU`, pattern matching on table text is refused** with `0A000`, as PostgreSQL 16 refuses it
   on a nondeterministic collation: `LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions, and `position`,

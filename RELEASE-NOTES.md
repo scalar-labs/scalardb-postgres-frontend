@@ -9,8 +9,8 @@ Text compared in the frontend (residual filters, `ORDER BY`, `GROUP BY`, `DISTIN
 answers the same whichever path it takes. Under the default `BINARY`, text orders by code point, which differs
 from before only for characters outside the Basic Multilingual Plane, such as emoji. Under `ICU`
 (`scalar.db.collation.icu.locale`), texts the locale calls equal are one value, as in a PostgreSQL column with a
-nondeterministic ICU collation, which `pg_collation` and psql's `\d` show; see [Case-insensitive
-text](getting-started/README.md#case-insensitive-text) for setting up the backing database.
+nondeterministic ICU collation, which `pg_collation` and psql's `\d` show (see [Case-insensitive
+text](getting-started/README.md#case-insensitive-text)).
 
 Behaviour that changes:
 

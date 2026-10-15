@@ -331,19 +331,9 @@ collation, which psql's `\d` shows (`und-u-ks-level2-x-icu`), and like one in Po
 `LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions and substring searches (`position`, `strpos`,
 `replace`, `starts_with`) on table text fail with `0A000`.
 
-The backing database compares keys and pushed-down conditions itself, so it must use the same
-collation. On PostgreSQL, a nondeterministic collation cannot be a database's default: create the
-tables through the frontend, then alter each character column on the backing database, as
-[backend.sql](../difftest/collation-icu/backend.sql) does for the schema `sdb`:
-
-```sql
-CREATE COLLATION ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
-ALTER TABLE sdb.people ALTER COLUMN name TYPE varchar(128) COLLATE ci;  -- and every other text column
-```
-
-Run that again after each `CREATE TABLE` or `ADD COLUMN`. On MySQL, set the database's default
-collation before creating the tables instead (`utf8mb4_0900_as_ci` approximates the example). With
-Cluster, set `scalar.db.collation` on the nodes and the same value in the frontend's properties.
+The backing database compares keys and pushed-down conditions itself, so it must be set up for
+the same collation, as ScalarDB requires of any application. With Cluster, set the same
+`scalar.db.collation` in the frontend's properties as on the nodes.
 
 [difftest/collation-icu](../difftest/collation-icu/README.md) compares the frontend under ICU with
 PostgreSQL.
