@@ -2016,6 +2016,16 @@ public class QueryParserTest {
         .containsExactly(
             row("id", 1, "seq", 1L, "name", "a", "price", 10.5),
             row("id", 3, "seq", 3L, "name", "new", "price", 1.0));
+    // the lookup names every column, or Cluster's ABAC leaves its data tag column out
+    verify(transaction)
+        .get(
+            Get.newBuilder()
+                .namespace(NS)
+                .table("t")
+                .partitionKey(Key.ofInt("id", 1))
+                .clusteringKey(Key.ofBigInt("seq", 1))
+                .projections("id", "seq", "name", "price", "active")
+                .build());
     verify(transaction)
         .mutate(
             Arrays.asList(
@@ -2983,6 +2993,18 @@ public class QueryParserTest {
                 "b", Arrays.asList(1L, 2L),
                 "c", Arrays.asList(0L, 1L),
                 "d", Arrays.asList(1L)));
+    // a quoted literal beside an array is an array literal, and a 2-D array takes rows
+    assertThat(
+            parser
+                .parse("SELECT ARRAY['a'] || '{b,c}' AS a, ARRAY[ARRAY[1, 2]] || ARRAY[3, 4] AS b")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a", Arrays.asList("a", "b", "c"),
+                "b", Arrays.asList(Arrays.asList(1L, 2L), Arrays.asList(3L, 4L))));
+    assertThatThrownBy(() -> parser.parse("SELECT ARRAY['a'] || 'b'").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
   }
 
   @Test

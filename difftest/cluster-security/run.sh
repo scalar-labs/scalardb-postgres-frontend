@@ -58,6 +58,7 @@ check "bob cannot update a row he cannot see" 'UPDATE 0' "$(as bob "UPDATE docs 
 check "bob cannot delete a row he cannot see" 'DELETE 0' "$(as bob 'DELETE FROM docs WHERE id = 3')"
 check "bob's scan-driven UPDATE skips it too" 'UPDATE 0' "$(as bob "UPDATE docs SET body = 'x' WHERE body = 'secret plan'")"
 check "the CONF rows are untouched" '^2\|secret plan 3\|alice default $' "$(row alice "SELECT id, body FROM docs WHERE id IN (2, 3) ORDER BY id")"
+check "ON CONFLICT DO UPDATE reads the data tag" '^CONF:: INSERT 0 1' "$(row alice "INSERT INTO docs (id, body) VALUES (3, 'again') ON CONFLICT (id) DO UPDATE SET body = docs.lv_data_tag RETURNING body")"
 check "the superuser bypasses ABAC" '^4 $' "$(row admin 'SELECT count(*) FROM docs')"
 
 echo "$pass passed, $fail failed"

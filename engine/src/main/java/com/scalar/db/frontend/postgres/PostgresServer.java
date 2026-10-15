@@ -1348,6 +1348,9 @@ public class PostgresServer implements AutoCloseable {
     if (m.contains("DB-ABAC-10039")) {
       return "28000"; // invalid_authorization_specification, as DB-AUTH-10006
     }
+    if (m.contains("DB-ABAC-3") || m.contains("DB-ENCRYPTION-3")) {
+      return "XX000"; // internal_error: Cluster failed, not the client
+    }
     if (m.contains("DB-ABAC-1")) {
       return "42501"; // insufficient_privilege
     }

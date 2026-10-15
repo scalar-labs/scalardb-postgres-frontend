@@ -281,6 +281,35 @@ final class Evaluator {
     return v instanceof Untyped ? ((Untyped) v).guess : v;
   }
 
+  /** A quoted literal beside an array is PostgreSQL's array text; any other value stays as is. */
+  @Nullable private static Object arrayLiteral(Expression e, @Nullable Object value) {
+    if (value == null || value instanceof List || !(e instanceof StringValue)) {
+      return value;
+    }
+    try {
+      return QueryParser.parseArrayText(String.valueOf(value));
+    } catch (IllegalArgumentException malformed) {
+      throw new PgException.Argument("22P02", "malformed array literal: \"" + value + "\"");
+    }
+  }
+
+  /** How deeply arrays nest in {@code v}: 0 for an element, 1 for an array of elements. */
+  private static int depth(Object v) {
+    int depth = 0;
+    while (v instanceof List) {
+      depth++;
+      Object first = null;
+      for (Object element : (List<?>) v) {
+        if (element != null) {
+          first = element;
+          break;
+        }
+      }
+      v = first;
+    }
+    return depth;
+  }
+
   /** As {@link #eval}, but an untyped parameter is the text the client sent. */
   @Nullable static Object evalText(Expression e, List<Map<String, Object>> group, Context ctx) {
     if (e instanceof JdbcParameter) {
@@ -1066,17 +1095,22 @@ final class Evaluator {
     if (e instanceof Concat) {
       Object l = evalText(((Concat) e).getLeftExpression(), group, ctx);
       Object r = evalText(((Concat) e).getRightExpression(), group, ctx);
-      if (l instanceof List || r instanceof List) {
-        // array || array, array || element, element || array; a NULL array is the other side
+      if ((l instanceof List && !(l instanceof Row))
+          || (r instanceof List && !(r instanceof Row))) {
+        // array || array, array || element, element || array; a NULL array is the other side, and
+        // a quoted literal beside an array is an array literal ('{b,c}'), as in PostgreSQL
+        l = arrayLiteral(((Concat) e).getLeftExpression(), l);
+        r = arrayLiteral(((Concat) e).getRightExpression(), r);
         if (l == null || r == null) {
           return l == null ? r : l;
         }
         List<Object> out = new ArrayList<>();
+        int depth = Math.max(depth(l), depth(r));
         for (Object side : new Object[] {l, r}) {
-          if (side instanceof List) {
+          if (depth(side) == depth) {
             out.addAll((List<?>) side);
           } else {
-            out.add(side);
+            out.add(side); // an element, or a row of a two-dimensional array
           }
         }
         return out;

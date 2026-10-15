@@ -1,7 +1,7 @@
 # Encryption and ABAC against a standalone ScalarDB Cluster node
 
 A Cluster node with authentication, encryption and attribute-based access control on, the frontend in
-cluster mode with `scalar.db.postgres.auth=userpass`, and the psql scenario in `run.sh` (31 checks):
+cluster mode with `scalar.db.postgres.auth=userpass`, and the psql scenario in `run.sh` (32 checks):
 `CREATE TABLE ... WITH (encrypted = '...')`, values stored as ciphertext, conditions, sorts and joins on
 encrypted columns evaluated in the frontend, and two users at different ABAC levels seeing and writing
 different rows of the same table. `results-20261015.txt` is a run.
@@ -22,6 +22,8 @@ plain `node` module, which runs both features without a licence check.
        -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 --cap-add=IPC_LOCK hashicorp/vault:1.18
    docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root sdb-vault vault secrets enable transit
    ```
+   A dev server keeps its keys in memory: after a restart, enable transit again and recreate the
+   database `clustersec`, since the data encrypted under the old keys cannot be read any more.
 3. The node (`./node.sh`, JDK 21), then, once it listens on 60053, the policy, users and table as the
    superuser, and the frontend on 15447:
    ```sh
@@ -39,7 +41,8 @@ run.
 ## What it found
 
 - Cluster leaves the data tag column out of a read without a projection list, so `SELECT *` showed
-  it as NULL; the frontend now always names the columns it reads.
+  it as NULL; the frontend now always names the columns it reads, including the existence read of
+  `INSERT ... ON CONFLICT DO UPDATE`, whose `SET` and `WHERE` may read the tag.
 - psql's `\d+` builds the `Options` footer with `reloptions || array(...)`, which the frontend
   evaluated as text concatenation; `||` now concatenates arrays.
 - Policies cannot be read by an ordinary user (`getTablePolicies` is superuser-only), so the frontend

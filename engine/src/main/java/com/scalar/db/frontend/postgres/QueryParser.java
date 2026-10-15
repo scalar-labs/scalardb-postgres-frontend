@@ -5630,8 +5630,13 @@ public class QueryParser {
           }
           if (action != null) {
             Key partition = keyOf(t, t.metadata.getPartitionKeyNames(), proposed);
+            // every column by name, as in operation(): ABAC's data tag column is otherwise left out
             GetBuilder.BuildableGet get =
-                Get.newBuilder().namespace(t.namespace).table(t.table).partitionKey(partition);
+                Get.newBuilder()
+                    .namespace(t.namespace)
+                    .table(t.table)
+                    .partitionKey(partition)
+                    .projections(t.metadata.getColumnNames());
             List<Key> key = new ArrayList<>(Collections.singletonList(partition));
             if (!t.metadata.getClusteringKeyNames().isEmpty()) {
               Key clustering = keyOf(t, t.metadata.getClusteringKeyNames(), proposed);
