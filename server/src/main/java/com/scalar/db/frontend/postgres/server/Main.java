@@ -105,7 +105,8 @@ public final class Main {
 
   /**
    * {@code scalar.db.postgres.auth}, checked against what it needs: Cluster, TLS, and no configured
-   * user, so that a call outside a session fails rather than running as that user.
+   * user, so that a call outside a session fails rather than running as that user. Sets the Cluster
+   * SDK's auth settings to match, refusing ones configured otherwise.
    */
   static String checkedAuth(Properties properties) {
     String auth =
@@ -138,6 +139,19 @@ public final class Main {
               + " scalar.db.postgres.ssl.key, or scalar.db.postgres.ssl.require=false for local"
               + " testing only");
     }
+    // The SDK logs in only when told to, and reads only the holder of its own auth type (userpass
+    // by default): with another, every login fails with DB-CLUSTER-10066
+    requireOrSet(properties, "scalar.db.cluster.auth.enabled", "true", auth);
+    requireOrSet(properties, "scalar.db.cluster.client.auth.type", auth, auth);
     return auth;
+  }
+
+  private static void requireOrSet(Properties properties, String name, String value, String auth) {
+    String set = properties.getProperty(name);
+    if (set != null && !set.trim().equalsIgnoreCase(value)) {
+      throw new IllegalArgumentException(
+          "scalar.db.postgres.auth=" + auth + " needs " + name + "=" + value + ", not " + set);
+    }
+    properties.setProperty(name, value);
   }
 }

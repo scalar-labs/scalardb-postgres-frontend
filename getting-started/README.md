@@ -229,13 +229,14 @@ privileges apply to everything a session runs. Three things in the properties fi
 ```properties
 scalar.db.transaction_manager=cluster          # only Cluster has users; a Cluster client config follows
 scalar.db.contact_points=indirect:cluster.example.com
-scalar.db.cluster.auth.enabled=true            # without it the SDK never logs in
 scalar.db.postgres.auth=userpass               # or oidc_jwt: the client sends an access token as the password
 scalar.db.postgres.ssl.cert=server.crt         # PEM certificate chain
 scalar.db.postgres.ssl.key=server.key          # PEM, unencrypted PKCS#8 (openssl pkcs8 -topk8 -nocrypt converts)
 ```
 
-Leave `scalar.db.username` and `scalar.db.password` out: every call runs as the session's user, and
+The frontend sets the Cluster SDK's `scalar.db.cluster.auth.enabled=true` and
+`scalar.db.cluster.client.auth.type` (`userpass` or `oidc_jwt`) to match, and refuses to start if the file sets
+them otherwise. Leave `scalar.db.username` and `scalar.db.password` out: every call runs as the session's user, and
 the server refuses to start with a configured user, so that nothing can ever run as anyone else. TLS is
 required with authentication on; `scalar.db.postgres.ssl.require=false` allows plaintext for local
 testing only. The container image includes the Cluster client SDK. For the jar, the SDK and its

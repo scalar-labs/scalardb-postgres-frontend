@@ -61,6 +61,39 @@ public class MainTest {
   }
 
   @Test
+  public void checkedAuth_ShouldSetTheSdkAuthTypeToMatch() {
+    Properties oidc =
+        properties(
+            "scalar.db.postgres.auth", "oidc_jwt",
+            "scalar.db.transaction_manager", "cluster",
+            "scalar.db.postgres.ssl.require", "false");
+    Main.checkedAuth(oidc);
+    assertThat(oidc.getProperty("scalar.db.cluster.client.auth.type")).isEqualTo("oidc_jwt");
+    assertThat(oidc.getProperty("scalar.db.cluster.auth.enabled")).isEqualTo("true");
+    Properties none = properties();
+    Main.checkedAuth(none);
+    assertThat(none.stringPropertyNames()).isEmpty();
+    assertThatThrownBy(
+            () ->
+                Main.checkedAuth(
+                    properties(
+                        "scalar.db.postgres.auth", "oidc_jwt",
+                        "scalar.db.transaction_manager", "cluster",
+                        "scalar.db.postgres.ssl.require", "false",
+                        "scalar.db.cluster.client.auth.type", "userpass")))
+        .hasMessageContaining("needs scalar.db.cluster.client.auth.type=oidc_jwt, not userpass");
+    assertThatThrownBy(
+            () ->
+                Main.checkedAuth(
+                    properties(
+                        "scalar.db.postgres.auth", "userpass",
+                        "scalar.db.transaction_manager", "cluster",
+                        "scalar.db.postgres.ssl.require", "false",
+                        "scalar.db.cluster.auth.enabled", "false")))
+        .hasMessageContaining("needs scalar.db.cluster.auth.enabled=true");
+  }
+
+  @Test
   public void resolvePlaceholders_ShouldResolveEveryValueAndDropEmptyOnes() {
     Properties properties =
         properties(

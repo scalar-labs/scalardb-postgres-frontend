@@ -87,9 +87,10 @@ the next login (open sessions keep their token until it expires).
    ```sh
    java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' Setup.java admin.properties
    ```
-4. **The frontend**, with TLS from the engine's test certificate and no service user. Note
-   `scalar.db.cluster.auth.enabled=true` in `frontend.properties`: without it the SDK never logs in, and every
-   call fails with `DB-AUTH-10006`.
+4. **The frontend**, with TLS from the engine's test certificate and no service user. The frontend sets
+   `scalar.db.cluster.auth.enabled=true` and `scalar.db.cluster.client.auth.type` itself (before 2026-10-15 it
+   did not: without the first every call failed with `DB-AUTH-10006`, and without the second every `oidc_jwt`
+   login failed with `DB-CLUSTER-10066`).
    ```sh
    java -cp ../../server/build/libs/scalardb-postgres-frontend.jar:'sdk-classpath/lib/*' \
         com.scalar.db.frontend.postgres.server.Main frontend.properties 15445
