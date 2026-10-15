@@ -179,6 +179,9 @@ the result is not what PostgreSQL would return.
   product beyond `3.4e38` is returned rather than refused; an aggregate that would overflow in a
   group that `HAVING` discards is never evaluated; `round(double, n)` and `max(boolean)` are
   accepted.
+- **`||` between an array and a typed NULL.** A NULL's declared type is not kept, so
+  `NULL::int[] || 5` is NULL where PostgreSQL gives `{5}`, and `ARRAY[1] || NULL::int` is `{1}`
+  where PostgreSQL gives `{1,NULL}`.
 - **Character case follows Unicode, not the database's ctype.** `upper('é')` is `'É'` here;
   PostgreSQL under the `C` locale leaves it unchanged.
 - **Unenforced constraints and locks**, listed above: a row violating `UNIQUE`, `CHECK` or a non-key
