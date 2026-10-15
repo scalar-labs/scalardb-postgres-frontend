@@ -65,15 +65,27 @@ scalardb_postgres_frontend.column_types
 | Deployment | Who reads and writes `column_types` |
 |---|---|
 | `scalar.db.postgres.auth=none` (ScalarDB, or Cluster with a configured user) | The configured ScalarDB user, as every other call does today |
-| `auth=userpass` or `oidc_jwt` | A service user, `scalardb_postgres_frontend`, through the same transaction manager and admin: each call is wrapped in `UserpassHolder.executeWithUserpass(serviceUser, password, call)`, the way `ClusterIdentity.run` wraps a session's calls. No second `TransactionFactory`. |
+| `auth=userpass` or `oidc_jwt` | A service user, `scalardb_postgres_frontend`, through the same transaction manager: each transaction on `column_types` is begun with the Cluster SDK's per-transaction credentials, `manager.begin(Map.of("auth-type", "userpass", "auth-userpass-username", user, "auth-userpass-password", password))`, which the SDK honours whatever the client's own auth type. No second `TransactionFactory`. |
 
 New properties, required only with auth on: `scalar.db.postgres.metadata_user` (default `scalardb_postgres_frontend`) and
 `scalar.db.postgres.metadata_password`. `Main.checkedAuth` keeps refusing `scalar.db.username`/`password` with
 auth on; these two are different names on purpose, and are used for nothing but `column_types`. Startup with auth
 on and no `metadata_password` fails with a message naming the setup command.
 
-To verify before building: that a userpass call works on a manager whose sessions log in with OIDC tokens
-(`oidc_jwt`), and that Cluster table privileges can be granted on `scalardb_postgres_frontend.column_types` alone.
+**Verified 2026-10-15** (Cluster `main` 6e2cb011 node, standalone, auth on; a probe through the SDK):
+
+- `UserpassHolder` does not work under `oidc_jwt`: the SDK's default token manager is chosen by
+  `scalar.db.cluster.client.auth.type`, and the OIDC one reads only `OidcJwtAccessTokenHolder`
+  (`DB-CLUSTER-10066`). Hence the per-transaction attributes above (`AuthOperationAttributes`), which
+  `AuthTokenManagerResolver` applies before the default manager.
+- On a client configured `auth.type=oidc_jwt` with no token at all, a transaction begun with the service user's
+  attributes wrote and read `column_types`, and a one-shot `get` carrying them read it too.
+- A table grant (`admin.grant(user, namespace, table, READ, WRITE, DELETE)`) is enough and is all the service
+  user gets: reading another table in the same namespace was refused (`DB-AUTH-10008`, READ), and so was
+  `createTable` (`DB-AUTH-10008`, CREATE).
+- Not exercised: a real OIDC session alongside, for want of an identity provider. The node picks the token type
+  per request (`AuthService.getAuthTokenInfo`), so a session's JWT and the service user's login token do not
+  interact.
 
 ## The one command
 
