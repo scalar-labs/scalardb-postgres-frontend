@@ -82,22 +82,25 @@ at the end of this section.
   `VARCHAR(n)`, `SMALLINT` and `NUMERIC` keep their declaration and PostgreSQL's rules for it
   (`amount NUMERIC(10,2)` is the ScalarDB column `amount__pg_n10_2`). The suffix counts against the
   56-byte column-name limit, so a long name with a type suffix can be refused (`42622`). Other ScalarDB
-  clients see the encoded names and stored values. Known differences: a `CHAR(n)` is stored without its
-  padding and padded back when a column is returned as such, so `octet_length`, `concat` and `to_json`
-  see no padding, and a value passed through an aggregate, expression or `UNION` (`max(c)`,
-  `COALESCE(c, 'x')`) comes back unpadded; a parameter declared `text` compares with a `CHAR(n)` as if
-  it were untyped, ignoring trailing spaces;
-  `SMALLINT` arithmetic does not overflow at 32767. Columns created by an earlier release keep their plain ScalarDB types. A
-  modifier PostgreSQL itself rejects (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with
-  `22023`.
+  clients see the encoded names and stored values. A column's type cannot be changed afterwards
+  (`ALTER COLUMN ... TYPE` is refused with `0A000`; RENAME COLUMN keeps the type). Columns created by an
+  earlier release keep their plain ScalarDB types. A modifier PostgreSQL itself rejects
+  (`VARCHAR(10485761)`, `CHAR(0)`, `NUMERIC(1001)`) is refused with `22023`. Known differences for
+  `CHAR(n)`: it is stored without its padding and padded back when a column is returned as such, so
+  `octet_length`, `concat` and `to_json` see no padding, and a value passed through an aggregate,
+  expression or `UNION` (`max(c)`, `COALESCE(c, 'x')`) comes back unpadded; a parameter declared `text`
+  compares with it as if it were untyped, ignoring trailing spaces.
 - **`NUMERIC` and `DECIMAL` are exact, with two limits** (`docs/type-encoding.md`). Up to 18 digits
   (15 on Cosmos DB, object storage and in Cluster mode) a column is a scaled `BIGINT`, which cannot
   hold `NaN` (`0A000`). Without a precision, or with more digits, it is stored as text: every
   comparison, `ORDER BY` and `GROUP BY` on it runs in the frontend rather than in the database, so a
   filter on it reads the whole partition or table, and it cannot be a key or index column (`0A000`,
-  naming the fix: declare `NUMERIC(p,s)` with p up to 18). Columns created before this release stay
-  `double precision`. This changes earlier releases' behaviour: `id NUMERIC PRIMARY KEY` and
-  `id NUMERIC(20) PRIMARY KEY`, which used to be accepted as `double precision`, are now refused.
+  naming the fix: declare `NUMERIC(p,s)` with p up to 18). ORMs often declare such columns by default:
+  Prisma's `Decimal` is `DECIMAL(65,30)` and Rails' `decimal` without options is `NUMERIC`; give them a
+  precision of 18 or less (`@db.Decimal(12,2)`, `precision: 12, scale: 2`) where a filter on the column
+  should be pushed down. Columns created before this release stay `double precision`. This changes
+  earlier releases' behaviour: `id NUMERIC PRIMARY KEY` and `id NUMERIC(20) PRIMARY KEY`, which used to
+  be accepted as `double precision`, are now refused.
 - **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
   precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
   the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.

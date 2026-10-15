@@ -13,7 +13,7 @@ CREATE TABLE customers (
   name    TEXT,
   region  TEXT,
   tier    INT,
-  balance DOUBLE PRECISION,
+  balance NUMERIC(12,2),
   PRIMARY KEY (id)
 );
 CREATE INDEX customers_region_idx ON customers (region);
@@ -22,7 +22,7 @@ CREATE TABLE items (
   id       INT,
   name     TEXT,
   category TEXT,
-  price    DOUBLE PRECISION,
+  price    NUMERIC(12,2),
   PRIMARY KEY (id)
 );
 CREATE INDEX items_category_idx ON items (category);
@@ -33,7 +33,7 @@ CREATE TABLE orders (
   order_id    INT,
   item_id     INT,
   quantity    INT,
-  amount      DOUBLE PRECISION,
+  amount      NUMERIC(12,2),
   status      TEXT,
   ordered_at  TIMESTAMP,
   PRIMARY KEY (customer_id, order_id)

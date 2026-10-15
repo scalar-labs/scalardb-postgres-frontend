@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<!-- BenchBase TPC-C against the frontend on ScalarDB. Apply ddl-scalardb.sql with psql first and run with --create=false (BenchBase cannot derive its catalog from that DDL). Edit url/username/password/scalefactor/terminals/time. -->
+<!-- BenchBase TPC-C against the frontend on ScalarDB. Apply ddl-scalardb.sql with psql first and run with create set to false (BenchBase cannot derive its catalog from that DDL). Edit url/username/password/scalefactor/terminals/time. -->
 <parameters>
     <type>POSTGRES</type>
     <driver>org.postgresql.Driver</driver>
@@ -7,8 +7,8 @@
     <username>postgres</username>
     <password></password>
     <reconnectOnConnectionFailure>true</reconnectOnConnectionFailure>
-    <!-- snapshot isolation on both sides: ScalarDB's default is SNAPSHOT -->
-    <isolation>TRANSACTION_REPEATABLE_READ</isolation>
+    <!-- ScalarDB's default SNAPSHOT, which the frontend reports as read committed and refuses REPEATABLE READ under -->
+    <isolation>TRANSACTION_READ_COMMITTED</isolation>
     <batchsize>128</batchsize>
     <scalefactor>1</scalefactor>
     <terminals>4</terminals>

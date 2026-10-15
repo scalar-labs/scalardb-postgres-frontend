@@ -114,6 +114,8 @@ This is the product question of whether a PostgreSQL-compatible interface over t
 
 This is a second SQL surface. ScalarDB SQL has its own grammar, gRPC services, JDBC driver, and Spring Data integration. The frontend accepts a PostgreSQL grammar subset (joins, subqueries, aggregates, CTEs, set operations) with in-memory evaluation and works with any PostgreSQL driver or tool. Position it as the PostgreSQL-compatible interface. Converging the two, either the frontend's planner over ScalarDB SQL's catalog and privileges or ScalarDB SQL's engine behind the PostgreSQL protocol, is out of scope here.
 
+The two surfaces see the same tables but not the same column types. The frontend records declared types such as `NUMERIC(10,2)` and `CHAR(5)` in the ScalarDB column name and stores the values in an exact form (`amount__pg_n10_2`, a scaled `BIGINT`); [type-encoding.md](type-encoding.md) is the contract for ScalarDB SQL, the Data Loader and any other client that reads or writes those columns. No identity of the frontend's own is involved: the encoding travels with the table metadata and the user's own privileges, which is why it was chosen over a side table.
+
 ## Alternative considered: stream-per-transaction gRPC
 
 Not needed for the frontend. Recorded because the discussion clarified what the ID-based routing is for.
