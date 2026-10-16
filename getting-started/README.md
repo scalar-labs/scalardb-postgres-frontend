@@ -11,6 +11,7 @@ connects with psql and JDBC. `tour.sql` then shows what the frontend does, secti
 | `schema.sql` | three tables (`customers`, `items`, `orders`) with ScalarDB partition and clustering keys and two secondary indexes |
 | `data.sql` | 10,000 rows per table as multi-row INSERTs; regenerate with `python3 gen_data.py` |
 | `tour.sql` | the tour, 15 numbered sections; every statement stands on its own |
+| `types.sql` | types ScalarDB lacks (`NUMERIC(p,s)`, `NUMERIC`, `CHAR(n)`, `VARCHAR(n)`, `SMALLINT`): rounding, exact sums, PostgreSQL's errors, pushdown, and what is stored underneath |
 
 ## Prerequisites
 
