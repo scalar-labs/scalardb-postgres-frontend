@@ -13,8 +13,9 @@ It also emulates enough of `pg_catalog` for psql's meta-commands, and supports D
 then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)), as do its encryption and
 ABAC ([Encrypted columns and row-level access](getting-started/README.md#encrypted-columns-and-row-level-access));
 no `COPY`; `NUMERIC` exact but filtered in the frontend beyond 18 digits, and declared types recorded in a
-metadata table of the frontend's ([docs/type-encoding.md](docs/type-encoding.md)); text comparison following the
-backing database's collation; and no
+metadata table of the frontend's ([docs/type-encoding.md](docs/type-encoding.md)); text compared in ScalarDB's
+configured collation, byte order or ICU, which the backing database must be set up to match ([Case-insensitive
+text](getting-started/README.md#case-insensitive-text)); and no
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.
 
@@ -26,7 +27,8 @@ the port has the configured ScalarDB user's full access: keep the frontend on a 
 
 Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `3.20.0-SNAPSHOT`,
 which the build fetches from ScalarDB's snapshot repository; a core you install from a ScalarDB checkout with
-`./gradlew :core:publishToMavenLocal` takes precedence.
+`./gradlew :core:publishToMavenLocal` takes precedence. It needs a ScalarDB with collation support
+(`CollationComparator`, on ScalarDB's `feature/collation` branch until it is released).
 
 ```sh
 ./gradlew shadowJar

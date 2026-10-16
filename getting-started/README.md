@@ -314,6 +314,31 @@ text, such as `CONF::`, and cannot appear in `WHERE` or `ORDER BY` (`0A000`). A 
 
 [difftest/cluster-security](../difftest/cluster-security/README.md) runs both against a local Cluster node.
 
+## Case-insensitive text
+
+Text compares in ScalarDB's collation. By default that is byte order, as PostgreSQL's `C` collation;
+ScalarDB can instead compare with an ICU locale, set in `scalardb.properties`:
+
+```properties
+scalar.db.collation=ICU
+# und: the root locale; -u-ks-level2: case-insensitive, accent-sensitive (level1 ignores accents too)
+scalar.db.collation.icu.locale=und-u-ks-level2
+```
+
+Then `'alice' = 'ALICE'`, keys included: `WHERE name = 'ALICE'`, `GROUP BY`, `DISTINCT`, joins and
+`UNION` treat the two as one, `ORDER BY` follows the locale, and inserting `'ALICE'` next to a key
+`'alice'` is a duplicate (`23505`). It works like a PostgreSQL column with a nondeterministic ICU
+collation, which psql's `\d` shows (`und-u-ks-level2-x-icu`), and like one in PostgreSQL 16,
+`LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions and substring searches (`position`, `strpos`,
+`replace`, `starts_with`) on table text fail with `0A000`.
+
+The backing database compares keys and pushed-down conditions itself, so it must be set up for
+the same collation, as ScalarDB requires of any application. With Cluster, set the same
+`scalar.db.collation` in the frontend's properties as on the nodes.
+
+[difftest/collation-icu](../difftest/collation-icu/README.md) compares the frontend under ICU with
+PostgreSQL.
+
 ## Limitations to know
 
 What the frontend refuses, announces with a `NOTICE`, or does differently from PostgreSQL is listed

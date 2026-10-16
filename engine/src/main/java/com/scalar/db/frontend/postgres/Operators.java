@@ -993,8 +993,14 @@ final class Operators {
     }
   }
 
-  /** A value normalized for set comparisons, so INT 1 and BIGINT 1 are the same member. */
+  /**
+   * A value normalized for set comparisons, so INT 1 and BIGINT 1 are the same member, and so are
+   * two texts the collation calls equal (ICU's sort key; under BINARY the text itself).
+   */
   @Nullable static Object normalize(@Nullable Object v) {
+    if (v instanceof String && Evaluator.collation().hasCanonicalTextForm()) {
+      return java.nio.ByteBuffer.wrap(Evaluator.collation().canonicalTextFormOf((String) v));
+    }
     return v instanceof Number && Evaluator.isFinite(v)
         ? new BigDecimal(v.toString()).stripTrailingZeros()
         : v instanceof Number ? ((Number) v).doubleValue() : v;

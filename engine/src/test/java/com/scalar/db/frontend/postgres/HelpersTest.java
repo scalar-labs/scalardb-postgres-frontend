@@ -52,6 +52,7 @@ public class HelpersTest {
         Arguments.of(new RuntimeException("DB-ENCRYPTION-30008: decrypting failed"), "XX000"),
         Arguments.of(new UnsupportedOperationException("DB-CORE-10143: no encryption"), "0A000"),
         Arguments.of(new UnsupportedOperationException("DB-CORE-10152: no ABAC"), "0A000"),
+        Arguments.of(new IllegalArgumentException("DB-CORE-10309: LIKE under ICU"), "0A000"),
         Arguments.of(new RuntimeException("DB-CORE-10026: bad escape"), "22025"),
         Arguments.of(new RuntimeException("DB-CORE-10211: read only"), "25006"),
         Arguments.of(new RuntimeException("DB-CORE-10020: bad key"), "22023"),
@@ -140,6 +141,8 @@ public class HelpersTest {
     assertThat(Evaluator.compare(10L, "9")).isPositive();
     assertThat(Evaluator.compare(new BigDecimal("1.50"), 1.5)).isZero();
     assertThat(Evaluator.compare("abc", "abd")).isNegative();
+    // code point order, as ScalarDB's BINARY collation and UTF-8 bytes: U+1F600 sorts after U+FFFF
+    assertThat(Evaluator.compare("\uD83D\uDE00", "\uFFFF")).isPositive();
   }
 
   @Test

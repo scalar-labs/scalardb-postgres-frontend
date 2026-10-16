@@ -21,7 +21,7 @@ python3 leak.py cases_read.sql                        # reports cases that leave
 python3 fuzz.py 7 300 > fuzz_cases.sql && STOP=0 python3 run.py fuzz_cases.sql   # 300 random read queries, seed 7
 ```
 
-`FEPORT` overrides the frontend port (default 15441) for `run.py` and `leak.py`.
+`FEPORT` overrides the frontend port (default 15441) for `run.py` and `leak.py`, and `NATIVE_PORT` the native one (default 15440) for `run.py`.
 
 `cases_session.sql` covers session semantics (`SET TIME ZONE`, `search_path`, `SET LOCAL`) and the
 statements the frontend refuses on purpose; its `refuse_*` cases are expected `FE_ERR`.
