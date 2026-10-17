@@ -404,20 +404,40 @@ last run lists none.
 
 ### Phase 3 (optional, a separate merge): the catalog lists itself
 
-- [ ] **Typed catalog columns.** Change `cols(...)` to name and type pairs, so `pg_attribute` can describe
+**Done (2026-10-17, branch `fix-catalog-self`), and how it differs from the items below.**
+- No `cols(...)` change: `catalog_types.py` now writes, with each declared column's type, PostgreSQL 16's
+  `pg_attribute` facts for it and each relation's oid and kind, and `Catalog.catalogRelations` builds the
+  `pg_class`, `pg_attribute`, `pg_tables`, `pg_views` and `information_schema.tables`/`columns` rows from
+  them for the columns the frontend declares. A column whose type the frontend lacks (`aclitem[]`) is
+  described as it is described in results, as text.
+- `tableoid` is listed for the catalog tables only: the frontend's own tables do not have it (`SELECT
+  tableoid FROM t` fails), so they have no system columns, which Django's fixture now gives as its reason.
+- `pg_depend` has no array type → element type rows: PostgreSQL keeps none for built-in (pinned) types.
+  It has a table → its namespace (`n`), as PostgreSQL does.
+- `pg_collation` without ICU: `default`, `C`, `POSIX` and `ucs_basic`; with ICU: `default` and the ICU
+  collation. A text column's `attcollation` is now 100, as in PostgreSQL.
+- `information_schema`: the namespace (PostgreSQL 16's oid 13276), its five domains with their checks and
+  defaults, `views`, `constraint_column_usage`, the empty `triggers`, `sequences` and
+  `referential_constraints`, and PostgreSQL 16's `routines`, `parameters`, `domains` and `character_sets`
+  rows for what the frontend has (`builtins.py`). Not done, so `42P01`: `check_constraints` (PostgreSQL
+  lists NOT NULL columns there, which `table_constraints` would need too), `table_privileges`,
+  `role_table_grants`, `applicable_roles`, `element_types`.
+- The catalog relations' ACL is `=r/scalardb`: readable by all, writable by none.
+
+- [x] **Typed catalog columns.** Change `cols(...)` to name and type pairs, so `pg_attribute` can describe
       catalog relations. Today the types are inferred from values (`catalogColumnOid`,
       `Catalog.java:433-438`).
-- [ ] **Catalog relations** in `pg_class` (`relkind 'r'`/`'v'`, namespace `pg_catalog` or
+- [x] **Catalog relations** in `pg_class` (`relkind 'r'`/`'v'`, namespace `pg_catalog` or
       `information_schema`) and their columns in `pg_attribute`. `\dS`, `getTables(SYSTEM TABLE)`,
       `information_schema.tables` and `pg_views` then list them. Re-capture the DBeaver and JDBC fixtures,
       since table counts change for tools that do not filter `pg_catalog`.
-- [ ] `pg_attribute` row for `tableoid` (attnum -6), the one system column the frontend supports. The
+- [x] `pg_attribute` row for `tableoid` (attnum -6), the one system column the frontend supports. The
       other system columns (`ctid`, `xmin`, ...) do not exist here, so they are truly absent.
-- [ ] `pg_collation`: rows for the collations the frontend accepts (`default`, `C`, `POSIX`, and the ICU
+- [x] `pg_collation`: rows for the collations the frontend accepts (`default`, `C`, `POSIX`, and the ICU
       collation when it is on).
-- [ ] `pg_depend`: index → table (`a`), primary-key constraint → index (`i`), array type → element type
+- [x] `pg_depend`: index → table (`a`), primary-key constraint → index (`i`), array type → element type
       (`i`). That fills DBeaver's Dependencies tab.
-- [ ] **Missing `information_schema` views.** Empty-because-true ones (`views`, `triggers`, `sequences`,
+- [x] **Missing `information_schema` views.** Empty-because-true ones (`views`, `triggers`, `sequences`,
       `referential_constraints`, `domains`) go in the allowlist. Populated ones: `routines` and
       `parameters` from the registry, `check_constraints` (empty), `table_privileges` and
       `role_table_grants` from the grants `\dp` already reads, `character_sets` (UTF8), `applicable_roles`.
@@ -435,8 +455,8 @@ last run lists none.
   - the newly declared catalog names, which now shadow an unqualified user table of the same name
     (`pg_tables`, `pg_user`, `pg_stats`, ...), as in PostgreSQL;
   - the logging property, if it is kept. (It was not: it stayed on the audit branch.)
-- [ ] **`difftest/catalog`.** Committed, with a re-run of its results after each phase. (After Phases 1
-      and 2: `difftest/catalog/results/phase2`, by `rerun.zsh`; Phase 3 still to run.)
+- [x] **`difftest/catalog`.** Committed, with a re-run of its results after each phase
+      (`difftest/catalog/results/phase2` and `phase3`, by `rerun.zsh`).
 
 ## Technical Considerations
 

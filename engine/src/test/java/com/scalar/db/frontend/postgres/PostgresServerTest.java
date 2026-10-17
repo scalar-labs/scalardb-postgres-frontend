@@ -1022,7 +1022,8 @@ public class PostgresServerTest {
           .containsExactly("k", "c");
       assertThat(rows(m.getImportedKeys(null, "public", "u"), "FK_NAME")).isEmpty();
       assertThat(rows(m.getCatalogs(), "TABLE_CAT")).containsExactly("ns");
-      assertThat(rows(m.getSchemas(), "TABLE_SCHEM")).containsExactly("pg_catalog", "public");
+      assertThat(rows(m.getSchemas(), "TABLE_SCHEM"))
+          .containsExactly("information_schema", "pg_catalog", "public");
       assertThat(m.getSQLKeywords()).contains("analyze").doesNotContain("select");
       assertThat(rows(m.getTypeInfo(), "TYPE_NAME")).contains("int4", "text", "_int4");
       // DBeaver reads index columns by the type name of pg_index.indkey, which pgjdbc looks up

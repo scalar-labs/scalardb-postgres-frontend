@@ -1,0 +1,319 @@
+# from PostgreSQL 16 by difftest/catalog/builtins.py; tab separated, \N is NULL
+specific_catalog	specific_schema	specific_name	ordinal_position	parameter_mode	is_result	as_locator	parameter_name	data_type	character_maximum_length	character_octet_length	character_set_catalog	character_set_schema	character_set_name	collation_catalog	collation_schema	collation_name	numeric_precision	numeric_precision_radix	numeric_scale	datetime_precision	interval_type	interval_precision	udt_catalog	udt_schema	udt_name	scope_catalog	scope_schema	scope_name	maximum_cardinality	dtd_identifier	parameter_default
+audit	pg_catalog	abs_1394	1	IN	NO	NO	\N	real	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	abs_1395	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	abs_1396	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	abs_1397	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	abs_1398	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	abs_1705	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	age_1199	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
+audit	pg_catalog	age_1199	2	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	2	\N
+audit	pg_catalog	age_1386	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
+audit	pg_catalog	age_2058	2	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	2	\N
+audit	pg_catalog	age_2058	1	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	1	\N
+audit	pg_catalog	age_2059	1	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_agg_2335	1	IN	NO	NO	\N	anynonarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anynonarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_agg_4053	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_length_2176	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_length_2176	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	array_lower_2091	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	array_lower_2091	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_to_string_384	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	array_to_string_384	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_to_string_384	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	array_to_string_395	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	array_to_string_395	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	array_upper_2092	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	array_upper_2092	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2100	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2101	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2102	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2103	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2104	1	IN	NO	NO	\N	real	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	avg_2105	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	bool_and_2517	1	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	1	\N
+audit	pg_catalog	bool_or_2518	1	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	1	\N
+audit	pg_catalog	btrim_884	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	btrim_884	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	btrim_885	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	cardinality_3179	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ceil_1711	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ceil_2308	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ceiling_2167	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ceiling_2320	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	char_length_1372	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	char_length_1381	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	character_length_1367	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	character_length_1369	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	col_description_1216	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	col_description_1216	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	concat_3058	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	concat_ws_3059	2	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	2	\N
+audit	pg_catalog	concat_ws_3059	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	count_2147	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	current_schemas_1403	1	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	1	\N
+audit	pg_catalog	current_setting_2077	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	current_setting_3294	2	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	2	\N
+audit	pg_catalog	current_setting_3294	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_part_1171	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_part_1171	2	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_part_1172	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_part_1172	2	IN	NO	NO	\N	interval	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	interval	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_part_1384	2	IN	NO	NO	\N	date	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	date	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_part_1384	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_part_2021	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_part_2021	2	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_trunc_1217	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	date_trunc_1217	2	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_trunc_2020	2	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	2	\N
+audit	pg_catalog	date_trunc_2020	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	every_2519	1	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	1	\N
+audit	pg_catalog	first_value_3112	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	floor_1712	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	floor_2309	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	format_3539	2	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	2	\N
+audit	pg_catalog	format_3539	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	format_3540	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	format_type_1081	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	format_type_1081	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_1066	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_1066	3	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	3	\N
+audit	pg_catalog	generate_series_1066	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_series_1067	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_1067	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_series_1068	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_series_1068	2	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_1068	3	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	3	\N
+audit	pg_catalog	generate_series_1069	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_series_1069	2	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_3259	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_3259	3	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	3	\N
+audit	pg_catalog	generate_series_3259	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_series_3260	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_series_3260	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_subscripts_1191	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	generate_subscripts_1191	3	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	3	\N
+audit	pg_catalog	generate_subscripts_1191	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_subscripts_1192	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	generate_subscripts_1192	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_database_privilege_2253	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_database_privilege_2253	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	has_database_privilege_2253	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_database_privilege_2255	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_database_privilege_2255	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_agg_3175	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_array_elements_3955	1	IN	NO	NO	from_json	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_array_elements_3955	2	OUT	NO	NO	value	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	2	\N
+audit	pg_catalog	json_array_elements_text_3969	1	IN	NO	NO	from_json	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_array_elements_text_3969	2	OUT	NO	NO	value	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	json_array_length_3956	1	IN	NO	NO	\N	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_build_array_3198	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_build_object_3200	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_extract_path_3951	2	IN	NO	NO	path_elems	ARRAY	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	_text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	json_extract_path_3951	1	IN	NO	NO	from_json	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_extract_path_text_3953	2	IN	NO	NO	path_elems	ARRAY	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	_text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	json_extract_path_text_3953	1	IN	NO	NO	from_json	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_object_agg_3197	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	json_object_agg_3197	2	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	2	\N
+audit	pg_catalog	json_typeof_3968	1	IN	NO	NO	\N	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_agg_3267	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_array_elements_3219	2	OUT	NO	NO	value	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	2	\N
+audit	pg_catalog	jsonb_array_elements_3219	1	IN	NO	NO	from_json	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_array_elements_text_3465	1	IN	NO	NO	from_json	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_array_elements_text_3465	2	OUT	NO	NO	value	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	jsonb_array_length_3207	1	IN	NO	NO	\N	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_build_array_3271	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_build_object_3273	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_extract_path_3217	2	IN	NO	NO	path_elems	ARRAY	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	_text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	jsonb_extract_path_3217	1	IN	NO	NO	from_json	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_extract_path_text_3940	1	IN	NO	NO	from_json	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_extract_path_text_3940	2	IN	NO	NO	path_elems	ARRAY	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	_text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	jsonb_object_agg_3270	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	jsonb_object_agg_3270	2	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	2	\N
+audit	pg_catalog	jsonb_typeof_3210	1	IN	NO	NO	\N	jsonb	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	jsonb	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lag_3106	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lag_3107	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lag_3107	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	lag_3108	3	IN	NO	NO	\N	anycompatible	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anycompatible	\N	\N	\N	\N	3	\N
+audit	pg_catalog	lag_3108	1	IN	NO	NO	\N	anycompatible	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anycompatible	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lag_3108	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	last_value_3113	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lead_3109	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lead_3110	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lead_3110	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	lead_3111	3	IN	NO	NO	\N	anycompatible	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anycompatible	\N	\N	\N	\N	3	\N
+audit	pg_catalog	lead_3111	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	lead_3111	1	IN	NO	NO	\N	anycompatible	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anycompatible	\N	\N	\N	\N	1	\N
+audit	pg_catalog	left_3060	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	left_3060	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	length_1317	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	length_1318	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	length_1713	2	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	name	\N	\N	\N	\N	2	\N
+audit	pg_catalog	length_1713	1	IN	NO	NO	\N	bytea	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bytea	\N	\N	\N	\N	1	\N
+audit	pg_catalog	length_2010	1	IN	NO	NO	\N	bytea	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bytea	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lower_870	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lpad_873	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	lpad_873	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	lpad_873	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	lpad_879	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	lpad_879	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ltrim_875	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ltrim_875	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	ltrim_881	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2050	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2115	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2116	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2117	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2118	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2119	1	IN	NO	NO	\N	real	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2120	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2122	1	IN	NO	NO	\N	date	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	date	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2123	1	IN	NO	NO	\N	time without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	time	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2126	1	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2127	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2128	1	IN	NO	NO	\N	interval	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	interval	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2129	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2130	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	max_2244	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2051	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2131	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2132	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2133	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2134	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2135	1	IN	NO	NO	\N	real	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2136	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2138	1	IN	NO	NO	\N	date	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	date	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2139	1	IN	NO	NO	\N	time without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	time	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2142	1	IN	NO	NO	\N	timestamp without time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamp	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2143	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2144	1	IN	NO	NO	\N	interval	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	interval	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2145	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2146	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	min_2245	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	mod_1728	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
+audit	pg_catalog	mod_1728	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	mod_940	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	mod_940	2	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	2	\N
+audit	pg_catalog	mod_941	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	mod_941	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	mod_947	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	mod_947	2	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	2	\N
+audit	pg_catalog	nth_value_3114	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	nth_value_3114	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	ntile_3105	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	obj_description_1215	2	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	name	\N	\N	\N	\N	2	\N
+audit	pg_catalog	obj_description_1215	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	obj_description_1348	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	octet_length_1374	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	octet_length_1375	1	IN	NO	NO	\N	character	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bpchar	\N	\N	\N	\N	1	\N
+audit	pg_catalog	octet_length_720	1	IN	NO	NO	\N	bytea	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bytea	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_char_to_encoding_1264	1	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	name	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_collation_is_visible_3815	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_database_size_2168	1	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	name	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_database_size_2324	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_encoding_to_char_1597	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_function_is_visible_2081	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_constraintdef_1387	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_constraintdef_2508	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_constraintdef_2508	2	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pg_get_expr_1716	1	IN	NO	NO	\N	pg_node_tree	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	pg_node_tree	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_expr_1716	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pg_get_expr_2509	3	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	3	\N
+audit	pg_catalog	pg_get_expr_2509	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pg_get_expr_2509	1	IN	NO	NO	\N	pg_node_tree	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	pg_node_tree	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_function_arguments_2162	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_function_identity_arguments_2232	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_function_result_2165	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_functiondef_2098	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_indexdef_1643	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_indexdef_2507	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pg_get_indexdef_2507	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_indexdef_2507	3	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	3	\N
+audit	pg_catalog	pg_get_partkeydef_3352	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_get_userbyid_1642	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_indexes_size_2998	1	IN	NO	NO	\N	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_opclass_is_visible_2083	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_operator_is_visible_2082	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_opfamily_is_visible_3829	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_partition_ancestors_3425	1	IN	NO	NO	partitionid	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_partition_ancestors_3425	2	OUT	NO	NO	relid	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pg_relation_is_publishable_6121	1	IN	NO	NO	\N	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_relation_size_2325	1	IN	NO	NO	\N	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_size_pretty_2288	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_size_pretty_3166	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_stat_get_numscans_1928	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_table_is_visible_2079	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_table_size_2997	1	IN	NO	NO	\N	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_tablespace_location_3778	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_tablespace_size_2322	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_total_relation_size_2286	1	IN	NO	NO	\N	regclass	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	regclass	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_type_is_visible_2080	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pg_typeof_1619	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pow_1346	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pow_1346	2	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	2	\N
+audit	pg_catalog	pow_1738	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	pow_1738	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
+audit	pg_catalog	power_1368	2	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	2	\N
+audit	pg_catalog	power_1368	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	power_2169	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	power_2169	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
+audit	pg_catalog	quote_ident_1282	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	quote_literal_1283	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	quote_literal_1285	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	replace_2087	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	replace_2087	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	replace_2087	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	reverse_3062	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	right_3061	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	right_3061	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	round_1342	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	round_1707	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	round_1707	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	round_1708	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	rpad_874	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	rpad_874	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	rpad_874	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	rpad_880	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	rpad_880	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	rtrim_876	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	rtrim_876	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	rtrim_882	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	set_config_2078	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	set_config_2078	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	set_config_2078	3	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	3	\N
+audit	pg_catalog	shobj_description_1993	2	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	name	\N	\N	\N	\N	2	\N
+audit	pg_catalog	shobj_description_1993	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sign_1706	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sign_2310	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sqrt_1344	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sqrt_1730	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	starts_with_3696	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	starts_with_3696	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	string_agg_3538	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	string_agg_3538	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	string_agg_3545	1	IN	NO	NO	\N	bytea	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bytea	\N	\N	\N	\N	1	\N
+audit	pg_catalog	string_agg_3545	2	IN	NO	NO	\N	bytea	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bytea	\N	\N	\N	\N	2	\N
+audit	pg_catalog	strpos_868	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	strpos_868	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	substr_877	3	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	3	\N
+audit	pg_catalog	substr_877	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	substr_877	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	substr_883	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	substr_883	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	substring_936	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	substring_936	3	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	3	\N
+audit	pg_catalog	substring_936	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	substring_937	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	substring_937	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
+audit	pg_catalog	sum_2107	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sum_2108	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sum_2109	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sum_2110	1	IN	NO	NO	\N	real	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float4	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sum_2111	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
+audit	pg_catalog	sum_2114	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	to_json_3176	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	to_jsonb_3787	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
+audit	pg_catalog	to_regclass_3495	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	to_regtype_3493	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	unnest_2331	1	IN	NO	NO	\N	anyarray	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyarray	\N	\N	\N	\N	1	\N
+audit	pg_catalog	upper_871	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N

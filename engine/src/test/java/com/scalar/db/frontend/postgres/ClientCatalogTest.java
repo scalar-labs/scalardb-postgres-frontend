@@ -185,7 +185,7 @@ public class ClientCatalogTest {
   @Test
   public void catalogTables_ShouldBeEmptyOnlyWithAReason() throws Exception {
     // a declared table answers rows for this schema, or it is in Catalog.EMPTY_BECAUSE, which says
-    // why no rows is the truth here, or in Catalog.PENDING_ROWS, which says what will fill it
+    // why no rows is the truth here
     Properties properties = new Properties();
     properties.setProperty("user", "test");
     List<String> wrong = new ArrayList<>();
@@ -196,9 +196,8 @@ public class ClientCatalogTest {
       for (String table : Catalog.declaredTables()) {
         String name = table.substring(table.indexOf('.') + 1);
         boolean emptyByDesign =
-            table.startsWith("pg_catalog.")
-                && (Catalog.EMPTY_BECAUSE.containsKey(name)
-                    || Catalog.PENDING_ROWS.containsKey(name));
+            Catalog.EMPTY_BECAUSE.containsKey(table)
+                || table.startsWith("pg_catalog.") && Catalog.EMPTY_BECAUSE.containsKey(name);
         String rows = answer(statement, "SELECT * FROM " + table).split(" ")[0];
         if (emptyByDesign != rows.equals("0")) {
           wrong.add(table + ": " + rows + " rows" + (emptyByDesign ? ", declared empty" : ""));

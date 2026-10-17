@@ -73,7 +73,8 @@ at the end of this section.
   | Catalog relations | Empty because |
   |---|---|
   | `pg_trigger`, `pg_event_trigger` | no triggers |
-  | `pg_rewrite`, `pg_views`, `pg_matviews` | no rules or views (the system views are not listed either) |
+  | `pg_rewrite`, `pg_matviews` | no rules or materialized views; the catalog views are built in |
+  | `information_schema.triggers`, `sequences`, `referential_constraints` | no triggers, sequences or foreign keys |
   | `pg_policy`, `pg_policies` | no row-level security |
   | `pg_inherits` | no table inheritance or partitions |
   | `pg_enum`, `pg_range` | no enum or range types |
@@ -93,9 +94,15 @@ at the end of this section.
   frontend implements, with PostgreSQL 16's OIDs and descriptions, so `\df`, `\do`, `\dC`, JDBC's
   `getFunctions` and `regproc` see only those; a call outside them fails with `0A000`. The functions a
   cast or an operator is carried out by, such as `int4(bigint)` and `int4pl`, are not among them, so
-  `\dC` shows no function name. Not complete yet: `pg_depend` lists no dependencies, and
-  `pg_collation` only the ICU collation, when ScalarDB uses one. Catalog relations are not themselves
-  listed in `pg_class`. Database and table sizes show empty.
+  `\dC` shows no function name. The catalog lists itself: the `pg_catalog` and `information_schema`
+  relations the frontend has are in `pg_class`, `pg_tables`, `pg_views` and `information_schema.tables`
+  with PostgreSQL 16's OIDs, and their columns, as the frontend has them, in `pg_attribute` and
+  `information_schema.columns`; they have no indexes or row types here, and a view's definition is
+  NULL, since the frontend's views are code. `information_schema`'s domains (`sql_identifier`, ...) are
+  in `pg_type`. `pg_collation` lists the collations `COLLATE` accepts, and `pg_depend` how tables, keys
+  and indexes depend on each other. `information_schema` views the frontend lacks, such as
+  `check_constraints`, `table_privileges` and `element_types`, fail with `42P01`. Database and table
+  sizes show empty.
 - **The search path decides what is visible.** As in PostgreSQL, `\dt`, `pg_table_is_visible` and
   an unqualified name see only the namespaces on `search_path`. The default path shows the
   connected namespace, as schema `public`; `SET search_path = public, sales` or `\dt sales.*`

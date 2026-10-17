@@ -31,10 +31,18 @@ final class Catalog {
   static final String OWNER = "scalardb";
   static final String TABLEOID = "tableoid";
   private static final long OWNER_OID = 10;
+  // anyone reads the catalog and no one writes it, which PostgreSQL writes as PUBLIC's SELECT
+  private static final List<String> CATALOG_ACL = Collections.singletonList("=r/" + OWNER);
+  // information_schema's namespace in PostgreSQL 16, which its domains are in (catalog-types.txt)
+  private static final long INFORMATION_SCHEMA_OID = 13276;
+  private static final long FIRST_USER_OID = 16384; // the first of the tables', as PostgreSQL's
   private static final long ICU_COLLATION_OID = 16383; // ScalarDB's ICU collation, below table oids
   private static final long HEAP_AM = 2;
   private static final long BTREE_AM = 403;
-  private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
+  // pg_description's and pg_depend's classid of a table, a namespace and a constraint
+  private static final long PG_CLASS_OID = 1259;
+  private static final long PG_NAMESPACE_OID = 2615;
+  private static final long PG_CONSTRAINT_OID = 2606;
   private static final long DEFAULT_TABLESPACE = 1663;
   private static final long PG_CATALOG_NAMESPACE = 11;
 
@@ -199,20 +207,13 @@ final class Catalog {
   private static final Map<String, Long> CATALOG_OIDS = new HashMap<>();
 
   static {
-    CATALOG_OIDS.put("pg_class", PG_CLASS_OID);
-    CATALOG_OIDS.put("pg_type", 1247L);
-    CATALOG_OIDS.put("pg_namespace", 2615L);
-    CATALOG_OIDS.put("pg_constraint", 2606L);
-    CATALOG_OIDS.put("pg_opclass", 2616L);
-    CATALOG_OIDS.put("pg_opfamily", 2753L);
-    CATALOG_OIDS.put("pg_language", 2612L);
-    CATALOG_OIDS.put("pg_rewrite", 2618L);
-    CATALOG_OIDS.put("pg_trigger", 2620L);
-    CATALOG_OIDS.put("pg_database", 1262L);
-    CATALOG_OIDS.put("pg_proc", 1255L);
-    CATALOG_OIDS.put("pg_operator", 2617L);
-    CATALOG_OIDS.put("pg_aggregate", 2600L);
-    CATALOG_OIDS.put("pg_cast", 2605L);
+    // PostgreSQL 16's oid of each catalog relation (catalog-types.txt)
+    CatalogTypes.RELATIONS.forEach(
+        (relation, f) -> {
+          if (relation.startsWith("pg_catalog.")) {
+            CATALOG_OIDS.put(relation.substring("pg_catalog.".length()), Long.parseLong(f[0]));
+          }
+        });
   }
 
   private static final Map<String, List<String>> PG_CATALOG = new LinkedHashMap<>();
@@ -826,11 +827,6 @@ final class Catalog {
                       + "."
                       + Evaluator.quoteIdent(String.valueOf(relation));
         }
-        if (name == null) {
-          for (Map.Entry<String, Long> e : CATALOG_OIDS.entrySet()) {
-            name = e.getValue() == oid ? e.getKey() : name;
-          }
-        }
         break;
       default:
         throw new IllegalArgumentException("not a reg* type: " + type);
@@ -875,6 +871,12 @@ final class Catalog {
     }
   }
 
+  /** Whether objects of this namespace are found by bare name: pg_catalog, or on search_path. */
+  boolean onSearchPath(long namespace) {
+    String name = namespaceName(namespace);
+    return namespace == PG_CATALOG_NAMESPACE || name != null && searchPath.contains(name);
+  }
+
   /** pg_get_userbyid: the role's name, or PostgreSQL's placeholder for an unknown OID. */
   String roleName(long oid) {
     Map<String, Object> role = rowOf("pg_roles", oid);
@@ -886,9 +888,7 @@ final class Catalog {
   /** pg_relation_is_publishable: a user table is, an index or a catalog is not; null if none. */
   @Nullable Boolean publishable(long oid) {
     Map<String, Object> relation = rowOf("pg_class", oid);
-    return relation != null
-        ? (Boolean) "r".equals(relation.get("x.relkind"))
-        : CATALOG_OIDS.containsValue(oid) ? Boolean.FALSE : null;
+    return relation == null ? null : "r".equals(relation.get("x.relkind")) && oid >= FIRST_USER_OID;
   }
 
   @Nullable private String namespaceName(long oid) {
@@ -899,8 +899,7 @@ final class Catalog {
   /** The type OID of a catalog column that is not inferred from its value: name, int2vector. */
   static long catalogColumnOid(String table, String column) {
     Long oid = CatalogTypes.TYPES.get(table + " " + column);
-    if (oid == null
-        || oid == 24 && !BUILTIN_ROWS.containsKey(table.replaceFirst("^pg_catalog\\.", ""))) {
+    if (oid == null || oid == 24 && !BUILTIN_ROWS.containsKey(table)) {
       // ponytail: pg_type's and pg_am's regproc columns hold names, of functions pg_proc lacks
       return column.equals("indkey") ? 22 : column.endsWith("name") ? 19 : 0;
     }
@@ -914,15 +913,12 @@ final class Catalog {
    */
   static final Map<String, String> EMPTY_BECAUSE = new LinkedHashMap<>();
 
-  /** Declared tables that answer no rows yet though they should, and what will fill them. */
-  static final Map<String, String> PENDING_ROWS = new LinkedHashMap<>();
-
-  // the tables whose rows are Builtins', in PostgreSQL 16's text
+  // schema.name -> the relation's rows, which are Builtins', in PostgreSQL 16's text
   private static final Map<String, List<Map<String, String>>> BUILTIN_ROWS = new LinkedHashMap<>();
 
   static {
     empty("pg_trigger", "no triggers");
-    empty("pg_rewrite", "no rules or views");
+    empty("pg_rewrite", "no rules: the catalog views are built in, not defined by rules");
     empty("pg_policy", "no row-level security policies");
     empty("pg_policies", "no row-level security policies");
     empty("pg_inherits", "no table inheritance or partitions");
@@ -959,37 +955,52 @@ final class Catalog {
     empty("pg_parameter_acl", "no parameter privileges");
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
-    empty("pg_views", "no views; the system views come with the system tables (todo 057, Phase 3)");
+    declare("pg_views"); // the catalog views, which catalogRelations lists
+    // information_schema views with PostgreSQL 16's columns; empty where none of their objects
+    // exist
+    declare("information_schema.views");
+    empty("information_schema.triggers", "no triggers");
+    empty("information_schema.sequences", "no sequences");
+    empty("information_schema.referential_constraints", "no foreign keys");
+    declare("information_schema.constraint_column_usage");
     // what the frontend implements, as PostgreSQL 16 lists it (Builtins)
     builtin("pg_proc", Builtins.PROCS);
     builtin("pg_aggregate", Builtins.AGGREGATES);
     builtin("pg_operator", Builtins.OPERATORS);
     builtin("pg_cast", Builtins.CASTS);
-    PENDING_ROWS.put(
-        "pg_depend", "dependencies, or a reason they are not kept (todo 057, Phase 3)");
-    PENDING_ROWS.put("pg_collation", "default, C and POSIX besides ICU's (todo 057, Phase 3)");
+    builtin("information_schema.routines", Builtins.table("information_schema-routines.txt"));
+    builtin("information_schema.parameters", Builtins.table("information_schema-parameters.txt"));
+    builtin("information_schema.domains", Builtins.table("information_schema-domains.txt"));
+    builtin(
+        "information_schema.character_sets",
+        Builtins.table("information_schema-character_sets.txt"));
   }
 
-  /** Declares a pg_catalog table that is empty here, with PostgreSQL 16's columns if new. */
-  private static void empty(String table, String reason) {
-    EMPTY_BECAUSE.put(table, reason);
-    declare(table);
+  /** Declares a catalog relation that is empty here, with PostgreSQL 16's columns if new. */
+  private static void empty(String relation, String reason) {
+    EMPTY_BECAUSE.put(relation, reason);
+    declare(relation);
   }
 
-  /** Declares a pg_catalog table with PostgreSQL 16's columns, if not declared already. */
-  private static void declare(String table) {
-    PG_CATALOG.computeIfAbsent(
-        table,
-        t ->
-            Collections.unmodifiableList(
-                Objects.requireNonNull(
-                    CatalogTypes.COLUMNS.get("pg_catalog." + t), t + " in catalog-types.txt")));
+  /**
+   * Declares a catalog relation, {@code schema.name} or a pg_catalog table's bare name, with
+   * PostgreSQL 16's columns if not declared already; returns its qualified name.
+   */
+  private static String declare(String relation) {
+    String qualified = relation.contains(".") ? relation : "pg_catalog." + relation;
+    (qualified.startsWith("pg_catalog.") ? PG_CATALOG : INFORMATION_SCHEMA)
+        .computeIfAbsent(
+            qualified.substring(qualified.indexOf('.') + 1),
+            r ->
+                Collections.unmodifiableList(
+                    Objects.requireNonNull(
+                        CatalogTypes.COLUMNS.get(qualified), qualified + " in catalog-types.txt")));
+    return qualified;
   }
 
-  /** Declares a pg_catalog table of PostgreSQL 16's columns whose rows are Builtins'. */
-  private static void builtin(String table, List<Map<String, String>> rows) {
-    declare(table);
-    BUILTIN_ROWS.put(table, rows);
+  /** Declares a catalog relation of PostgreSQL 16's columns whose rows are Builtins'. */
+  private static void builtin(String relation, List<Map<String, String>> rows) {
+    BUILTIN_ROWS.put(declare(relation), rows);
   }
 
   /** A catalog column's value from PostgreSQL's text for it. */
@@ -1047,6 +1058,16 @@ final class Catalog {
   private static final class CatalogTypes {
     static final Map<String, Long> TYPES = new HashMap<>();
     static final Map<String, List<String>> COLUMNS = new HashMap<>(); // table -> its columns
+    // table column -> PostgreSQL 16's atttypid, atttypmod, attnotnull, attcollation, attlen,
+    // attndims, attstorage
+    static final Map<String, String[]> ATTRIBUTES = new HashMap<>();
+    // schema.table -> its oid and relkind in PostgreSQL 16
+    static final Map<String, String[]> RELATIONS = new LinkedHashMap<>();
+    // information_schema's domains: oid, name, base type, typmod, array type, namespace, collation,
+    // default (empty for none)
+    static final List<String[]> DOMAINS = new ArrayList<>();
+    // their CHECK constraints: oid, name, domain, definition, pretty definition
+    static final List<String[]> CHECKS = new ArrayList<>();
 
     static {
       try (java.io.BufferedReader in =
@@ -1056,10 +1077,20 @@ final class Catalog {
                       Catalog.class.getResourceAsStream("catalog-types.txt"), "catalog-types.txt"),
                   java.nio.charset.StandardCharsets.UTF_8))) {
         for (String line = in.readLine(); line != null; line = in.readLine()) {
-          if (!line.startsWith("#")) {
-            String[] f = line.split(" ", -1); // table column oid
+          String[] f = line.split(" ", -1);
+          if (line.startsWith("@ ")) {
+            RELATIONS.put(f[1], new String[] {f[2], f[3]});
+          } else if (line.startsWith("% domain ")) {
+            String[] d = Arrays.copyOf(Arrays.copyOfRange(f, 2, f.length), 8);
+            d[7] = String.join(" ", Arrays.copyOfRange(f, 9, f.length)); // a default has spaces
+            DOMAINS.add(d);
+          } else if (line.startsWith("% check ")) {
+            String[] definitions = String.join(" ", Arrays.copyOfRange(f, 5, f.length)).split("\t");
+            CHECKS.add(new String[] {f[2], f[3], f[4], definitions[0], definitions[1]});
+          } else if (!line.startsWith("#")) { // table column type-oid, then pg_attribute's facts
             TYPES.put(f[0] + " " + f[1], Long.parseLong(f[2]));
             COLUMNS.computeIfAbsent(f[0], k -> new ArrayList<>()).add(f[1]);
+            ATTRIBUTES.put(f[0] + " " + f[1], Arrays.copyOfRange(f, 3, 10));
           }
         }
       } catch (java.io.IOException e) {
@@ -1069,6 +1100,7 @@ final class Catalog {
   }
 
   private static final Map<Long, Long> ARRAY_OIDS = new LinkedHashMap<>();
+  private static final Set<Long> DOMAIN_OIDS = new HashSet<>(); // information_schema's domains
 
   static {
     long[][] pairs = {
@@ -1102,6 +1134,12 @@ final class Catalog {
     };
     for (long[] p : pairs) {
       ARRAY_OIDS.put(p[0], p[1]);
+    }
+    // information_schema's domains, which format_type and regtype name qualified
+    for (String[] d : CatalogTypes.DOMAINS) {
+      DOMAIN_OIDS.add(Long.parseLong(d[0]));
+      TYPE_NAMES.put(Long.parseLong(d[0]), "information_schema." + d[1]);
+      ARRAY_OIDS.put(Long.parseLong(d[0]), Long.parseLong(d[4]));
     }
   }
 
@@ -1178,6 +1216,11 @@ final class Catalog {
     }
   }
 
+  /** pg_type.typcollation: default for the string types, C for name, none for the others. */
+  static long typeCollation(long oid) {
+    return oid == 25 || oid == 1042 || oid == 1043 ? 100 : oid == 19 ? 950 : 0;
+  }
+
   /** pg_type.typalign from typlen: c, s, i or d; variable-length types align as int. */
   private static String typeAlign(long length) {
     return length == 1 ? "c" : length == 2 ? "s" : length == 8 ? "d" : "i";
@@ -1229,6 +1272,8 @@ final class Catalog {
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
+  // pg_get_constraintdef(oid, true), where it differs: information_schema's domain checks
+  private final Map<Long, String> prettyConstraintDefs = new HashMap<>();
   private final Map<Long, List<String>> indexColumns = new HashMap<>();
   // "catalog oid" -> its comment: a table's keys, the internal language's
   private final Map<String, String> descriptions = new HashMap<>();
@@ -1554,6 +1599,11 @@ final class Catalog {
         return e.getKey();
       }
     }
+    for (Map.Entry<Long, String> e : TYPE_NAMES.entrySet()) {
+      if (e.getValue().equals(n)) {
+        return e.getKey(); // information_schema.sql_identifier
+      }
+    }
     throw new PgException.Argument("42704", "type \"" + name + "\" does not exist");
   }
 
@@ -1575,9 +1625,11 @@ final class Catalog {
     return descriptions.get(catalog + " " + oid);
   }
 
-  @Nullable String constraintDef(long oid) throws ExecutionException {
+  @Nullable String constraintDef(long oid, boolean pretty) throws ExecutionException {
     load();
-    return constraintDefs.get(oid);
+    return pretty
+        ? prettyConstraintDefs.getOrDefault(oid, constraintDefs.get(oid))
+        : constraintDefs.get(oid);
   }
 
   /** The rows of a catalog table, with keys qualified as {@code qualifier.column}. */
@@ -1650,7 +1702,43 @@ final class Catalog {
       t.put("information_schema." + name, new ArrayList<>());
     }
     String icu = Evaluator.icuCollationName();
-    if (!icu.isEmpty()) {
+    // the collations COLLATE accepts (Evaluator.checkCollation), with PostgreSQL 16's rows:
+    // default, which is ScalarDB's, and byte order's three names; under ICU, default and the ICU
+    // collation
+    row(
+        t,
+        "pg_catalog.pg_collation",
+        100L,
+        "default",
+        11L,
+        "d",
+        icu.isEmpty(),
+        -1L,
+        null,
+        null,
+        null,
+        null,
+        null);
+    if (icu.isEmpty()) {
+      for (Object[] c :
+          new Object[][] {{950L, "C", -1L}, {951L, "POSIX", -1L}, {962L, "ucs_basic", 6L}}) {
+        String locale = c[1].equals("POSIX") ? "POSIX" : "C";
+        row(
+            t,
+            "pg_catalog.pg_collation",
+            c[0],
+            c[1],
+            11L,
+            "c",
+            true,
+            c[2],
+            locale,
+            locale,
+            null,
+            null,
+            null);
+      }
+    } else {
       String locale = icu.substring(0, icu.length() - "-x-icu".length());
       row(
           t,
@@ -1703,17 +1791,38 @@ final class Catalog {
     row(t, "pg_catalog.pg_tablespace", 1664L, "pg_global", OWNER_OID, null, null);
     // the schema of the built-in types, which drivers join pg_type with
     row(t, "pg_catalog.pg_namespace", PG_CATALOG_NAMESPACE, "pg_catalog", OWNER_OID, null);
+    row(
+        t,
+        "pg_catalog.pg_namespace",
+        INFORMATION_SCHEMA_OID,
+        "information_schema",
+        OWNER_OID,
+        null);
+    namespaceOids.put("information_schema", INFORMATION_SCHEMA_OID);
+    row(t, "information_schema.schemata", database, "pg_catalog");
+    row(t, "information_schema.schemata", database, "information_schema");
+    catalogRelations(t);
+    domains(t);
     if (!clusterUsers) {
       role(t, OWNER_OID, OWNER, true, true);
     }
     timezoneNames(t);
     for (Map.Entry<String, List<Map<String, String>>> b : BUILTIN_ROWS.entrySet()) {
-      String table = "pg_catalog." + b.getKey();
-      List<String> columns = Objects.requireNonNull(PG_CATALOG.get(b.getKey()));
+      String table = b.getKey();
+      String name = table.substring(table.indexOf('.') + 1);
+      List<String> columns = Objects.requireNonNull(CatalogTypes.COLUMNS.get(table));
       for (Map<String, String> r : b.getValue()) {
         Object[] values = new Object[columns.size()];
         for (int i = 0; i < values.length; i++) {
-          values[i] = catalogValue(table, columns.get(i), r.get(columns.get(i)));
+          // information_schema's *_catalog columns name the database PostgreSQL 16 ran in; here,
+          // this one
+          String column = columns.get(i);
+          values[i] =
+              table.startsWith("information_schema.")
+                      && column.endsWith("_catalog")
+                      && r.get(column) != null
+                  ? database
+                  : catalogValue(table, column, r.get(column));
         }
         row(t, table, values);
         if (r.get("description") != null) { // pg_proc's and pg_operator's, which psql shows
@@ -1721,10 +1830,10 @@ final class Catalog {
               t,
               "pg_catalog.pg_description",
               Long.parseLong(Builtins.field(r, "oid")),
-              CATALOG_OIDS.get(b.getKey()),
+              CATALOG_OIDS.get(name),
               0L,
               r.get("description"));
-          descriptions.put(b.getKey() + " " + Builtins.field(r, "oid"), r.get("description"));
+          descriptions.put(name + " " + Builtins.field(r, "oid"), r.get("description"));
         }
       }
     }
@@ -1743,7 +1852,7 @@ final class Catalog {
           oid,
           name,
           PG_CATALOG_NAMESPACE,
-          oid == 25 || oid == 1043 ? 100L : 0L,
+          typeCollation(oid),
           // typelem: int2vector and oidvector are subscripted as int2 and oid arrays
           oid == 22 ? 21L : oid == 30 ? 26L : 0L,
           ",",
@@ -1772,42 +1881,12 @@ final class Catalog {
           null);
       if (arrayOid != 0) {
         // the array type of each base type, which drivers look up by typelem
-        row(
-            t,
-            "pg_catalog.pg_type",
-            arrayOid,
-            "_" + name,
-            PG_CATALOG_NAMESPACE,
-            0L,
-            oid,
-            ",",
-            "array_in",
-            "b",
-            0L,
-            0L,
-            -1L,
-            "A",
-            0L,
-            false,
-            -1L,
-            OWNER_OID,
-            null,
-            false,
-            typeAlign(typeLength(oid)),
-            "x",
-            0L,
-            false,
-            "array_out",
-            "array_recv",
-            "array_send",
-            "-",
-            "-",
-            "array_typanalyze",
-            null);
+        arrayType(
+            t, arrayOid, name, PG_CATALOG_NAMESPACE, typeCollation(oid), oid, typeLength(oid));
       }
     }
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
-    long oid = 16384;
+    long oid = FIRST_USER_OID;
     for (String namespace : new TreeSet<>(admin.getNamespaceNames())) {
       if (namespace.equals("scalardb")
           || namespace.equals("coordinator")
@@ -1916,12 +1995,11 @@ final class Catalog {
           long typeOid = declared.encoded() ? declared.oid() : typeOid(type);
           long typmod = declared.encoded() ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
-          // ScalarDB's ICU collation, which psql's \d shows as the column's collation
+          // the type's, or ScalarDB's ICU collation, which psql's \d shows as the column's
           long collation =
-              !Evaluator.icuCollationName().isEmpty()
-                      && (typeOid == 25 || typeOid == 1042 || typeOid == 1043)
+              typeCollation(typeOid) != 0 && !Evaluator.icuCollationName().isEmpty()
                   ? ICU_COLLATION_OID
-                  : 0L;
+                  : typeCollation(typeOid);
           columnCollations.put(column, collation);
           columnOpclasses.put(column, defaultOpclass(typeOid));
           attributes.put(
@@ -2009,6 +2087,16 @@ final class Catalog {
               table,
               keys.get(k),
               (long) (k + 1));
+          row(
+              t,
+              "information_schema.constraint_column_usage",
+              database,
+              schema,
+              table,
+              keys.get(k),
+              database,
+              schema,
+              table + "_pkey");
         }
         long pkeyOid = oid++;
         relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null, null);
@@ -2079,6 +2167,40 @@ final class Catalog {
             " ",
             namespaceOid);
         constraintDefs.put(constraintOid, "PRIMARY KEY (" + columnList + ")");
+        // pg_depend, as PostgreSQL records them: the table on its namespace, the key on its
+        // columns, the key's index on the key, and a secondary index on its column
+        row(
+            t,
+            "pg_catalog.pg_depend",
+            PG_CLASS_OID,
+            relOid,
+            0L,
+            PG_NAMESPACE_OID,
+            namespaceOid,
+            0L,
+            "n");
+        for (Object keyNumber : keyNumbers) {
+          row(
+              t,
+              "pg_catalog.pg_depend",
+              PG_CONSTRAINT_OID,
+              constraintOid,
+              0L,
+              PG_CLASS_OID,
+              relOid,
+              keyNumber,
+              "a");
+        }
+        row(
+            t,
+            "pg_catalog.pg_depend",
+            PG_CLASS_OID,
+            pkeyOid,
+            0L,
+            PG_CONSTRAINT_OID,
+            constraintOid,
+            0L,
+            "i");
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
           String indexName = table + "_" + index + "_idx";
@@ -2122,6 +2244,16 @@ final class Catalog {
           indexDefs.put(indexOid, indexDef);
           indexColumns.put(indexOid, Collections.singletonList(index));
           indexAttributes(t, indexOid, Collections.singletonList(index), attributes);
+          row(
+              t,
+              "pg_catalog.pg_depend",
+              PG_CLASS_OID,
+              indexOid,
+              0L,
+              PG_CLASS_OID,
+              relOid,
+              indexAttnum,
+              "a");
           relationOids.put(namespace + "." + indexName, indexOid);
           relationNames.put(indexOid, indexName);
           relationOids.put(schema + "." + indexName, indexOid);
@@ -2336,6 +2468,284 @@ final class Catalog {
       attribute.put("attnotnull", false);
       Objects.requireNonNull(t.get("pg_catalog.pg_attribute")).add(attribute);
     }
+  }
+
+  /**
+   * The catalog relations, as the frontend declares them: pg_class rows with PostgreSQL 16's oids
+   * and kinds, and pg_attribute rows for their columns, in the order SELECT * gives them. Where the
+   * frontend declares fewer columns than PostgreSQL 16, as information_schema.columns, attnum
+   * numbers the frontend's columns, not PostgreSQL's.
+   */
+  private void catalogRelations(Map<String, List<Map<String, Object>>> t) {
+    for (String schema : Arrays.asList("pg_catalog", "information_schema")) {
+      Map<String, List<String>> declared =
+          schema.equals("pg_catalog") ? PG_CATALOG : INFORMATION_SCHEMA;
+      long namespace = schema.equals("pg_catalog") ? PG_CATALOG_NAMESPACE : INFORMATION_SCHEMA_OID;
+      for (Map.Entry<String, List<String>> d : declared.entrySet()) {
+        String qualified = schema + "." + d.getKey();
+        String[] relation = CatalogTypes.RELATIONS.get(qualified);
+        if (relation == null) {
+          continue; // a name PostgreSQL 16 does not have
+        }
+        long oid = Long.parseLong(relation[0]);
+        String kind = relation[1];
+        relation(
+            t,
+            oid,
+            d.getKey(),
+            namespace,
+            kind,
+            kind.equals("r") ? HEAP_AM : 0L,
+            false,
+            CATALOG_ACL,
+            null);
+        if (schema.equals("information_schema")) {
+          relationOids.put(qualified, oid);
+          relationNames.put(oid, d.getKey());
+        }
+        if (kind.equals("r")) {
+          // tableoid, the system column the catalog tables have here; views have none
+          row(
+              t,
+              "pg_catalog.pg_attribute",
+              oid,
+              -6L,
+              TABLEOID,
+              26L,
+              -1L,
+              true,
+              false,
+              false,
+              0L,
+              "",
+              "",
+              "p",
+              "",
+              -1L,
+              null,
+              4L,
+              0L,
+              0L,
+              true);
+          row(
+              t,
+              "pg_catalog.pg_tables",
+              schema,
+              d.getKey(),
+              OWNER,
+              null,
+              false,
+              false,
+              false,
+              false);
+        } else {
+          // ponytail: PostgreSQL's definition is not this frontend's, which is code; NULL says so
+          row(t, "pg_catalog.pg_views", schema, d.getKey(), OWNER, null);
+          row(
+              t,
+              "information_schema.views",
+              database,
+              schema,
+              d.getKey(),
+              null,
+              "NONE",
+              "NO",
+              "NO",
+              "NO",
+              "NO",
+              "NO");
+        }
+        row(
+            t,
+            "information_schema.tables",
+            database,
+            schema,
+            d.getKey(),
+            kind.equals("r") ? "BASE TABLE" : "VIEW");
+        for (int i = 0; i < d.getValue().size(); i++) {
+          String column = d.getValue().get(i);
+          String[] pg = CatalogTypes.ATTRIBUTES.get(qualified + " " + column);
+          long base = catalogColumnOid(qualified, column);
+          long typeOid = base == 0 ? 25 : base;
+          // PostgreSQL 16's attribute where its type is the one described or information_schema's
+          // domain over it; else the type described, as for regproc's, which is text here
+          long pgType = pg == null ? 0 : Long.parseLong(pg[0]);
+          if (pg == null || pgType != typeOid && !DOMAIN_OIDS.contains(pgType)) {
+            long length = typeLength(typeOid);
+            pg =
+                new String[] {
+                  String.valueOf(typeOid),
+                  "-1",
+                  pg == null ? "f" : pg[2],
+                  String.valueOf(typeCollation(typeOid)),
+                  String.valueOf(length),
+                  elementOid(typeOid) != 0 ? "1" : "0",
+                  length > 0 ? "p" : "x"
+                };
+          }
+          boolean notNull = "t".equals(pg[2]);
+          row(
+              t,
+              "pg_catalog.pg_attribute",
+              oid,
+              (long) i + 1,
+              column,
+              Long.parseLong(pg[0]),
+              Long.parseLong(pg[1]),
+              notNull,
+              false,
+              false,
+              Long.parseLong(pg[3]),
+              "",
+              "",
+              pg[6],
+              "",
+              -1L,
+              null,
+              Long.parseLong(pg[4]),
+              Long.parseLong(pg[5]),
+              0L,
+              true);
+          row(
+              t,
+              "information_schema.columns",
+              database,
+              schema,
+              d.getKey(),
+              column,
+              (long) i + 1,
+              elementOid(typeOid) != 0 ? "ARRAY" : typeName(typeOid),
+              notNull ? "NO" : "YES",
+              INTERNAL_TYPE_NAMES.getOrDefault(
+                  typeOid,
+                  elementOid(typeOid) != 0
+                      ? "_" + INTERNAL_TYPE_NAMES.get(elementOid(typeOid))
+                      : null),
+              null,
+              null,
+              nativePrecision(typeOid),
+              nativePrecision(typeOid) != null ? 2L : null,
+              nativeScale(typeOid),
+              null);
+        }
+      }
+    }
+  }
+
+  /** information_schema's domains, their array types and checks, as PostgreSQL 16 has them. */
+  private void domains(Map<String, List<Map<String, Object>>> t) {
+    for (String[] d : CatalogTypes.DOMAINS) {
+      long oid = Long.parseLong(d[0]);
+      long base = Long.parseLong(d[2]);
+      long array = Long.parseLong(d[4]);
+      long collation = Long.parseLong(d[6]);
+      long length = typeLength(base);
+      row(
+          t,
+          "pg_catalog.pg_type",
+          oid,
+          d[1],
+          INFORMATION_SCHEMA_OID,
+          collation,
+          0L,
+          ",",
+          "domain_in",
+          "d",
+          base,
+          array,
+          length,
+          typeCategory(base),
+          0L,
+          false,
+          Long.parseLong(d[3]),
+          OWNER_OID,
+          d[7].isEmpty() ? null : d[7],
+          length > 0,
+          typeAlign(length),
+          length > 0 ? "p" : "x",
+          0L,
+          false,
+          INTERNAL_TYPE_NAMES.get(base) + "out",
+          "domain_recv",
+          INTERNAL_TYPE_NAMES.get(base) + "send",
+          "-",
+          "-",
+          "-",
+          null);
+      arrayType(t, array, d[1], INFORMATION_SCHEMA_OID, collation, oid, length);
+    }
+    for (String[] c : CatalogTypes.CHECKS) {
+      long oid = Long.parseLong(c[0]);
+      row(
+          t,
+          "pg_catalog.pg_constraint",
+          oid,
+          c[1],
+          "c",
+          0L,
+          0L,
+          false,
+          false,
+          false,
+          0L,
+          0L,
+          null,
+          false,
+          true,
+          0L,
+          true,
+          Long.parseLong(c[2]),
+          null,
+          " ",
+          " ",
+          " ",
+          INFORMATION_SCHEMA_OID);
+      constraintDefs.put(oid, c[3]);
+      prettyConstraintDefs.put(oid, c[4]);
+    }
+  }
+
+  /** The pg_type row of the array type of an element type, aligned as the element's length. */
+  private static void arrayType(
+      Map<String, List<Map<String, Object>>> t,
+      long oid,
+      String elementName,
+      long namespace,
+      long collation,
+      long element,
+      long elementLength) {
+    row(
+        t,
+        "pg_catalog.pg_type",
+        oid,
+        "_" + elementName,
+        namespace,
+        collation,
+        element,
+        ",",
+        "array_in",
+        "b",
+        0L,
+        0L,
+        -1L,
+        "A",
+        0L,
+        false,
+        -1L,
+        OWNER_OID,
+        null,
+        false,
+        typeAlign(elementLength),
+        "x",
+        0L,
+        false,
+        "array_out",
+        "array_recv",
+        "array_send",
+        "-",
+        "-",
+        "array_typanalyze",
+        null);
   }
 
   private static void member(

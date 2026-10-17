@@ -36,6 +36,11 @@ Behaviour that changes:
   `'f'::regproc` and `'f(text)'::regprocedure` name functions by OID, and `pg_typeof` works.
 - Array text with an empty unquoted element (`'{a,,b}'`) fails with `22P02`, as in PostgreSQL; before, the
   element was an empty string.
+- The catalog lists itself: `\dS`, JDBC's `getTables` and `getColumns`, `pg_class`, `pg_tables`, `pg_views`
+  and `information_schema.tables`/`columns` include the `pg_catalog` and `information_schema` relations the
+  frontend has, as PostgreSQL lists its own, so a tool that does not filter out `pg_catalog` sees them.
+  `information_schema` is a schema, with its domains, and `pg_collation` and `pg_depend` have rows. A text
+  column's collation is `default` (100), as in PostgreSQL, not 0.
 - `ROLLBACK` undoes the `SET`s made in the transaction, and a `SET` after `SET LOCAL` outlasts the
   transaction, as in PostgreSQL. `SET`, `RESET` and `SET ... TO DEFAULT` of a setting PostgreSQL fixes, such
   as `server_version`, fail with `55P02`.

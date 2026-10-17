@@ -42,7 +42,7 @@ ORDER BY 1,2;
 -----
 -- [dS]
 -- postgres16: 141 b47968481df1
--- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 66  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -614,7 +614,7 @@ ORDER BY 1, 2;
 -----
 -- [dcS]
 -- postgres16: 128 944e8dc1a25f
--- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 0  # no encoding conversions: the server encoding is UTF8 only
 SELECT n.nspname AS "Schema",
        c.conname AS "Name",
        pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source",
@@ -937,7 +937,7 @@ ORDER BY 1,2;
 -----
 -- [diS]
 -- postgres16: 126 02d2de9bb510
--- expect: 2  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 2  # the catalog relations have no indexes here
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1025,7 +1025,7 @@ ORDER BY 1,2;
 -----
 -- [dtS]
 -- postgres16: 65 86c76b658cd4
--- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 51  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1039,7 +1039,7 @@ ORDER BY 1,2;
 -----
 -- [dt *.*]
 -- postgres16: 111 c9f93c0a1b61
--- expect: 2  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 52  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1052,7 +1052,7 @@ ORDER BY 1,2;
 -----
 -- [dvS]
 -- postgres16: 76 653bfbb3a818
--- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 15  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1384,7 +1384,7 @@ ORDER BY 1;
 -----
 -- [dgS]
 -- postgres16: 15 87a66132bbf1
--- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 1  # the scalardb role; PostgreSQL's built-in roles are not here
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil
@@ -1451,7 +1451,7 @@ ORDER BY 1;
 -----
 -- [dnS]
 -- postgres16: 5 4a7471a2086a
--- expect: 3  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 4  # no pg_toast
 SELECT n.nspname AS "Name",
   pg_catalog.pg_get_userbyid(n.nspowner) AS "Owner"
 FROM pg_catalog.pg_namespace n
@@ -1511,7 +1511,7 @@ ORDER BY 1, 2;
 -----
 -- [dOS]
 -- postgres16: 878 6065182faa3b
--- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 4  # the collations COLLATE accepts
 SELECT
   n.nspname AS "Schema",
   c.collname AS "Name",
@@ -1578,7 +1578,7 @@ ORDER BY 1, 2;
 -----
 -- [dpS]
 -- postgres16: 141 8e6b0b784f22
--- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 66  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as "Type",
@@ -1707,7 +1707,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [drgS]
 -- postgres16: 3 801487e12558
--- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 0  # no role memberships
 SELECT m.rolname AS "Role name", r.rolname AS "Member of",
   pg_catalog.concat_ws(', ',
     CASE WHEN pam.admin_option THEN 'ADMIN' END,
@@ -1835,7 +1835,7 @@ ORDER BY 1;
 -----
 -- [duS]
 -- postgres16: 15 87a66132bbf1
--- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
+-- expect: 1  # the scalardb role; PostgreSQL's built-in roles are not here
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil

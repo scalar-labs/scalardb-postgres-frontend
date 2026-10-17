@@ -14,7 +14,7 @@ select current_schema()
 -----
 -- [sqlalchemy]
 -- postgres16: 3 6625f3b23143
--- expect: 2  # no information_schema namespace yet (todo 057, Phase 3)
+-- expect: same
 SELECT pg_catalog.pg_namespace.nspname 
 FROM pg_catalog.pg_namespace 
 WHERE (pg_catalog.pg_namespace.nspname NOT LIKE 'pg/_'::VARCHAR || '%' ESCAPE '/') ORDER BY pg_catalog.pg_namespace.nspname
@@ -95,7 +95,7 @@ WHERE pg_catalog.pg_class.relkind = ANY (ARRAY['r'::VARCHAR, 'p'::VARCHAR, 'f'::
 -----
 -- [sqlalchemy]
 -- postgres16: 5 aece35db11a6
--- expect: 0  # information_schema's domains are not listed yet (todo 057, Phase 3)
+-- expect: same
 SELECT pg_catalog.pg_type.typname AS name, pg_catalog.format_type(pg_catalog.pg_type.typbasetype, pg_catalog.pg_type.typtypmod) AS attype, NOT pg_catalog.pg_type.typnotnull AS nullable, pg_catalog.pg_type.typdefault AS "default", pg_catalog.pg_type_is_visible(pg_catalog.pg_type.oid) AS visible, pg_catalog.pg_namespace.nspname AS schema, domain_constraints.condefs, domain_constraints.connames, pg_catalog.pg_collation.collname 
 FROM pg_catalog.pg_type JOIN pg_catalog.pg_namespace ON pg_catalog.pg_namespace.oid = pg_catalog.pg_type.typnamespace LEFT OUTER JOIN pg_catalog.pg_collation ON pg_catalog.pg_type.typcollation = pg_catalog.pg_collation.oid LEFT OUTER JOIN (SELECT pg_catalog.pg_constraint.contypid AS contypid, array_agg(pg_catalog.pg_get_constraintdef(pg_catalog.pg_constraint.oid, 't')) AS condefs, array_agg(CAST(pg_catalog.pg_constraint.conname AS TEXT)) AS connames 
 FROM pg_catalog.pg_constraint 

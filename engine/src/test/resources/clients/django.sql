@@ -102,7 +102,7 @@ SELECT
 -----
 -- [django]
 -- postgres16: 11 936175e87c5f
--- expect: 5  # system columns are not listed yet (todo 057, Phase 3)
+-- expect: 5  # the frontend's tables have no system columns
 SELECT
                 a.attname AS column_name,
                 NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)) AS is_nullable,

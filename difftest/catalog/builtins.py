@@ -16,6 +16,8 @@ writes, under engine/src:
     main/resources/.../aggregates.txt pg_aggregate rows
     main/resources/.../operators.txt  pg_operator rows
     main/resources/.../casts.txt      pg_cast rows
+    main/resources/.../information_schema-*.txt  information_schema's routines, parameters, domains
+                                      and character_sets rows
     test/resources/builtins-calls.txt the call that proved each row, and its result type
 """
 import itertools
@@ -139,6 +141,17 @@ def arguments(types):
     return list(itertools.islice(itertools.product(*lists), MAX_COMBINATIONS))
 
 
+def information_schema(native, kept):
+    """information_schema's rows about the built-in objects: the kept functions' routines and
+    parameters (specific_name ends in the oid), the domains and the character set."""
+    kept_only = " WHERE substring(specific_name from '_([0-9]+)$')::oid = ANY(%s)"
+    for view in ["routines", "parameters", "domains", "character_sets"]:
+        where, params = (kept_only, (kept,)) if view in ("routines", "parameters") else ("", None)
+        cur, rows = text_rows(native, f"SELECT * FROM information_schema.{view}{where} ORDER BY 1, 2, 3",
+                              params)
+        write(f"information_schema-{view}.txt", cur, rows)
+
+
 def functions(native, frontend, calls, mismatches):
     names = names_in_source()
     candidates = native.execute(
@@ -173,6 +186,7 @@ def functions(native, frontend, calls, mismatches):
     ]
     write_table(native, "builtins.txt", "pg_proc", "oid", kept, extra)
     write_table(native, "aggregates.txt", "pg_aggregate", "aggfnoid", kept)
+    information_schema(native, kept)
 
 
 def operators(native, frontend, calls, mismatches):
@@ -217,6 +231,10 @@ def write_table(native, name, table, key, oids, extra=()):
     select = ", ".join([select, *extra])
     cur, rows = text_rows(
         native, f"SELECT {select} FROM {table} WHERE {key}::oid = ANY(%s) ORDER BY {key}::oid", (oids,))
+    write(name, cur, rows)
+
+
+def write(name, cur, rows):
     lines = ["\t".join(d.name for d in cur.description)]
     for row in rows:
         lines.append("\t".join("\\N" if v is None else v.decode().replace("\\", "\\\\").replace("\n", "\\n")

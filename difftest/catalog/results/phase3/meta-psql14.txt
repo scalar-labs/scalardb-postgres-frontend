@@ -1,0 +1,98 @@
+\d | 1 | 1 | 
+\d+ | 1 | 1 | 
+\dS | 141 | 66 | 
+\d items | out:                      Table "public.items"| Column |         | out:                      Table "public.items"| Column |         | 
+\d+ items | out:                                                 Table "publ | out:                                                 Table "publ | 
+\d sales.orders | out:                    Table "sales.orders"| Column  |       Ty | out:                    Table "sales.orders"| Column  |       Ty | 
+\d items_pkey | out:      Index "public.items_pkey"| Column |  Type   | Key? | D | out:      Index "public.items_pkey"| Column |  Type   | Key? | D | 
+\d items_name_idx | out:           Index "public.items_name_idx"| Column |         T | out:           Index "public.items_name_idx"| Column |         T | 
+\da | 0 | 0 | 
+\daS | 157 | 55 | 
+\dA | 7 | 2 | 
+\dA+ | 7 | 2 | 
+\dAc | 177 | 17 | 
+\dAf | 146 | 12 | 
+\dAo | 945 | 0 | 
+\dAp | 696 | 0 | 
+\db | 2 | 2 | 
+\db+ | 2 | 2 | 
+\dc | 0 | 0 | 
+\dcS | 128 | 0 | 
+\dC | 229 | 98 | 
+\dC+ | 229 | 98 | 
+\dd | 0 | 0 | 
+\ddS | 0 | 0 | 
+\dD | 0 | 0 | 
+\dD+ | 0 | 0 | 
+\ddp | 0 | 0 | 
+\dE | 0 | 0 | 
+\di | 2 | 2 | 
+\di+ | 2 | 2 | 
+\diS | 126 | 2 | 
+\dm | 0 | 0 | 
+\ds | 0 | 0 | 
+\dt | 1 | 1 | 
+\dt+ | 1 | 1 | 
+\dtS | 65 | 51 | 
+\dt *.* | 111 | 52 | 
+\dv | 0 | 0 | 
+\dvS | 76 | 15 | 
+\des | 0 | 0 | 
+\det | 0 | 0 | 
+\deu | 0 | 0 | 
+\dew | 0 | 0 | 
+\df | 0 | 0 | 
+\df+ | 0 | 0 | 
+\dfS | 3286 | 242 | 
+\dfa | 0 | 0 | 
+\dfaS | 157 | 55 | 
+\dfn | 0 | 0 | 
+\dfp | 0 | 0 | 
+\dft | 0 | 0 | 
+\dfw | 0 | 0 | 
+\dF | 29 | 0 | 
+\dF+ | out:Text search configuration "pg_catalog.arabic"|Parser: "pg_ca | 0 | 
+\dFd | 29 | 0 | 
+\dFp | 1 | 0 | 
+\dFt | 5 | 0 | 
+\dg | out:                                   List of roles| Role name  | out:           List of roles| Role name | Attributes | Member of | 
+\dg+ | out:                                          List of roles| Rol | out:                  List of roles| Role name | Attributes | Me | 
+\dgS | out:                                                             | out:           List of roles| Role name | Attributes | Member of | 
+\dl | 0 | 0 | 
+\dL | 1 | 0 | 
+\dLS | 4 | 1 | 
+\dn | 2 | 2 | 
+\dn+ | 2 | 2 | 
+\dnS | 5 | 4 | 
+\do | 0 | 0 | 
+\doS | 799 | 378 | 
+\dO | 0 | 0 | 
+\dOS | 878 | 4 | 
+\dp | ERR ERROR:  operator is not unique: unknown || "char" | 1 | 
+\dpS | ERR ERROR:  operator is not unique: unknown || "char" | 1 | 
+\dP | 0 | 0 | 
+\dPi | 0 | 0 | 
+\dPt | 0 | 0 | 
+\drds | 0 | 0 | 
+\drg | out:invalid command \drg| | out:invalid command \drg| | 
+\drgS | out:invalid command \drgS| | out:invalid command \drgS| | 
+\dRp | 0 | 0 | 
+\dRs | 0 | 0 | 
+\dT | 0 | 0 | 
+\dT+ | 0 | 0 | 
+\dTS | 107 | 38 | 
+\du | out:                                   List of roles| Role name  | out:           List of roles| Role name | Attributes | Member of | 
+\du+ | out:                                          List of roles| Rol | out:                  List of roles| Role name | Attributes | Me | 
+\duS | out:                                                             | out:           List of roles| Role name | Attributes | Member of | 
+\dx | 1 | 0 | 
+\dx+ | 4 | 0 | 
+\dX | 0 | 0 | 
+\dy | 0 | 0 | 
+\l | 5 | 2 | 
+\l+ | 5 | 2 | 
+\z | ERR ERROR:  operator is not unique: unknown || "char" | 1 | 
+\sf now | out:CREATE OR REPLACE FUNCTION pg_catalog.now()| RETURNS timesta | out:CREATE OR REPLACE FUNCTION pg_catalog.now()| RETURNS timesta | 
+\sf+ now | out:        CREATE OR REPLACE FUNCTION pg_catalog.now()|         | out:        CREATE OR REPLACE FUNCTION pg_catalog.now()|         | 
+\dconfig | 0 | 0 | 
+\dconfig+ work_mem | 0 | 0 | 
+\lo_list | 0 | 0 | 

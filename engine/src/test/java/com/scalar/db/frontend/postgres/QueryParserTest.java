@@ -3115,7 +3115,8 @@ public class QueryParserTest {
     String visible =
         "SELECT n.nspname || '.' || c.relname AS r FROM pg_class c"
             + " JOIN pg_namespace n ON n.oid = c.relnamespace"
-            + " WHERE c.relkind = 'r' AND pg_table_is_visible(c.oid) ORDER BY 1";
+            + " WHERE c.relkind = 'r' AND n.nspname <> 'pg_catalog' AND pg_table_is_visible(c.oid)"
+            + " ORDER BY 1";
     String names =
         "SELECT current_schemas(true) AS a, current_schemas(false) AS b, current_schema() AS c,"
             + " 'public.t'::regclass::text AS d, 'other.t'::regclass::text AS e,"
@@ -3211,10 +3212,71 @@ public class QueryParserTest {
   }
 
   @Test
+  public void execute_CatalogRows_ShouldDescribeWhatExists() throws Exception {
+    // t's dependencies, as PostgreSQL records them: its secondary index on column 3, the key's
+    // index on the key, t on its namespace, the key on columns 1 and 2
+    assertThat(
+            parser
+                .parse(
+                    "SELECT classid::regclass::text AS c, refclassid::regclass::text AS r,"
+                        + " refobjsubid AS s, deptype AS d FROM pg_depend ORDER BY 1, 2, 3")
+                .execute(transaction))
+        .containsExactly(
+            map("c", "pg_class", "r", "pg_class", "s", 3L, "d", "a"),
+            map("c", "pg_class", "r", "pg_constraint", "s", 0L, "d", "i"),
+            map("c", "pg_class", "r", "pg_namespace", "s", 0L, "d", "n"),
+            map("c", "pg_constraint", "r", "pg_class", "s", 1L, "d", "a"),
+            map("c", "pg_constraint", "r", "pg_class", "s", 2L, "d", "a"));
+    assertThat(parser.parse("SELECT collname FROM pg_collation ORDER BY oid").execute(transaction))
+        .containsExactly(
+            map("collname", "default"),
+            map("collname", "C"),
+            map("collname", "POSIX"),
+            map("collname", "ucs_basic"));
+    // information_schema's domains exist, but are not on the default search_path; a catalog table
+    // is not publishable
+    assertThat(
+            parser
+                .parse(
+                    "SELECT 'information_schema.sql_identifier'::regtype::text AS t,"
+                        + " pg_type_is_visible('information_schema.sql_identifier'::regtype) AS v,"
+                        + " pg_relation_is_publishable('pg_class'::regclass) AS p")
+                .execute(transaction))
+        .containsExactly(map("t", "information_schema.sql_identifier", "v", false, "p", false));
+    // a catalog column and an array type as PostgreSQL 16 has them: the domain's C collation
+    assertThat(
+            parser
+                .parse(
+                    "SELECT atttypid::regtype::text AS t, attcollation AS c, attlen AS l,"
+                        + " attstorage AS s FROM pg_attribute"
+                        + " WHERE attrelid = 'information_schema.columns'::regclass"
+                        + " AND attname = 'is_nullable'")
+                .execute(transaction))
+        .containsExactly(map("t", "information_schema.yes_or_no", "c", 950L, "l", -1L, "s", "x"));
+    assertThat(
+            parser
+                .parse("SELECT typcollation AS c FROM pg_type WHERE oid = 'text[]'::regtype")
+                .execute(transaction))
+        .containsExactly(map("c", 100L));
+    // information_schema is a schema, which search_path may name
+    parser.setSearchPath("information_schema");
+    assertThat(
+            parser
+                .parse(
+                    "SELECT 'information_schema'::regnamespace::oid AS o, current_schema() AS c,"
+                        + " current_schemas(false) AS s")
+                .execute(transaction))
+        .containsExactly(
+            map("o", 13276L, "c", "information_schema", "s", Arrays.asList("information_schema")));
+  }
+
+  @Test
   public void execute_CatalogViews_ShouldListWhatExists() throws Exception {
     assertThat(
             parser
-                .parse("SELECT schemaname, tablename, tableowner, hasindexes FROM pg_tables")
+                .parse(
+                    "SELECT schemaname, tablename, tableowner, hasindexes FROM pg_tables"
+                        + " WHERE schemaname <> 'pg_catalog'")
                 .execute(transaction))
         .containsExactly(
             map(
@@ -3228,7 +3290,21 @@ public class QueryParserTest {
                 true));
     assertThat(parser.parse("SELECT usename, usesuper, passwd FROM pg_user").execute(transaction))
         .containsExactly(map("usename", "scalardb", "usesuper", true, "passwd", "********"));
-    assertThat(parser.parse("SELECT * FROM pg_views").execute(transaction)).isEmpty();
+    // the catalog's own tables and views, as the frontend declares them
+    assertThat(
+            parser
+                .parse("SELECT schemaname, tablename FROM pg_tables WHERE tablename = 'pg_class'")
+                .execute(transaction))
+        .containsExactly(map("schemaname", "pg_catalog", "tablename", "pg_class"));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT schemaname, viewname, definition FROM pg_views"
+                        + " WHERE viewname IN ('pg_tables', 'tables') ORDER BY 1")
+                .execute(transaction))
+        .containsExactly(
+            map("schemaname", "information_schema", "viewname", "tables", "definition", null),
+            map("schemaname", "pg_catalog", "viewname", "pg_tables", "definition", null));
     assertThat(
             parser
                 .parse(

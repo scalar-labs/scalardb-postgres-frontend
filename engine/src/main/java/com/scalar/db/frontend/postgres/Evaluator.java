@@ -3766,7 +3766,10 @@ final class Evaluator {
         case "PG_GET_CONSTRAINTDEF":
           return ctx.catalog == null || !(arg(args, 0) instanceof Number)
               ? null
-              : ctx.catalog.constraintDef(num(args, 0).longValue());
+              : ctx.catalog.constraintDef(
+                  num(args, 0).longValue(),
+                  // pretty, which SQLAlchemy passes as the literal 't'
+                  arg(args, 1) != null && isTrue(cast("boolean", args.get(1))));
         case "OBJ_DESCRIPTION": // a table's: its partition and clustering keys
           return ctx.catalog == null
                   || !(arg(args, 0) instanceof Number)
@@ -3818,11 +3821,19 @@ final class Evaluator {
         case "PG_OPFAMILY_IS_VISIBLE":
         case "PG_COLLATION_IS_VISIBLE":
           {
-            // all of them are in pg_catalog, so visible; null for no such object, as PostgreSQL
+            // in pg_catalog, so visible; null for no such object, as PostgreSQL
             String table = "pg_" + name.substring(3, name.indexOf("_IS_")).toLowerCase(Locale.ROOT);
-            return ctx.catalog == null || arg(args, 0) == null
-                ? null
-                : ctx.catalog.rowOf(table, num(args, 0).longValue()) == null ? null : true;
+            Catalog catalog = ctx.catalog;
+            if (catalog == null || arg(args, 0) == null) {
+              return null;
+            }
+            Map<String, Object> object = catalog.rowOf(table, num(args, 0).longValue());
+            if (object == null) {
+              return null;
+            }
+            // a type outside pg_catalog, as information_schema's domains, only on search_path
+            Object namespace = object.get("x.typnamespace");
+            return !(namespace instanceof Long) || catalog.onSearchPath((Long) namespace);
           }
         case "PG_CHAR_TO_ENCODING":
           return arg(args, 0) == null

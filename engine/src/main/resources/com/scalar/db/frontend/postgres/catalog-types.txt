@@ -1,706 +1,1000 @@
-# schema.table column type-oid, from PostgreSQL 16 (difftest/catalog/catalog_types.py)
-information_schema.columns table_catalog 19
-information_schema.columns table_schema 19
-information_schema.columns table_name 19
-information_schema.columns column_name 19
-information_schema.columns ordinal_position 23
-information_schema.columns column_default 1043
-information_schema.columns is_nullable 1043
-information_schema.columns data_type 1043
-information_schema.columns character_maximum_length 23
-information_schema.columns character_octet_length 23
-information_schema.columns numeric_precision 23
-information_schema.columns numeric_precision_radix 23
-information_schema.columns numeric_scale 23
-information_schema.columns datetime_precision 23
-information_schema.columns interval_type 1043
-information_schema.columns interval_precision 23
-information_schema.columns character_set_catalog 19
-information_schema.columns character_set_schema 19
-information_schema.columns character_set_name 19
-information_schema.columns collation_catalog 19
-information_schema.columns collation_schema 19
-information_schema.columns collation_name 19
-information_schema.columns domain_catalog 19
-information_schema.columns domain_schema 19
-information_schema.columns domain_name 19
-information_schema.columns udt_catalog 19
-information_schema.columns udt_schema 19
-information_schema.columns udt_name 19
-information_schema.columns scope_catalog 19
-information_schema.columns scope_schema 19
-information_schema.columns scope_name 19
-information_schema.columns maximum_cardinality 23
-information_schema.columns dtd_identifier 19
-information_schema.columns is_self_referencing 1043
-information_schema.columns is_identity 1043
-information_schema.columns identity_generation 1043
-information_schema.columns identity_start 1043
-information_schema.columns identity_increment 1043
-information_schema.columns identity_maximum 1043
-information_schema.columns identity_minimum 1043
-information_schema.columns identity_cycle 1043
-information_schema.columns is_generated 1043
-information_schema.columns generation_expression 1043
-information_schema.columns is_updatable 1043
-information_schema.key_column_usage constraint_catalog 19
-information_schema.key_column_usage constraint_schema 19
-information_schema.key_column_usage constraint_name 19
-information_schema.key_column_usage table_catalog 19
-information_schema.key_column_usage table_schema 19
-information_schema.key_column_usage table_name 19
-information_schema.key_column_usage column_name 19
-information_schema.key_column_usage ordinal_position 23
-information_schema.key_column_usage position_in_unique_constraint 23
-information_schema.schemata catalog_name 19
-information_schema.schemata schema_name 19
-information_schema.schemata schema_owner 19
-information_schema.schemata default_character_set_catalog 19
-information_schema.schemata default_character_set_schema 19
-information_schema.schemata default_character_set_name 19
-information_schema.schemata sql_path 1043
-information_schema.table_constraints constraint_catalog 19
-information_schema.table_constraints constraint_schema 19
-information_schema.table_constraints constraint_name 19
-information_schema.table_constraints table_catalog 19
-information_schema.table_constraints table_schema 19
-information_schema.table_constraints table_name 19
-information_schema.table_constraints constraint_type 1043
-information_schema.table_constraints is_deferrable 1043
-information_schema.table_constraints initially_deferred 1043
-information_schema.table_constraints enforced 1043
-information_schema.table_constraints nulls_distinct 1043
-information_schema.tables table_catalog 19
-information_schema.tables table_schema 19
-information_schema.tables table_name 19
-information_schema.tables table_type 1043
-information_schema.tables self_referencing_column_name 19
-information_schema.tables reference_generation 1043
-information_schema.tables user_defined_type_catalog 19
-information_schema.tables user_defined_type_schema 19
-information_schema.tables user_defined_type_name 19
-information_schema.tables is_insertable_into 1043
-information_schema.tables is_typed 1043
-information_schema.tables commit_action 1043
-pg_catalog.pg_aggregate aggfnoid 24
-pg_catalog.pg_aggregate aggkind 18
-pg_catalog.pg_aggregate aggnumdirectargs 21
-pg_catalog.pg_aggregate aggtransfn 24
-pg_catalog.pg_aggregate aggfinalfn 24
-pg_catalog.pg_aggregate aggcombinefn 24
-pg_catalog.pg_aggregate aggserialfn 24
-pg_catalog.pg_aggregate aggdeserialfn 24
-pg_catalog.pg_aggregate aggmtransfn 24
-pg_catalog.pg_aggregate aggminvtransfn 24
-pg_catalog.pg_aggregate aggmfinalfn 24
-pg_catalog.pg_aggregate aggfinalextra 16
-pg_catalog.pg_aggregate aggmfinalextra 16
-pg_catalog.pg_aggregate aggfinalmodify 18
-pg_catalog.pg_aggregate aggmfinalmodify 18
-pg_catalog.pg_aggregate aggsortop 26
-pg_catalog.pg_aggregate aggtranstype 26
-pg_catalog.pg_aggregate aggtransspace 23
-pg_catalog.pg_aggregate aggmtranstype 26
-pg_catalog.pg_aggregate aggmtransspace 23
-pg_catalog.pg_aggregate agginitval 25
-pg_catalog.pg_aggregate aggminitval 25
-pg_catalog.pg_am oid 26
-pg_catalog.pg_am amname 19
-pg_catalog.pg_am amhandler 24
-pg_catalog.pg_am amtype 18
-pg_catalog.pg_amop oid 26
-pg_catalog.pg_amop amopfamily 26
-pg_catalog.pg_amop amoplefttype 26
-pg_catalog.pg_amop amoprighttype 26
-pg_catalog.pg_amop amopstrategy 21
-pg_catalog.pg_amop amoppurpose 18
-pg_catalog.pg_amop amopopr 26
-pg_catalog.pg_amop amopmethod 26
-pg_catalog.pg_amop amopsortfamily 26
-pg_catalog.pg_amproc oid 26
-pg_catalog.pg_amproc amprocfamily 26
-pg_catalog.pg_amproc amproclefttype 26
-pg_catalog.pg_amproc amprocrighttype 26
-pg_catalog.pg_amproc amprocnum 21
-pg_catalog.pg_amproc amproc 24
-pg_catalog.pg_attrdef oid 26
-pg_catalog.pg_attrdef adrelid 26
-pg_catalog.pg_attrdef adnum 21
-pg_catalog.pg_attrdef adbin 194
-pg_catalog.pg_attribute attrelid 26
-pg_catalog.pg_attribute attname 19
-pg_catalog.pg_attribute atttypid 26
-pg_catalog.pg_attribute attlen 21
-pg_catalog.pg_attribute attnum 21
-pg_catalog.pg_attribute attcacheoff 23
-pg_catalog.pg_attribute atttypmod 23
-pg_catalog.pg_attribute attndims 21
-pg_catalog.pg_attribute attbyval 16
-pg_catalog.pg_attribute attalign 18
-pg_catalog.pg_attribute attstorage 18
-pg_catalog.pg_attribute attcompression 18
-pg_catalog.pg_attribute attnotnull 16
-pg_catalog.pg_attribute atthasdef 16
-pg_catalog.pg_attribute atthasmissing 16
-pg_catalog.pg_attribute attidentity 18
-pg_catalog.pg_attribute attgenerated 18
-pg_catalog.pg_attribute attisdropped 16
-pg_catalog.pg_attribute attislocal 16
-pg_catalog.pg_attribute attinhcount 21
-pg_catalog.pg_attribute attstattarget 21
-pg_catalog.pg_attribute attcollation 26
-pg_catalog.pg_attribute attacl 1034
-pg_catalog.pg_attribute attoptions 1009
-pg_catalog.pg_attribute attfdwoptions 1009
-pg_catalog.pg_attribute attmissingval 2277
-pg_catalog.pg_auth_members oid 26
-pg_catalog.pg_auth_members roleid 26
-pg_catalog.pg_auth_members member 26
-pg_catalog.pg_auth_members grantor 26
-pg_catalog.pg_auth_members admin_option 16
-pg_catalog.pg_auth_members inherit_option 16
-pg_catalog.pg_auth_members set_option 16
-pg_catalog.pg_available_extensions name 19
-pg_catalog.pg_available_extensions default_version 25
-pg_catalog.pg_available_extensions installed_version 25
-pg_catalog.pg_available_extensions comment 25
-pg_catalog.pg_cast oid 26
-pg_catalog.pg_cast castsource 26
-pg_catalog.pg_cast casttarget 26
-pg_catalog.pg_cast castfunc 26
-pg_catalog.pg_cast castcontext 18
-pg_catalog.pg_cast castmethod 18
-pg_catalog.pg_class oid 26
-pg_catalog.pg_class relname 19
-pg_catalog.pg_class relnamespace 26
-pg_catalog.pg_class reltype 26
-pg_catalog.pg_class reloftype 26
-pg_catalog.pg_class relowner 26
-pg_catalog.pg_class relam 26
-pg_catalog.pg_class relfilenode 26
-pg_catalog.pg_class reltablespace 26
-pg_catalog.pg_class relpages 23
-pg_catalog.pg_class reltuples 700
-pg_catalog.pg_class relallvisible 23
-pg_catalog.pg_class reltoastrelid 26
-pg_catalog.pg_class relhasindex 16
-pg_catalog.pg_class relisshared 16
-pg_catalog.pg_class relpersistence 18
-pg_catalog.pg_class relkind 18
-pg_catalog.pg_class relnatts 21
-pg_catalog.pg_class relchecks 21
-pg_catalog.pg_class relhasrules 16
-pg_catalog.pg_class relhastriggers 16
-pg_catalog.pg_class relhassubclass 16
-pg_catalog.pg_class relrowsecurity 16
-pg_catalog.pg_class relforcerowsecurity 16
-pg_catalog.pg_class relispopulated 16
-pg_catalog.pg_class relreplident 18
-pg_catalog.pg_class relispartition 16
-pg_catalog.pg_class relrewrite 26
-pg_catalog.pg_class relfrozenxid 28
-pg_catalog.pg_class relminmxid 28
-pg_catalog.pg_class relacl 1034
-pg_catalog.pg_class reloptions 1009
-pg_catalog.pg_class relpartbound 194
-pg_catalog.pg_collation oid 26
-pg_catalog.pg_collation collname 19
-pg_catalog.pg_collation collnamespace 26
-pg_catalog.pg_collation collowner 26
-pg_catalog.pg_collation collprovider 18
-pg_catalog.pg_collation collisdeterministic 16
-pg_catalog.pg_collation collencoding 23
-pg_catalog.pg_collation collcollate 25
-pg_catalog.pg_collation collctype 25
-pg_catalog.pg_collation colliculocale 25
-pg_catalog.pg_collation collicurules 25
-pg_catalog.pg_collation collversion 25
-pg_catalog.pg_constraint oid 26
-pg_catalog.pg_constraint conname 19
-pg_catalog.pg_constraint connamespace 26
-pg_catalog.pg_constraint contype 18
-pg_catalog.pg_constraint condeferrable 16
-pg_catalog.pg_constraint condeferred 16
-pg_catalog.pg_constraint convalidated 16
-pg_catalog.pg_constraint conrelid 26
-pg_catalog.pg_constraint contypid 26
-pg_catalog.pg_constraint conindid 26
-pg_catalog.pg_constraint conparentid 26
-pg_catalog.pg_constraint confrelid 26
-pg_catalog.pg_constraint confupdtype 18
-pg_catalog.pg_constraint confdeltype 18
-pg_catalog.pg_constraint confmatchtype 18
-pg_catalog.pg_constraint conislocal 16
-pg_catalog.pg_constraint coninhcount 21
-pg_catalog.pg_constraint connoinherit 16
-pg_catalog.pg_constraint conkey 1005
-pg_catalog.pg_constraint confkey 1005
-pg_catalog.pg_constraint conpfeqop 1028
-pg_catalog.pg_constraint conppeqop 1028
-pg_catalog.pg_constraint conffeqop 1028
-pg_catalog.pg_constraint confdelsetcols 1005
-pg_catalog.pg_constraint conexclop 1028
-pg_catalog.pg_constraint conbin 194
-pg_catalog.pg_conversion oid 26
-pg_catalog.pg_conversion conname 19
-pg_catalog.pg_conversion connamespace 26
-pg_catalog.pg_conversion conowner 26
-pg_catalog.pg_conversion conforencoding 23
-pg_catalog.pg_conversion contoencoding 23
-pg_catalog.pg_conversion conproc 24
-pg_catalog.pg_conversion condefault 16
-pg_catalog.pg_database oid 26
-pg_catalog.pg_database datname 19
-pg_catalog.pg_database datdba 26
-pg_catalog.pg_database encoding 23
-pg_catalog.pg_database datlocprovider 18
-pg_catalog.pg_database datistemplate 16
-pg_catalog.pg_database datallowconn 16
-pg_catalog.pg_database datconnlimit 23
-pg_catalog.pg_database datfrozenxid 28
-pg_catalog.pg_database datminmxid 28
-pg_catalog.pg_database dattablespace 26
-pg_catalog.pg_database datcollate 25
-pg_catalog.pg_database datctype 25
-pg_catalog.pg_database daticulocale 25
-pg_catalog.pg_database daticurules 25
-pg_catalog.pg_database datcollversion 25
-pg_catalog.pg_database datacl 1034
-pg_catalog.pg_db_role_setting setdatabase 26
-pg_catalog.pg_db_role_setting setrole 26
-pg_catalog.pg_db_role_setting setconfig 1009
-pg_catalog.pg_default_acl oid 26
-pg_catalog.pg_default_acl defaclrole 26
-pg_catalog.pg_default_acl defaclnamespace 26
-pg_catalog.pg_default_acl defaclobjtype 18
-pg_catalog.pg_default_acl defaclacl 1034
-pg_catalog.pg_depend classid 26
-pg_catalog.pg_depend objid 26
-pg_catalog.pg_depend objsubid 23
-pg_catalog.pg_depend refclassid 26
-pg_catalog.pg_depend refobjid 26
-pg_catalog.pg_depend refobjsubid 23
-pg_catalog.pg_depend deptype 18
-pg_catalog.pg_description objoid 26
-pg_catalog.pg_description classoid 26
-pg_catalog.pg_description objsubid 23
-pg_catalog.pg_description description 25
-pg_catalog.pg_enum oid 26
-pg_catalog.pg_enum enumtypid 26
-pg_catalog.pg_enum enumsortorder 700
-pg_catalog.pg_enum enumlabel 19
-pg_catalog.pg_event_trigger oid 26
-pg_catalog.pg_event_trigger evtname 19
-pg_catalog.pg_event_trigger evtevent 19
-pg_catalog.pg_event_trigger evtowner 26
-pg_catalog.pg_event_trigger evtfoid 26
-pg_catalog.pg_event_trigger evtenabled 18
-pg_catalog.pg_event_trigger evttags 1009
-pg_catalog.pg_extension oid 26
-pg_catalog.pg_extension extname 19
-pg_catalog.pg_extension extowner 26
-pg_catalog.pg_extension extnamespace 26
-pg_catalog.pg_extension extrelocatable 16
-pg_catalog.pg_extension extversion 25
-pg_catalog.pg_extension extconfig 1028
-pg_catalog.pg_extension extcondition 1009
-pg_catalog.pg_foreign_data_wrapper oid 26
-pg_catalog.pg_foreign_data_wrapper fdwname 19
-pg_catalog.pg_foreign_data_wrapper fdwowner 26
-pg_catalog.pg_foreign_data_wrapper fdwhandler 26
-pg_catalog.pg_foreign_data_wrapper fdwvalidator 26
-pg_catalog.pg_foreign_data_wrapper fdwacl 1034
-pg_catalog.pg_foreign_data_wrapper fdwoptions 1009
-pg_catalog.pg_foreign_server oid 26
-pg_catalog.pg_foreign_server srvname 19
-pg_catalog.pg_foreign_server srvowner 26
-pg_catalog.pg_foreign_server srvfdw 26
-pg_catalog.pg_foreign_server srvtype 25
-pg_catalog.pg_foreign_server srvversion 25
-pg_catalog.pg_foreign_server srvacl 1034
-pg_catalog.pg_foreign_server srvoptions 1009
-pg_catalog.pg_foreign_table ftrelid 26
-pg_catalog.pg_foreign_table ftserver 26
-pg_catalog.pg_foreign_table ftoptions 1009
-pg_catalog.pg_index indexrelid 26
-pg_catalog.pg_index indrelid 26
-pg_catalog.pg_index indnatts 21
-pg_catalog.pg_index indnkeyatts 21
-pg_catalog.pg_index indisunique 16
-pg_catalog.pg_index indnullsnotdistinct 16
-pg_catalog.pg_index indisprimary 16
-pg_catalog.pg_index indisexclusion 16
-pg_catalog.pg_index indimmediate 16
-pg_catalog.pg_index indisclustered 16
-pg_catalog.pg_index indisvalid 16
-pg_catalog.pg_index indcheckxmin 16
-pg_catalog.pg_index indisready 16
-pg_catalog.pg_index indislive 16
-pg_catalog.pg_index indisreplident 16
-pg_catalog.pg_index indkey 22
-pg_catalog.pg_index indcollation 30
-pg_catalog.pg_index indclass 30
-pg_catalog.pg_index indoption 22
-pg_catalog.pg_index indexprs 194
-pg_catalog.pg_index indpred 194
-pg_catalog.pg_indexes schemaname 19
-pg_catalog.pg_indexes tablename 19
-pg_catalog.pg_indexes indexname 19
-pg_catalog.pg_indexes tablespace 19
-pg_catalog.pg_indexes indexdef 25
-pg_catalog.pg_inherits inhrelid 26
-pg_catalog.pg_inherits inhparent 26
-pg_catalog.pg_inherits inhseqno 23
-pg_catalog.pg_inherits inhdetachpending 16
-pg_catalog.pg_language oid 26
-pg_catalog.pg_language lanname 19
-pg_catalog.pg_language lanowner 26
-pg_catalog.pg_language lanispl 16
-pg_catalog.pg_language lanpltrusted 16
-pg_catalog.pg_language lanplcallfoid 26
-pg_catalog.pg_language laninline 26
-pg_catalog.pg_language lanvalidator 26
-pg_catalog.pg_language lanacl 1034
-pg_catalog.pg_largeobject_metadata oid 26
-pg_catalog.pg_largeobject_metadata lomowner 26
-pg_catalog.pg_largeobject_metadata lomacl 1034
-pg_catalog.pg_matviews schemaname 19
-pg_catalog.pg_matviews matviewname 19
-pg_catalog.pg_matviews matviewowner 19
-pg_catalog.pg_matviews tablespace 19
-pg_catalog.pg_matviews hasindexes 16
-pg_catalog.pg_matviews ispopulated 16
-pg_catalog.pg_matviews definition 25
-pg_catalog.pg_namespace oid 26
-pg_catalog.pg_namespace nspname 19
-pg_catalog.pg_namespace nspowner 26
-pg_catalog.pg_namespace nspacl 1034
-pg_catalog.pg_opclass oid 26
-pg_catalog.pg_opclass opcmethod 26
-pg_catalog.pg_opclass opcname 19
-pg_catalog.pg_opclass opcnamespace 26
-pg_catalog.pg_opclass opcowner 26
-pg_catalog.pg_opclass opcfamily 26
-pg_catalog.pg_opclass opcintype 26
-pg_catalog.pg_opclass opcdefault 16
-pg_catalog.pg_opclass opckeytype 26
-pg_catalog.pg_operator oid 26
-pg_catalog.pg_operator oprname 19
-pg_catalog.pg_operator oprnamespace 26
-pg_catalog.pg_operator oprowner 26
-pg_catalog.pg_operator oprkind 18
-pg_catalog.pg_operator oprcanmerge 16
-pg_catalog.pg_operator oprcanhash 16
-pg_catalog.pg_operator oprleft 26
-pg_catalog.pg_operator oprright 26
-pg_catalog.pg_operator oprresult 26
-pg_catalog.pg_operator oprcom 26
-pg_catalog.pg_operator oprnegate 26
-pg_catalog.pg_operator oprcode 24
-pg_catalog.pg_operator oprrest 24
-pg_catalog.pg_operator oprjoin 24
-pg_catalog.pg_opfamily oid 26
-pg_catalog.pg_opfamily opfmethod 26
-pg_catalog.pg_opfamily opfname 19
-pg_catalog.pg_opfamily opfnamespace 26
-pg_catalog.pg_opfamily opfowner 26
-pg_catalog.pg_parameter_acl oid 26
-pg_catalog.pg_parameter_acl parname 25
-pg_catalog.pg_parameter_acl paracl 1034
-pg_catalog.pg_policies schemaname 19
-pg_catalog.pg_policies tablename 19
-pg_catalog.pg_policies policyname 19
-pg_catalog.pg_policies permissive 25
-pg_catalog.pg_policies roles 1003
-pg_catalog.pg_policies cmd 25
-pg_catalog.pg_policies qual 25
-pg_catalog.pg_policies with_check 25
-pg_catalog.pg_policy oid 26
-pg_catalog.pg_policy polname 19
-pg_catalog.pg_policy polrelid 26
-pg_catalog.pg_policy polcmd 18
-pg_catalog.pg_policy polpermissive 16
-pg_catalog.pg_policy polroles 1028
-pg_catalog.pg_policy polqual 194
-pg_catalog.pg_policy polwithcheck 194
-pg_catalog.pg_prepared_xacts transaction 28
-pg_catalog.pg_prepared_xacts gid 25
-pg_catalog.pg_prepared_xacts prepared 1184
-pg_catalog.pg_prepared_xacts owner 19
-pg_catalog.pg_prepared_xacts database 19
-pg_catalog.pg_proc oid 26
-pg_catalog.pg_proc proname 19
-pg_catalog.pg_proc pronamespace 26
-pg_catalog.pg_proc proowner 26
-pg_catalog.pg_proc prolang 26
-pg_catalog.pg_proc procost 700
-pg_catalog.pg_proc prorows 700
-pg_catalog.pg_proc provariadic 26
-pg_catalog.pg_proc prosupport 24
-pg_catalog.pg_proc prokind 18
-pg_catalog.pg_proc prosecdef 16
-pg_catalog.pg_proc proleakproof 16
-pg_catalog.pg_proc proisstrict 16
-pg_catalog.pg_proc proretset 16
-pg_catalog.pg_proc provolatile 18
-pg_catalog.pg_proc proparallel 18
-pg_catalog.pg_proc pronargs 21
-pg_catalog.pg_proc pronargdefaults 21
-pg_catalog.pg_proc prorettype 26
-pg_catalog.pg_proc proargtypes 30
-pg_catalog.pg_proc proallargtypes 1028
-pg_catalog.pg_proc proargmodes 1002
-pg_catalog.pg_proc proargnames 1009
-pg_catalog.pg_proc proargdefaults 194
-pg_catalog.pg_proc protrftypes 1028
-pg_catalog.pg_proc prosrc 25
-pg_catalog.pg_proc probin 25
-pg_catalog.pg_proc prosqlbody 194
-pg_catalog.pg_proc proconfig 1009
-pg_catalog.pg_proc proacl 1034
-pg_catalog.pg_publication oid 26
-pg_catalog.pg_publication pubname 19
-pg_catalog.pg_publication pubowner 26
-pg_catalog.pg_publication puballtables 16
-pg_catalog.pg_publication pubinsert 16
-pg_catalog.pg_publication pubupdate 16
-pg_catalog.pg_publication pubdelete 16
-pg_catalog.pg_publication pubtruncate 16
-pg_catalog.pg_publication pubviaroot 16
-pg_catalog.pg_publication_namespace oid 26
-pg_catalog.pg_publication_namespace pnpubid 26
-pg_catalog.pg_publication_namespace pnnspid 26
-pg_catalog.pg_publication_rel oid 26
-pg_catalog.pg_publication_rel prpubid 26
-pg_catalog.pg_publication_rel prrelid 26
-pg_catalog.pg_publication_rel prqual 194
-pg_catalog.pg_publication_rel prattrs 22
-pg_catalog.pg_range rngtypid 26
-pg_catalog.pg_range rngsubtype 26
-pg_catalog.pg_range rngmultitypid 26
-pg_catalog.pg_range rngcollation 26
-pg_catalog.pg_range rngsubopc 26
-pg_catalog.pg_range rngcanonical 24
-pg_catalog.pg_range rngsubdiff 24
-pg_catalog.pg_rewrite oid 26
-pg_catalog.pg_rewrite rulename 19
-pg_catalog.pg_rewrite ev_class 26
-pg_catalog.pg_rewrite ev_type 18
-pg_catalog.pg_rewrite ev_enabled 18
-pg_catalog.pg_rewrite is_instead 16
-pg_catalog.pg_rewrite ev_qual 194
-pg_catalog.pg_rewrite ev_action 194
-pg_catalog.pg_roles rolname 19
-pg_catalog.pg_roles rolsuper 16
-pg_catalog.pg_roles rolinherit 16
-pg_catalog.pg_roles rolcreaterole 16
-pg_catalog.pg_roles rolcreatedb 16
-pg_catalog.pg_roles rolcanlogin 16
-pg_catalog.pg_roles rolreplication 16
-pg_catalog.pg_roles rolconnlimit 23
-pg_catalog.pg_roles rolpassword 25
-pg_catalog.pg_roles rolvaliduntil 1184
-pg_catalog.pg_roles rolbypassrls 16
-pg_catalog.pg_roles rolconfig 1009
-pg_catalog.pg_roles oid 26
-pg_catalog.pg_sequence seqrelid 26
-pg_catalog.pg_sequence seqtypid 26
-pg_catalog.pg_sequence seqstart 20
-pg_catalog.pg_sequence seqincrement 20
-pg_catalog.pg_sequence seqmax 20
-pg_catalog.pg_sequence seqmin 20
-pg_catalog.pg_sequence seqcache 20
-pg_catalog.pg_sequence seqcycle 16
-pg_catalog.pg_sequences schemaname 19
-pg_catalog.pg_sequences sequencename 19
-pg_catalog.pg_sequences sequenceowner 19
-pg_catalog.pg_sequences data_type 2206
-pg_catalog.pg_sequences start_value 20
-pg_catalog.pg_sequences min_value 20
-pg_catalog.pg_sequences max_value 20
-pg_catalog.pg_sequences increment_by 20
-pg_catalog.pg_sequences cycle 16
-pg_catalog.pg_sequences cache_size 20
-pg_catalog.pg_sequences last_value 20
-pg_catalog.pg_settings name 25
-pg_catalog.pg_settings setting 25
-pg_catalog.pg_settings unit 25
-pg_catalog.pg_settings category 25
-pg_catalog.pg_settings short_desc 25
-pg_catalog.pg_settings extra_desc 25
-pg_catalog.pg_settings context 25
-pg_catalog.pg_settings vartype 25
-pg_catalog.pg_settings source 25
-pg_catalog.pg_settings min_val 25
-pg_catalog.pg_settings max_val 25
-pg_catalog.pg_settings enumvals 1009
-pg_catalog.pg_settings boot_val 25
-pg_catalog.pg_settings reset_val 25
-pg_catalog.pg_settings sourcefile 25
-pg_catalog.pg_settings sourceline 23
-pg_catalog.pg_settings pending_restart 16
-pg_catalog.pg_shdescription objoid 26
-pg_catalog.pg_shdescription classoid 26
-pg_catalog.pg_shdescription description 25
-pg_catalog.pg_statio_all_tables relid 26
-pg_catalog.pg_statio_all_tables schemaname 19
-pg_catalog.pg_statio_all_tables relname 19
-pg_catalog.pg_statio_all_tables heap_blks_read 20
-pg_catalog.pg_statio_all_tables heap_blks_hit 20
-pg_catalog.pg_statio_all_tables idx_blks_read 20
-pg_catalog.pg_statio_all_tables idx_blks_hit 20
-pg_catalog.pg_statio_all_tables toast_blks_read 20
-pg_catalog.pg_statio_all_tables toast_blks_hit 20
-pg_catalog.pg_statio_all_tables tidx_blks_read 20
-pg_catalog.pg_statio_all_tables tidx_blks_hit 20
-pg_catalog.pg_statistic_ext oid 26
-pg_catalog.pg_statistic_ext stxrelid 26
-pg_catalog.pg_statistic_ext stxname 19
-pg_catalog.pg_statistic_ext stxnamespace 26
-pg_catalog.pg_statistic_ext stxowner 26
-pg_catalog.pg_statistic_ext stxstattarget 23
-pg_catalog.pg_statistic_ext stxkeys 22
-pg_catalog.pg_statistic_ext stxkind 1002
-pg_catalog.pg_statistic_ext stxexprs 194
-pg_catalog.pg_stats schemaname 19
-pg_catalog.pg_stats tablename 19
-pg_catalog.pg_stats attname 19
-pg_catalog.pg_stats inherited 16
-pg_catalog.pg_stats null_frac 700
-pg_catalog.pg_stats avg_width 23
-pg_catalog.pg_stats n_distinct 700
-pg_catalog.pg_stats most_common_vals 2277
-pg_catalog.pg_stats most_common_freqs 1021
-pg_catalog.pg_stats histogram_bounds 2277
-pg_catalog.pg_stats correlation 700
-pg_catalog.pg_stats most_common_elems 2277
-pg_catalog.pg_stats most_common_elem_freqs 1021
-pg_catalog.pg_stats elem_count_histogram 1021
-pg_catalog.pg_subscription oid 26
-pg_catalog.pg_subscription subdbid 26
-pg_catalog.pg_subscription subskiplsn 3220
-pg_catalog.pg_subscription subname 19
-pg_catalog.pg_subscription subowner 26
-pg_catalog.pg_subscription subenabled 16
-pg_catalog.pg_subscription subbinary 16
-pg_catalog.pg_subscription substream 18
-pg_catalog.pg_subscription subtwophasestate 18
-pg_catalog.pg_subscription subdisableonerr 16
-pg_catalog.pg_subscription subpasswordrequired 16
-pg_catalog.pg_subscription subrunasowner 16
-pg_catalog.pg_subscription subconninfo 25
-pg_catalog.pg_subscription subslotname 19
-pg_catalog.pg_subscription subsynccommit 25
-pg_catalog.pg_subscription subpublications 1009
-pg_catalog.pg_subscription suborigin 25
-pg_catalog.pg_tables schemaname 19
-pg_catalog.pg_tables tablename 19
-pg_catalog.pg_tables tableowner 19
-pg_catalog.pg_tables tablespace 19
-pg_catalog.pg_tables hasindexes 16
-pg_catalog.pg_tables hasrules 16
-pg_catalog.pg_tables hastriggers 16
-pg_catalog.pg_tables rowsecurity 16
-pg_catalog.pg_tablespace oid 26
-pg_catalog.pg_tablespace spcname 19
-pg_catalog.pg_tablespace spcowner 26
-pg_catalog.pg_tablespace spcacl 1034
-pg_catalog.pg_tablespace spcoptions 1009
-pg_catalog.pg_timezone_names name 25
-pg_catalog.pg_timezone_names abbrev 25
-pg_catalog.pg_timezone_names utc_offset 1186
-pg_catalog.pg_timezone_names is_dst 16
-pg_catalog.pg_trigger oid 26
-pg_catalog.pg_trigger tgrelid 26
-pg_catalog.pg_trigger tgparentid 26
-pg_catalog.pg_trigger tgname 19
-pg_catalog.pg_trigger tgfoid 26
-pg_catalog.pg_trigger tgtype 21
-pg_catalog.pg_trigger tgenabled 18
-pg_catalog.pg_trigger tgisinternal 16
-pg_catalog.pg_trigger tgconstrrelid 26
-pg_catalog.pg_trigger tgconstrindid 26
-pg_catalog.pg_trigger tgconstraint 26
-pg_catalog.pg_trigger tgdeferrable 16
-pg_catalog.pg_trigger tginitdeferred 16
-pg_catalog.pg_trigger tgnargs 21
-pg_catalog.pg_trigger tgattr 22
-pg_catalog.pg_trigger tgargs 17
-pg_catalog.pg_trigger tgqual 194
-pg_catalog.pg_trigger tgoldtable 19
-pg_catalog.pg_trigger tgnewtable 19
-pg_catalog.pg_ts_config oid 26
-pg_catalog.pg_ts_config cfgname 19
-pg_catalog.pg_ts_config cfgnamespace 26
-pg_catalog.pg_ts_config cfgowner 26
-pg_catalog.pg_ts_config cfgparser 26
-pg_catalog.pg_ts_dict oid 26
-pg_catalog.pg_ts_dict dictname 19
-pg_catalog.pg_ts_dict dictnamespace 26
-pg_catalog.pg_ts_dict dictowner 26
-pg_catalog.pg_ts_dict dicttemplate 26
-pg_catalog.pg_ts_dict dictinitoption 25
-pg_catalog.pg_ts_parser oid 26
-pg_catalog.pg_ts_parser prsname 19
-pg_catalog.pg_ts_parser prsnamespace 26
-pg_catalog.pg_ts_parser prsstart 24
-pg_catalog.pg_ts_parser prstoken 24
-pg_catalog.pg_ts_parser prsend 24
-pg_catalog.pg_ts_parser prsheadline 24
-pg_catalog.pg_ts_parser prslextype 24
-pg_catalog.pg_ts_template oid 26
-pg_catalog.pg_ts_template tmplname 19
-pg_catalog.pg_ts_template tmplnamespace 26
-pg_catalog.pg_ts_template tmplinit 24
-pg_catalog.pg_ts_template tmpllexize 24
-pg_catalog.pg_type oid 26
-pg_catalog.pg_type typname 19
-pg_catalog.pg_type typnamespace 26
-pg_catalog.pg_type typowner 26
-pg_catalog.pg_type typlen 21
-pg_catalog.pg_type typbyval 16
-pg_catalog.pg_type typtype 18
-pg_catalog.pg_type typcategory 18
-pg_catalog.pg_type typispreferred 16
-pg_catalog.pg_type typisdefined 16
-pg_catalog.pg_type typdelim 18
-pg_catalog.pg_type typrelid 26
-pg_catalog.pg_type typsubscript 24
-pg_catalog.pg_type typelem 26
-pg_catalog.pg_type typarray 26
-pg_catalog.pg_type typinput 24
-pg_catalog.pg_type typoutput 24
-pg_catalog.pg_type typreceive 24
-pg_catalog.pg_type typsend 24
-pg_catalog.pg_type typmodin 24
-pg_catalog.pg_type typmodout 24
-pg_catalog.pg_type typanalyze 24
-pg_catalog.pg_type typalign 18
-pg_catalog.pg_type typstorage 18
-pg_catalog.pg_type typnotnull 16
-pg_catalog.pg_type typbasetype 26
-pg_catalog.pg_type typtypmod 23
-pg_catalog.pg_type typndims 23
-pg_catalog.pg_type typcollation 26
-pg_catalog.pg_type typdefaultbin 194
-pg_catalog.pg_type typdefault 25
-pg_catalog.pg_type typacl 1034
-pg_catalog.pg_user usename 19
-pg_catalog.pg_user usesysid 26
-pg_catalog.pg_user usecreatedb 16
-pg_catalog.pg_user usesuper 16
-pg_catalog.pg_user userepl 16
-pg_catalog.pg_user usebypassrls 16
-pg_catalog.pg_user passwd 25
-pg_catalog.pg_user valuntil 1184
-pg_catalog.pg_user useconfig 1009
-pg_catalog.pg_user_mappings umid 26
-pg_catalog.pg_user_mappings srvid 26
-pg_catalog.pg_user_mappings srvname 19
-pg_catalog.pg_user_mappings umuser 26
-pg_catalog.pg_user_mappings usename 19
-pg_catalog.pg_user_mappings umoptions 1009
-pg_catalog.pg_views schemaname 19
-pg_catalog.pg_views viewname 19
-pg_catalog.pg_views viewowner 19
-pg_catalog.pg_views definition 25
+# from PostgreSQL 16 (difftest/catalog/catalog_types.py):
+#   schema.table column type-oid (a domain's base type) atttypid atttypmod attnotnull attcollation attlen attndims attstorage
+#   @ schema.table oid relkind
+#   % domain oid name base-oid typmod array-oid namespace-oid collation-oid default...
+#   % check oid name domain-oid definition<TAB>pretty definition
+information_schema.character_sets character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.character_sets character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.character_sets character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.character_sets character_repertoire 19 13295 -1 f 950 64 0 p
+information_schema.character_sets form_of_use 19 13295 -1 f 950 64 0 p
+information_schema.character_sets default_collate_catalog 19 13295 -1 f 950 64 0 p
+information_schema.character_sets default_collate_schema 19 13295 -1 f 950 64 0 p
+information_schema.character_sets default_collate_name 19 13295 -1 f 950 64 0 p
+information_schema.columns table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns table_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns table_name 19 13295 -1 f 950 64 0 p
+information_schema.columns column_name 19 13295 -1 f 950 64 0 p
+information_schema.columns ordinal_position 23 13290 -1 f 0 4 0 p
+information_schema.columns column_default 1043 13293 -1 f 950 -1 0 x
+information_schema.columns is_nullable 1043 13303 -1 f 950 -1 0 x
+information_schema.columns data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.columns character_maximum_length 23 13290 -1 f 0 4 0 p
+information_schema.columns character_octet_length 23 13290 -1 f 0 4 0 p
+information_schema.columns numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.columns numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.columns numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.columns datetime_precision 23 13290 -1 f 0 4 0 p
+information_schema.columns interval_type 1043 13293 -1 f 950 -1 0 x
+information_schema.columns interval_precision 23 13290 -1 f 0 4 0 p
+information_schema.columns character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.columns collation_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns collation_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns collation_name 19 13295 -1 f 950 64 0 p
+information_schema.columns domain_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns domain_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns domain_name 19 13295 -1 f 950 64 0 p
+information_schema.columns udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns udt_name 19 13295 -1 f 950 64 0 p
+information_schema.columns scope_catalog 19 13295 -1 f 950 64 0 p
+information_schema.columns scope_schema 19 13295 -1 f 950 64 0 p
+information_schema.columns scope_name 19 13295 -1 f 950 64 0 p
+information_schema.columns maximum_cardinality 23 13290 -1 f 0 4 0 p
+information_schema.columns dtd_identifier 19 13295 -1 f 950 64 0 p
+information_schema.columns is_self_referencing 1043 13303 -1 f 950 -1 0 x
+information_schema.columns is_identity 1043 13303 -1 f 950 -1 0 x
+information_schema.columns identity_generation 1043 13293 -1 f 950 -1 0 x
+information_schema.columns identity_start 1043 13293 -1 f 950 -1 0 x
+information_schema.columns identity_increment 1043 13293 -1 f 950 -1 0 x
+information_schema.columns identity_maximum 1043 13293 -1 f 950 -1 0 x
+information_schema.columns identity_minimum 1043 13293 -1 f 950 -1 0 x
+information_schema.columns identity_cycle 1043 13303 -1 f 950 -1 0 x
+information_schema.columns is_generated 1043 13293 -1 f 950 -1 0 x
+information_schema.columns generation_expression 1043 13293 -1 f 950 -1 0 x
+information_schema.columns is_updatable 1043 13303 -1 f 950 -1 0 x
+information_schema.constraint_column_usage table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage table_schema 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage table_name 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage column_name 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage constraint_catalog 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage constraint_schema 19 13295 -1 f 950 64 0 p
+information_schema.constraint_column_usage constraint_name 19 13295 -1 f 950 64 0 p
+information_schema.domains domain_catalog 19 13295 -1 f 950 64 0 p
+information_schema.domains domain_schema 19 13295 -1 f 950 64 0 p
+information_schema.domains domain_name 19 13295 -1 f 950 64 0 p
+information_schema.domains data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.domains character_maximum_length 23 13290 -1 f 0 4 0 p
+information_schema.domains character_octet_length 23 13290 -1 f 0 4 0 p
+information_schema.domains character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.domains character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.domains character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.domains collation_catalog 19 13295 -1 f 950 64 0 p
+information_schema.domains collation_schema 19 13295 -1 f 950 64 0 p
+information_schema.domains collation_name 19 13295 -1 f 950 64 0 p
+information_schema.domains numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.domains numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.domains numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.domains datetime_precision 23 13290 -1 f 0 4 0 p
+information_schema.domains interval_type 1043 13293 -1 f 950 -1 0 x
+information_schema.domains interval_precision 23 13290 -1 f 0 4 0 p
+information_schema.domains domain_default 1043 13293 -1 f 950 -1 0 x
+information_schema.domains udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.domains udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.domains udt_name 19 13295 -1 f 950 64 0 p
+information_schema.domains scope_catalog 19 13295 -1 f 950 64 0 p
+information_schema.domains scope_schema 19 13295 -1 f 950 64 0 p
+information_schema.domains scope_name 19 13295 -1 f 950 64 0 p
+information_schema.domains maximum_cardinality 23 13290 -1 f 0 4 0 p
+information_schema.domains dtd_identifier 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage constraint_catalog 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage constraint_schema 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage constraint_name 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage table_schema 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage table_name 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage column_name 19 13295 -1 f 950 64 0 p
+information_schema.key_column_usage ordinal_position 23 13290 -1 f 0 4 0 p
+information_schema.key_column_usage position_in_unique_constraint 23 13290 -1 f 0 4 0 p
+information_schema.parameters specific_catalog 19 13295 -1 f 950 64 0 p
+information_schema.parameters specific_schema 19 13295 -1 f 950 64 0 p
+information_schema.parameters specific_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters ordinal_position 23 13290 -1 f 0 4 0 p
+information_schema.parameters parameter_mode 1043 13293 -1 f 950 -1 0 x
+information_schema.parameters is_result 1043 13303 -1 f 950 -1 0 x
+information_schema.parameters as_locator 1043 13303 -1 f 950 -1 0 x
+information_schema.parameters parameter_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.parameters character_maximum_length 23 13290 -1 f 0 4 0 p
+information_schema.parameters character_octet_length 23 13290 -1 f 0 4 0 p
+information_schema.parameters character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.parameters character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.parameters character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters collation_catalog 19 13295 -1 f 950 64 0 p
+information_schema.parameters collation_schema 19 13295 -1 f 950 64 0 p
+information_schema.parameters collation_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.parameters numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.parameters numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.parameters datetime_precision 23 13290 -1 f 0 4 0 p
+information_schema.parameters interval_type 1043 13293 -1 f 950 -1 0 x
+information_schema.parameters interval_precision 23 13290 -1 f 0 4 0 p
+information_schema.parameters udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.parameters udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.parameters udt_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters scope_catalog 19 13295 -1 f 950 64 0 p
+information_schema.parameters scope_schema 19 13295 -1 f 950 64 0 p
+information_schema.parameters scope_name 19 13295 -1 f 950 64 0 p
+information_schema.parameters maximum_cardinality 23 13290 -1 f 0 4 0 p
+information_schema.parameters dtd_identifier 19 13295 -1 f 950 64 0 p
+information_schema.parameters parameter_default 1043 13293 -1 f 950 -1 0 x
+information_schema.referential_constraints constraint_catalog 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints constraint_schema 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints constraint_name 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints unique_constraint_catalog 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints unique_constraint_schema 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints unique_constraint_name 19 13295 -1 f 950 64 0 p
+information_schema.referential_constraints match_option 1043 13293 -1 f 950 -1 0 x
+information_schema.referential_constraints update_rule 1043 13293 -1 f 950 -1 0 x
+information_schema.referential_constraints delete_rule 1043 13293 -1 f 950 -1 0 x
+information_schema.routines specific_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines specific_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines specific_name 19 13295 -1 f 950 64 0 p
+information_schema.routines routine_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines routine_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines routine_name 19 13295 -1 f 950 64 0 p
+information_schema.routines routine_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines module_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines module_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines module_name 19 13295 -1 f 950 64 0 p
+information_schema.routines udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines udt_name 19 13295 -1 f 950 64 0 p
+information_schema.routines data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines character_maximum_length 23 13290 -1 f 0 4 0 p
+information_schema.routines character_octet_length 23 13290 -1 f 0 4 0 p
+information_schema.routines character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.routines collation_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines collation_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines collation_name 19 13295 -1 f 950 64 0 p
+information_schema.routines numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.routines numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.routines datetime_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines interval_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines interval_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines type_udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines type_udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines type_udt_name 19 13295 -1 f 950 64 0 p
+information_schema.routines scope_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines scope_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines scope_name 19 13295 -1 f 950 64 0 p
+information_schema.routines maximum_cardinality 23 13290 -1 f 0 4 0 p
+information_schema.routines dtd_identifier 19 13295 -1 f 950 64 0 p
+information_schema.routines routine_body 1043 13293 -1 f 950 -1 0 x
+information_schema.routines routine_definition 1043 13293 -1 f 950 -1 0 x
+information_schema.routines external_name 1043 13293 -1 f 950 -1 0 x
+information_schema.routines external_language 1043 13293 -1 f 950 -1 0 x
+information_schema.routines parameter_style 1043 13293 -1 f 950 -1 0 x
+information_schema.routines is_deterministic 1043 13303 -1 f 950 -1 0 x
+information_schema.routines sql_data_access 1043 13293 -1 f 950 -1 0 x
+information_schema.routines is_null_call 1043 13303 -1 f 950 -1 0 x
+information_schema.routines sql_path 1043 13293 -1 f 950 -1 0 x
+information_schema.routines schema_level_routine 1043 13303 -1 f 950 -1 0 x
+information_schema.routines max_dynamic_result_sets 23 13290 -1 f 0 4 0 p
+information_schema.routines is_user_defined_cast 1043 13303 -1 f 950 -1 0 x
+information_schema.routines is_implicitly_invocable 1043 13303 -1 f 950 -1 0 x
+information_schema.routines security_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines to_sql_specific_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines to_sql_specific_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines to_sql_specific_name 19 13295 -1 f 950 64 0 p
+information_schema.routines as_locator 1043 13303 -1 f 950 -1 0 x
+information_schema.routines created 1184 13301 -1 f 0 8 0 p
+information_schema.routines last_altered 1184 13301 -1 f 0 8 0 p
+information_schema.routines new_savepoint_level 1043 13303 -1 f 950 -1 0 x
+information_schema.routines is_udt_dependent 1043 13303 -1 f 950 -1 0 x
+information_schema.routines result_cast_from_data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines result_cast_as_locator 1043 13303 -1 f 950 -1 0 x
+information_schema.routines result_cast_char_max_length 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_char_octet_length 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_char_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_char_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_char_set_name 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_collation_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_collation_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_collation_name 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_datetime_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_interval_type 1043 13293 -1 f 950 -1 0 x
+information_schema.routines result_cast_interval_precision 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_type_udt_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_type_udt_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_type_udt_name 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_scope_catalog 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_scope_schema 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_scope_name 19 13295 -1 f 950 64 0 p
+information_schema.routines result_cast_maximum_cardinality 23 13290 -1 f 0 4 0 p
+information_schema.routines result_cast_dtd_identifier 19 13295 -1 f 950 64 0 p
+information_schema.schemata catalog_name 19 13295 -1 f 950 64 0 p
+information_schema.schemata schema_name 19 13295 -1 f 950 64 0 p
+information_schema.schemata schema_owner 19 13295 -1 f 950 64 0 p
+information_schema.schemata default_character_set_catalog 19 13295 -1 f 950 64 0 p
+information_schema.schemata default_character_set_schema 19 13295 -1 f 950 64 0 p
+information_schema.schemata default_character_set_name 19 13295 -1 f 950 64 0 p
+information_schema.schemata sql_path 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences sequence_catalog 19 13295 -1 f 950 64 0 p
+information_schema.sequences sequence_schema 19 13295 -1 f 950 64 0 p
+information_schema.sequences sequence_name 19 13295 -1 f 950 64 0 p
+information_schema.sequences data_type 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences numeric_precision 23 13290 -1 f 0 4 0 p
+information_schema.sequences numeric_precision_radix 23 13290 -1 f 0 4 0 p
+information_schema.sequences numeric_scale 23 13290 -1 f 0 4 0 p
+information_schema.sequences start_value 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences minimum_value 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences maximum_value 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences increment 1043 13293 -1 f 950 -1 0 x
+information_schema.sequences cycle_option 1043 13303 -1 f 950 -1 0 x
+information_schema.table_constraints constraint_catalog 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints constraint_schema 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints constraint_name 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints table_schema 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints table_name 19 13295 -1 f 950 64 0 p
+information_schema.table_constraints constraint_type 1043 13293 -1 f 950 -1 0 x
+information_schema.table_constraints is_deferrable 1043 13303 -1 f 950 -1 0 x
+information_schema.table_constraints initially_deferred 1043 13303 -1 f 950 -1 0 x
+information_schema.table_constraints enforced 1043 13303 -1 f 950 -1 0 x
+information_schema.table_constraints nulls_distinct 1043 13303 -1 f 950 -1 0 x
+information_schema.tables table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.tables table_schema 19 13295 -1 f 950 64 0 p
+information_schema.tables table_name 19 13295 -1 f 950 64 0 p
+information_schema.tables table_type 1043 13293 -1 f 950 -1 0 x
+information_schema.tables self_referencing_column_name 19 13295 -1 f 950 64 0 p
+information_schema.tables reference_generation 1043 13293 -1 f 950 -1 0 x
+information_schema.tables user_defined_type_catalog 19 13295 -1 f 950 64 0 p
+information_schema.tables user_defined_type_schema 19 13295 -1 f 950 64 0 p
+information_schema.tables user_defined_type_name 19 13295 -1 f 950 64 0 p
+information_schema.tables is_insertable_into 1043 13303 -1 f 950 -1 0 x
+information_schema.tables is_typed 1043 13303 -1 f 950 -1 0 x
+information_schema.tables commit_action 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers trigger_catalog 19 13295 -1 f 950 64 0 p
+information_schema.triggers trigger_schema 19 13295 -1 f 950 64 0 p
+information_schema.triggers trigger_name 19 13295 -1 f 950 64 0 p
+information_schema.triggers event_manipulation 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers event_object_catalog 19 13295 -1 f 950 64 0 p
+information_schema.triggers event_object_schema 19 13295 -1 f 950 64 0 p
+information_schema.triggers event_object_table 19 13295 -1 f 950 64 0 p
+information_schema.triggers action_order 23 13290 -1 f 0 4 0 p
+information_schema.triggers action_condition 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers action_statement 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers action_orientation 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers action_timing 1043 13293 -1 f 950 -1 0 x
+information_schema.triggers action_reference_old_table 19 13295 -1 f 950 64 0 p
+information_schema.triggers action_reference_new_table 19 13295 -1 f 950 64 0 p
+information_schema.triggers action_reference_old_row 19 13295 -1 f 950 64 0 p
+information_schema.triggers action_reference_new_row 19 13295 -1 f 950 64 0 p
+information_schema.triggers created 1184 13301 -1 f 0 8 0 p
+information_schema.views table_catalog 19 13295 -1 f 950 64 0 p
+information_schema.views table_schema 19 13295 -1 f 950 64 0 p
+information_schema.views table_name 19 13295 -1 f 950 64 0 p
+information_schema.views view_definition 1043 13293 -1 f 950 -1 0 x
+information_schema.views check_option 1043 13293 -1 f 950 -1 0 x
+information_schema.views is_updatable 1043 13303 -1 f 950 -1 0 x
+information_schema.views is_insertable_into 1043 13303 -1 f 950 -1 0 x
+information_schema.views is_trigger_updatable 1043 13303 -1 f 950 -1 0 x
+information_schema.views is_trigger_deletable 1043 13303 -1 f 950 -1 0 x
+information_schema.views is_trigger_insertable_into 1043 13303 -1 f 950 -1 0 x
+pg_catalog.pg_aggregate aggfnoid 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggkind 18 18 -1 t 0 1 0 p
+pg_catalog.pg_aggregate aggnumdirectargs 21 21 -1 t 0 2 0 p
+pg_catalog.pg_aggregate aggtransfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggfinalfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggcombinefn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggserialfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggdeserialfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggmtransfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggminvtransfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggmfinalfn 24 24 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggfinalextra 16 16 -1 t 0 1 0 p
+pg_catalog.pg_aggregate aggmfinalextra 16 16 -1 t 0 1 0 p
+pg_catalog.pg_aggregate aggfinalmodify 18 18 -1 t 0 1 0 p
+pg_catalog.pg_aggregate aggmfinalmodify 18 18 -1 t 0 1 0 p
+pg_catalog.pg_aggregate aggsortop 26 26 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggtranstype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggtransspace 23 23 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggmtranstype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_aggregate aggmtransspace 23 23 -1 t 0 4 0 p
+pg_catalog.pg_aggregate agginitval 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_aggregate aggminitval 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_am oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_am amname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_am amhandler 24 24 -1 t 0 4 0 p
+pg_catalog.pg_am amtype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_amop oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amopfamily 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amoplefttype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amoprighttype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amopstrategy 21 21 -1 t 0 2 0 p
+pg_catalog.pg_amop amoppurpose 18 18 -1 t 0 1 0 p
+pg_catalog.pg_amop amopopr 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amopmethod 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amop amopsortfamily 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amproc oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amproc amprocfamily 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amproc amproclefttype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amproc amprocrighttype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_amproc amprocnum 21 21 -1 t 0 2 0 p
+pg_catalog.pg_amproc amproc 24 24 -1 t 0 4 0 p
+pg_catalog.pg_attrdef oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_attrdef adrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_attrdef adnum 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attrdef adbin 194 194 -1 t 950 -1 0 x
+pg_catalog.pg_attribute attrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_attribute attname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_attribute atttypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_attribute attlen 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attribute attnum 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attribute attcacheoff 23 23 -1 t 0 4 0 p
+pg_catalog.pg_attribute atttypmod 23 23 -1 t 0 4 0 p
+pg_catalog.pg_attribute attndims 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attribute attbyval 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute attalign 18 18 -1 t 0 1 0 p
+pg_catalog.pg_attribute attstorage 18 18 -1 t 0 1 0 p
+pg_catalog.pg_attribute attcompression 18 18 -1 t 0 1 0 p
+pg_catalog.pg_attribute attnotnull 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute atthasdef 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute atthasmissing 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute attidentity 18 18 -1 t 0 1 0 p
+pg_catalog.pg_attribute attgenerated 18 18 -1 t 0 1 0 p
+pg_catalog.pg_attribute attisdropped 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute attislocal 16 16 -1 t 0 1 0 p
+pg_catalog.pg_attribute attinhcount 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attribute attstattarget 21 21 -1 t 0 2 0 p
+pg_catalog.pg_attribute attcollation 26 26 -1 t 0 4 0 p
+pg_catalog.pg_attribute attacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_attribute attoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_attribute attfdwoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_attribute attmissingval 2277 2277 -1 f 0 -1 0 x
+pg_catalog.pg_auth_members oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_auth_members roleid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_auth_members member 26 26 -1 t 0 4 0 p
+pg_catalog.pg_auth_members grantor 26 26 -1 t 0 4 0 p
+pg_catalog.pg_auth_members admin_option 16 16 -1 t 0 1 0 p
+pg_catalog.pg_auth_members inherit_option 16 16 -1 t 0 1 0 p
+pg_catalog.pg_auth_members set_option 16 16 -1 t 0 1 0 p
+pg_catalog.pg_available_extensions name 19 19 -1 f 950 64 0 p
+pg_catalog.pg_available_extensions default_version 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_available_extensions installed_version 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_available_extensions comment 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_cast oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_cast castsource 26 26 -1 t 0 4 0 p
+pg_catalog.pg_cast casttarget 26 26 -1 t 0 4 0 p
+pg_catalog.pg_cast castfunc 26 26 -1 t 0 4 0 p
+pg_catalog.pg_cast castcontext 18 18 -1 t 0 1 0 p
+pg_catalog.pg_cast castmethod 18 18 -1 t 0 1 0 p
+pg_catalog.pg_class oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_class relnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class reltype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class reloftype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relam 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relfilenode 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class reltablespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relpages 23 23 -1 t 0 4 0 p
+pg_catalog.pg_class reltuples 700 700 -1 t 0 4 0 p
+pg_catalog.pg_class relallvisible 23 23 -1 t 0 4 0 p
+pg_catalog.pg_class reltoastrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relhasindex 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relisshared 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relpersistence 18 18 -1 t 0 1 0 p
+pg_catalog.pg_class relkind 18 18 -1 t 0 1 0 p
+pg_catalog.pg_class relnatts 21 21 -1 t 0 2 0 p
+pg_catalog.pg_class relchecks 21 21 -1 t 0 2 0 p
+pg_catalog.pg_class relhasrules 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relhastriggers 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relhassubclass 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relrowsecurity 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relforcerowsecurity 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relispopulated 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relreplident 18 18 -1 t 0 1 0 p
+pg_catalog.pg_class relispartition 16 16 -1 t 0 1 0 p
+pg_catalog.pg_class relrewrite 26 26 -1 t 0 4 0 p
+pg_catalog.pg_class relfrozenxid 28 28 -1 t 0 4 0 p
+pg_catalog.pg_class relminmxid 28 28 -1 t 0 4 0 p
+pg_catalog.pg_class relacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_class reloptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_class relpartbound 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_collation oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_collation collname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_collation collnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_collation collowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_collation collprovider 18 18 -1 t 0 1 0 p
+pg_catalog.pg_collation collisdeterministic 16 16 -1 t 0 1 0 p
+pg_catalog.pg_collation collencoding 23 23 -1 t 0 4 0 p
+pg_catalog.pg_collation collcollate 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_collation collctype 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_collation colliculocale 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_collation collicurules 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_collation collversion 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_constraint oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint conname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_constraint connamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint contype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_constraint condeferrable 16 16 -1 t 0 1 0 p
+pg_catalog.pg_constraint condeferred 16 16 -1 t 0 1 0 p
+pg_catalog.pg_constraint convalidated 16 16 -1 t 0 1 0 p
+pg_catalog.pg_constraint conrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint contypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint conindid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint conparentid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint confrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_constraint confupdtype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_constraint confdeltype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_constraint confmatchtype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_constraint conislocal 16 16 -1 t 0 1 0 p
+pg_catalog.pg_constraint coninhcount 21 21 -1 t 0 2 0 p
+pg_catalog.pg_constraint connoinherit 16 16 -1 t 0 1 0 p
+pg_catalog.pg_constraint conkey 1005 1005 -1 f 0 -1 1 x
+pg_catalog.pg_constraint confkey 1005 1005 -1 f 0 -1 1 x
+pg_catalog.pg_constraint conpfeqop 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_constraint conppeqop 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_constraint conffeqop 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_constraint confdelsetcols 1005 1005 -1 f 0 -1 1 x
+pg_catalog.pg_constraint conexclop 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_constraint conbin 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_conversion oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_conversion conname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_conversion connamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_conversion conowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_conversion conforencoding 23 23 -1 t 0 4 0 p
+pg_catalog.pg_conversion contoencoding 23 23 -1 t 0 4 0 p
+pg_catalog.pg_conversion conproc 24 24 -1 t 0 4 0 p
+pg_catalog.pg_conversion condefault 16 16 -1 t 0 1 0 p
+pg_catalog.pg_database oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_database datname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_database datdba 26 26 -1 t 0 4 0 p
+pg_catalog.pg_database encoding 23 23 -1 t 0 4 0 p
+pg_catalog.pg_database datlocprovider 18 18 -1 t 0 1 0 p
+pg_catalog.pg_database datistemplate 16 16 -1 t 0 1 0 p
+pg_catalog.pg_database datallowconn 16 16 -1 t 0 1 0 p
+pg_catalog.pg_database datconnlimit 23 23 -1 t 0 4 0 p
+pg_catalog.pg_database datfrozenxid 28 28 -1 t 0 4 0 p
+pg_catalog.pg_database datminmxid 28 28 -1 t 0 4 0 p
+pg_catalog.pg_database dattablespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_database datcollate 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_database datctype 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_database daticulocale 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_database daticurules 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_database datcollversion 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_database datacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_db_role_setting setdatabase 26 26 -1 t 0 4 0 p
+pg_catalog.pg_db_role_setting setrole 26 26 -1 t 0 4 0 p
+pg_catalog.pg_db_role_setting setconfig 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_default_acl oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_default_acl defaclrole 26 26 -1 t 0 4 0 p
+pg_catalog.pg_default_acl defaclnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_default_acl defaclobjtype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_default_acl defaclacl 1034 1034 -1 t 0 -1 1 x
+pg_catalog.pg_depend classid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_depend objid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_depend objsubid 23 23 -1 t 0 4 0 p
+pg_catalog.pg_depend refclassid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_depend refobjid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_depend refobjsubid 23 23 -1 t 0 4 0 p
+pg_catalog.pg_depend deptype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_description objoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_description classoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_description objsubid 23 23 -1 t 0 4 0 p
+pg_catalog.pg_description description 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_enum oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_enum enumtypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_enum enumsortorder 700 700 -1 t 0 4 0 p
+pg_catalog.pg_enum enumlabel 19 19 -1 t 950 64 0 p
+pg_catalog.pg_event_trigger oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_event_trigger evtname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_event_trigger evtevent 19 19 -1 t 950 64 0 p
+pg_catalog.pg_event_trigger evtowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_event_trigger evtfoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_event_trigger evtenabled 18 18 -1 t 0 1 0 p
+pg_catalog.pg_event_trigger evttags 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_extension oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_extension extname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_extension extowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_extension extnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_extension extrelocatable 16 16 -1 t 0 1 0 p
+pg_catalog.pg_extension extversion 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_extension extconfig 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_extension extcondition 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_foreign_data_wrapper oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_data_wrapper fdwname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_foreign_data_wrapper fdwowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_data_wrapper fdwhandler 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_data_wrapper fdwvalidator 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_data_wrapper fdwacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_foreign_data_wrapper fdwoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_foreign_server oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_server srvname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_foreign_server srvowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_server srvfdw 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_server srvtype 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_foreign_server srvversion 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_foreign_server srvacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_foreign_server srvoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_foreign_table ftrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_table ftserver 26 26 -1 t 0 4 0 p
+pg_catalog.pg_foreign_table ftoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_index indexrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_index indrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_index indnatts 21 21 -1 t 0 2 0 p
+pg_catalog.pg_index indnkeyatts 21 21 -1 t 0 2 0 p
+pg_catalog.pg_index indisunique 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indnullsnotdistinct 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisprimary 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisexclusion 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indimmediate 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisclustered 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisvalid 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indcheckxmin 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisready 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indislive 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indisreplident 16 16 -1 t 0 1 0 p
+pg_catalog.pg_index indkey 22 22 -1 t 0 -1 1 p
+pg_catalog.pg_index indcollation 30 30 -1 t 0 -1 1 p
+pg_catalog.pg_index indclass 30 30 -1 t 0 -1 1 p
+pg_catalog.pg_index indoption 22 22 -1 t 0 -1 1 p
+pg_catalog.pg_index indexprs 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_index indpred 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_indexes schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_indexes tablename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_indexes indexname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_indexes tablespace 19 19 -1 f 950 64 0 p
+pg_catalog.pg_indexes indexdef 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_inherits inhrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_inherits inhparent 26 26 -1 t 0 4 0 p
+pg_catalog.pg_inherits inhseqno 23 23 -1 t 0 4 0 p
+pg_catalog.pg_inherits inhdetachpending 16 16 -1 t 0 1 0 p
+pg_catalog.pg_language oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_language lanname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_language lanowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_language lanispl 16 16 -1 t 0 1 0 p
+pg_catalog.pg_language lanpltrusted 16 16 -1 t 0 1 0 p
+pg_catalog.pg_language lanplcallfoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_language laninline 26 26 -1 t 0 4 0 p
+pg_catalog.pg_language lanvalidator 26 26 -1 t 0 4 0 p
+pg_catalog.pg_language lanacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_largeobject_metadata oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_largeobject_metadata lomowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_largeobject_metadata lomacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_matviews schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_matviews matviewname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_matviews matviewowner 19 19 -1 f 950 64 0 p
+pg_catalog.pg_matviews tablespace 19 19 -1 f 950 64 0 p
+pg_catalog.pg_matviews hasindexes 16 16 -1 f 0 1 0 p
+pg_catalog.pg_matviews ispopulated 16 16 -1 f 0 1 0 p
+pg_catalog.pg_matviews definition 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_namespace oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_namespace nspname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_namespace nspowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_namespace nspacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_opclass oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcmethod 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_opclass opcnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcfamily 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcintype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opclass opcdefault 16 16 -1 t 0 1 0 p
+pg_catalog.pg_opclass opckeytype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_operator oprnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprkind 18 18 -1 t 0 1 0 p
+pg_catalog.pg_operator oprcanmerge 16 16 -1 t 0 1 0 p
+pg_catalog.pg_operator oprcanhash 16 16 -1 t 0 1 0 p
+pg_catalog.pg_operator oprleft 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprright 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprresult 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprcom 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprnegate 26 26 -1 t 0 4 0 p
+pg_catalog.pg_operator oprcode 24 24 -1 t 0 4 0 p
+pg_catalog.pg_operator oprrest 24 24 -1 t 0 4 0 p
+pg_catalog.pg_operator oprjoin 24 24 -1 t 0 4 0 p
+pg_catalog.pg_opfamily oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opfamily opfmethod 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opfamily opfname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_opfamily opfnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_opfamily opfowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_parameter_acl oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_parameter_acl parname 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_parameter_acl paracl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_policies schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_policies tablename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_policies policyname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_policies permissive 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_policies roles 1003 1003 -1 f 950 -1 0 x
+pg_catalog.pg_policies cmd 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_policies qual 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_policies with_check 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_policy oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_policy polname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_policy polrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_policy polcmd 18 18 -1 t 0 1 0 p
+pg_catalog.pg_policy polpermissive 16 16 -1 t 0 1 0 p
+pg_catalog.pg_policy polroles 1028 1028 -1 t 0 -1 1 x
+pg_catalog.pg_policy polqual 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_policy polwithcheck 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_prepared_xacts transaction 28 28 -1 f 0 4 0 p
+pg_catalog.pg_prepared_xacts gid 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_prepared_xacts prepared 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_prepared_xacts owner 19 19 -1 f 950 64 0 p
+pg_catalog.pg_prepared_xacts database 19 19 -1 f 950 64 0 p
+pg_catalog.pg_proc oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc proname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_proc pronamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc proowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc prolang 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc procost 700 700 -1 t 0 4 0 p
+pg_catalog.pg_proc prorows 700 700 -1 t 0 4 0 p
+pg_catalog.pg_proc provariadic 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc prosupport 24 24 -1 t 0 4 0 p
+pg_catalog.pg_proc prokind 18 18 -1 t 0 1 0 p
+pg_catalog.pg_proc prosecdef 16 16 -1 t 0 1 0 p
+pg_catalog.pg_proc proleakproof 16 16 -1 t 0 1 0 p
+pg_catalog.pg_proc proisstrict 16 16 -1 t 0 1 0 p
+pg_catalog.pg_proc proretset 16 16 -1 t 0 1 0 p
+pg_catalog.pg_proc provolatile 18 18 -1 t 0 1 0 p
+pg_catalog.pg_proc proparallel 18 18 -1 t 0 1 0 p
+pg_catalog.pg_proc pronargs 21 21 -1 t 0 2 0 p
+pg_catalog.pg_proc pronargdefaults 21 21 -1 t 0 2 0 p
+pg_catalog.pg_proc prorettype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_proc proargtypes 30 30 -1 t 0 -1 1 p
+pg_catalog.pg_proc proallargtypes 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_proc proargmodes 1002 1002 -1 f 0 -1 1 x
+pg_catalog.pg_proc proargnames 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_proc proargdefaults 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_proc protrftypes 1028 1028 -1 f 0 -1 1 x
+pg_catalog.pg_proc prosrc 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_proc probin 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_proc prosqlbody 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_proc proconfig 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_proc proacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_publication oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication pubname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_publication pubowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication puballtables 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication pubinsert 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication pubupdate 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication pubdelete 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication pubtruncate 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication pubviaroot 16 16 -1 t 0 1 0 p
+pg_catalog.pg_publication_namespace oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_namespace pnpubid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_namespace pnnspid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_rel oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_rel prpubid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_rel prrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_publication_rel prqual 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_publication_rel prattrs 22 22 -1 f 0 -1 1 p
+pg_catalog.pg_range rngtypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_range rngsubtype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_range rngmultitypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_range rngcollation 26 26 -1 t 0 4 0 p
+pg_catalog.pg_range rngsubopc 26 26 -1 t 0 4 0 p
+pg_catalog.pg_range rngcanonical 24 24 -1 t 0 4 0 p
+pg_catalog.pg_range rngsubdiff 24 24 -1 t 0 4 0 p
+pg_catalog.pg_rewrite oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_rewrite rulename 19 19 -1 t 950 64 0 p
+pg_catalog.pg_rewrite ev_class 26 26 -1 t 0 4 0 p
+pg_catalog.pg_rewrite ev_type 18 18 -1 t 0 1 0 p
+pg_catalog.pg_rewrite ev_enabled 18 18 -1 t 0 1 0 p
+pg_catalog.pg_rewrite is_instead 16 16 -1 t 0 1 0 p
+pg_catalog.pg_rewrite ev_qual 194 194 -1 t 950 -1 0 x
+pg_catalog.pg_rewrite ev_action 194 194 -1 t 950 -1 0 x
+pg_catalog.pg_roles rolname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_roles rolsuper 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolinherit 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolcreaterole 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolcreatedb 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolcanlogin 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolreplication 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolconnlimit 23 23 -1 f 0 4 0 p
+pg_catalog.pg_roles rolpassword 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_roles rolvaliduntil 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_roles rolbypassrls 16 16 -1 f 0 1 0 p
+pg_catalog.pg_roles rolconfig 1009 1009 -1 f 950 -1 0 x
+pg_catalog.pg_roles oid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_sequence seqrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_sequence seqtypid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_sequence seqstart 20 20 -1 t 0 8 0 p
+pg_catalog.pg_sequence seqincrement 20 20 -1 t 0 8 0 p
+pg_catalog.pg_sequence seqmax 20 20 -1 t 0 8 0 p
+pg_catalog.pg_sequence seqmin 20 20 -1 t 0 8 0 p
+pg_catalog.pg_sequence seqcache 20 20 -1 t 0 8 0 p
+pg_catalog.pg_sequence seqcycle 16 16 -1 t 0 1 0 p
+pg_catalog.pg_sequences schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_sequences sequencename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_sequences sequenceowner 19 19 -1 f 950 64 0 p
+pg_catalog.pg_sequences data_type 2206 2206 -1 f 0 4 0 p
+pg_catalog.pg_sequences start_value 20 20 -1 f 0 8 0 p
+pg_catalog.pg_sequences min_value 20 20 -1 f 0 8 0 p
+pg_catalog.pg_sequences max_value 20 20 -1 f 0 8 0 p
+pg_catalog.pg_sequences increment_by 20 20 -1 f 0 8 0 p
+pg_catalog.pg_sequences cycle 16 16 -1 f 0 1 0 p
+pg_catalog.pg_sequences cache_size 20 20 -1 f 0 8 0 p
+pg_catalog.pg_sequences last_value 20 20 -1 f 0 8 0 p
+pg_catalog.pg_settings name 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings setting 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings unit 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings category 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings short_desc 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings extra_desc 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings context 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings vartype 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings source 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings min_val 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings max_val 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings enumvals 1009 1009 -1 f 100 -1 0 x
+pg_catalog.pg_settings boot_val 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings reset_val 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings sourcefile 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_settings sourceline 23 23 -1 f 0 4 0 p
+pg_catalog.pg_settings pending_restart 16 16 -1 f 0 1 0 p
+pg_catalog.pg_shdescription objoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_shdescription classoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_shdescription description 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_statio_all_tables relid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_statio_all_tables schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_statio_all_tables relname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_statio_all_tables heap_blks_read 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables heap_blks_hit 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables idx_blks_read 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables idx_blks_hit 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables toast_blks_read 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables toast_blks_hit 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables tidx_blks_read 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statio_all_tables tidx_blks_hit 20 20 -1 f 0 8 0 p
+pg_catalog.pg_statistic_ext oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_statistic_ext stxrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_statistic_ext stxname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_statistic_ext stxnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_statistic_ext stxowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_statistic_ext stxstattarget 23 23 -1 t 0 4 0 p
+pg_catalog.pg_statistic_ext stxkeys 22 22 -1 t 0 -1 1 p
+pg_catalog.pg_statistic_ext stxkind 1002 1002 -1 t 0 -1 1 x
+pg_catalog.pg_statistic_ext stxexprs 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_stats schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_stats tablename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_stats attname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_stats inherited 16 16 -1 f 0 1 0 p
+pg_catalog.pg_stats null_frac 700 700 -1 f 0 4 0 p
+pg_catalog.pg_stats avg_width 23 23 -1 f 0 4 0 p
+pg_catalog.pg_stats n_distinct 700 700 -1 f 0 4 0 p
+pg_catalog.pg_stats most_common_vals 2277 2277 -1 f 0 -1 0 x
+pg_catalog.pg_stats most_common_freqs 1021 1021 -1 f 0 -1 0 x
+pg_catalog.pg_stats histogram_bounds 2277 2277 -1 f 0 -1 0 x
+pg_catalog.pg_stats correlation 700 700 -1 f 0 4 0 p
+pg_catalog.pg_stats most_common_elems 2277 2277 -1 f 0 -1 0 x
+pg_catalog.pg_stats most_common_elem_freqs 1021 1021 -1 f 0 -1 0 x
+pg_catalog.pg_stats elem_count_histogram 1021 1021 -1 f 0 -1 0 x
+pg_catalog.pg_subscription oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_subscription subdbid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_subscription subskiplsn 3220 3220 -1 t 0 8 0 p
+pg_catalog.pg_subscription subname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_subscription subowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_subscription subenabled 16 16 -1 t 0 1 0 p
+pg_catalog.pg_subscription subbinary 16 16 -1 t 0 1 0 p
+pg_catalog.pg_subscription substream 18 18 -1 t 0 1 0 p
+pg_catalog.pg_subscription subtwophasestate 18 18 -1 t 0 1 0 p
+pg_catalog.pg_subscription subdisableonerr 16 16 -1 t 0 1 0 p
+pg_catalog.pg_subscription subpasswordrequired 16 16 -1 t 0 1 0 p
+pg_catalog.pg_subscription subrunasowner 16 16 -1 t 0 1 0 p
+pg_catalog.pg_subscription subconninfo 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_subscription subslotname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_subscription subsynccommit 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_subscription subpublications 1009 1009 -1 t 950 -1 1 x
+pg_catalog.pg_subscription suborigin 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_tables schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_tables tablename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_tables tableowner 19 19 -1 f 950 64 0 p
+pg_catalog.pg_tables tablespace 19 19 -1 f 950 64 0 p
+pg_catalog.pg_tables hasindexes 16 16 -1 f 0 1 0 p
+pg_catalog.pg_tables hasrules 16 16 -1 f 0 1 0 p
+pg_catalog.pg_tables hastriggers 16 16 -1 f 0 1 0 p
+pg_catalog.pg_tables rowsecurity 16 16 -1 f 0 1 0 p
+pg_catalog.pg_tablespace oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_tablespace spcname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_tablespace spcowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_tablespace spcacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_tablespace spcoptions 1009 1009 -1 f 950 -1 1 x
+pg_catalog.pg_timezone_names name 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_timezone_names abbrev 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_timezone_names utc_offset 1186 1186 -1 f 0 16 0 p
+pg_catalog.pg_timezone_names is_dst 16 16 -1 f 0 1 0 p
+pg_catalog.pg_trigger oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgparentid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_trigger tgfoid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgtype 21 21 -1 t 0 2 0 p
+pg_catalog.pg_trigger tgenabled 18 18 -1 t 0 1 0 p
+pg_catalog.pg_trigger tgisinternal 16 16 -1 t 0 1 0 p
+pg_catalog.pg_trigger tgconstrrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgconstrindid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgconstraint 26 26 -1 t 0 4 0 p
+pg_catalog.pg_trigger tgdeferrable 16 16 -1 t 0 1 0 p
+pg_catalog.pg_trigger tginitdeferred 16 16 -1 t 0 1 0 p
+pg_catalog.pg_trigger tgnargs 21 21 -1 t 0 2 0 p
+pg_catalog.pg_trigger tgattr 22 22 -1 t 0 -1 1 p
+pg_catalog.pg_trigger tgargs 17 17 -1 t 0 -1 0 x
+pg_catalog.pg_trigger tgqual 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_trigger tgoldtable 19 19 -1 f 950 64 0 p
+pg_catalog.pg_trigger tgnewtable 19 19 -1 f 950 64 0 p
+pg_catalog.pg_ts_config oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_config cfgname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_ts_config cfgnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_config cfgowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_config cfgparser 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_dict oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_dict dictname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_ts_dict dictnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_dict dictowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_dict dicttemplate 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_dict dictinitoption 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_ts_parser oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prsname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_ts_parser prsnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prsstart 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prstoken 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prsend 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prsheadline 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_parser prslextype 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_template oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_template tmplname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_ts_template tmplnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_ts_template tmplinit 24 24 -1 t 0 4 0 p
+pg_catalog.pg_ts_template tmpllexize 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type oid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typname 19 19 -1 t 950 64 0 p
+pg_catalog.pg_type typnamespace 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typowner 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typlen 21 21 -1 t 0 2 0 p
+pg_catalog.pg_type typbyval 16 16 -1 t 0 1 0 p
+pg_catalog.pg_type typtype 18 18 -1 t 0 1 0 p
+pg_catalog.pg_type typcategory 18 18 -1 t 0 1 0 p
+pg_catalog.pg_type typispreferred 16 16 -1 t 0 1 0 p
+pg_catalog.pg_type typisdefined 16 16 -1 t 0 1 0 p
+pg_catalog.pg_type typdelim 18 18 -1 t 0 1 0 p
+pg_catalog.pg_type typrelid 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typsubscript 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typelem 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typarray 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typinput 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typoutput 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typreceive 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typsend 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typmodin 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typmodout 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typanalyze 24 24 -1 t 0 4 0 p
+pg_catalog.pg_type typalign 18 18 -1 t 0 1 0 p
+pg_catalog.pg_type typstorage 18 18 -1 t 0 1 0 p
+pg_catalog.pg_type typnotnull 16 16 -1 t 0 1 0 p
+pg_catalog.pg_type typbasetype 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typtypmod 23 23 -1 t 0 4 0 p
+pg_catalog.pg_type typndims 23 23 -1 t 0 4 0 p
+pg_catalog.pg_type typcollation 26 26 -1 t 0 4 0 p
+pg_catalog.pg_type typdefaultbin 194 194 -1 f 950 -1 0 x
+pg_catalog.pg_type typdefault 25 25 -1 f 950 -1 0 x
+pg_catalog.pg_type typacl 1034 1034 -1 f 0 -1 1 x
+pg_catalog.pg_user usename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_user usesysid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_user usecreatedb 16 16 -1 f 0 1 0 p
+pg_catalog.pg_user usesuper 16 16 -1 f 0 1 0 p
+pg_catalog.pg_user userepl 16 16 -1 f 0 1 0 p
+pg_catalog.pg_user usebypassrls 16 16 -1 f 0 1 0 p
+pg_catalog.pg_user passwd 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_user valuntil 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_user useconfig 1009 1009 -1 f 950 -1 0 x
+pg_catalog.pg_user_mappings umid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_user_mappings srvid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_user_mappings srvname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_user_mappings umuser 26 26 -1 f 0 4 0 p
+pg_catalog.pg_user_mappings usename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_user_mappings umoptions 1009 1009 -1 f 950 -1 0 x
+pg_catalog.pg_views schemaname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_views viewname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_views viewowner 19 19 -1 f 950 64 0 p
+pg_catalog.pg_views definition 25 25 -1 f 100 -1 0 x
+@ information_schema.character_sets 13319 v
+@ information_schema.columns 13364 v
+@ information_schema.constraint_column_usage 13369 v
+@ information_schema.domains 13389 v
+@ information_schema.key_column_usage 13398 v
+@ information_schema.parameters 13403 v
+@ information_schema.referential_constraints 13408 v
+@ information_schema.routines 13446 v
+@ information_schema.schemata 13451 v
+@ information_schema.sequences 13455 v
+@ information_schema.table_constraints 13480 v
+@ information_schema.tables 13494 v
+@ information_schema.triggers 13509 v
+@ information_schema.views 13552 v
+@ pg_catalog.pg_aggregate 2600 r
+@ pg_catalog.pg_am 2601 r
+@ pg_catalog.pg_amop 2602 r
+@ pg_catalog.pg_amproc 2603 r
+@ pg_catalog.pg_attrdef 2604 r
+@ pg_catalog.pg_attribute 1249 r
+@ pg_catalog.pg_auth_members 1261 r
+@ pg_catalog.pg_available_extensions 12081 v
+@ pg_catalog.pg_cast 2605 r
+@ pg_catalog.pg_class 1259 r
+@ pg_catalog.pg_collation 3456 r
+@ pg_catalog.pg_constraint 2606 r
+@ pg_catalog.pg_conversion 2607 r
+@ pg_catalog.pg_database 1262 r
+@ pg_catalog.pg_db_role_setting 2964 r
+@ pg_catalog.pg_default_acl 826 r
+@ pg_catalog.pg_depend 2608 r
+@ pg_catalog.pg_description 2609 r
+@ pg_catalog.pg_enum 3501 r
+@ pg_catalog.pg_event_trigger 3466 r
+@ pg_catalog.pg_extension 3079 r
+@ pg_catalog.pg_foreign_data_wrapper 2328 r
+@ pg_catalog.pg_foreign_server 1417 r
+@ pg_catalog.pg_foreign_table 3118 r
+@ pg_catalog.pg_index 2610 r
+@ pg_catalog.pg_indexes 12043 v
+@ pg_catalog.pg_inherits 2611 r
+@ pg_catalog.pg_language 2612 r
+@ pg_catalog.pg_largeobject_metadata 2995 r
+@ pg_catalog.pg_matviews 12038 v
+@ pg_catalog.pg_namespace 2615 r
+@ pg_catalog.pg_opclass 2616 r
+@ pg_catalog.pg_operator 2617 r
+@ pg_catalog.pg_opfamily 2753 r
+@ pg_catalog.pg_parameter_acl 6243 r
+@ pg_catalog.pg_policies 12018 v
+@ pg_catalog.pg_policy 3256 r
+@ pg_catalog.pg_prepared_xacts 12090 v
+@ pg_catalog.pg_proc 1255 r
+@ pg_catalog.pg_publication 6104 r
+@ pg_catalog.pg_publication_namespace 6237 r
+@ pg_catalog.pg_publication_rel 6106 r
+@ pg_catalog.pg_range 3541 r
+@ pg_catalog.pg_rewrite 2618 r
+@ pg_catalog.pg_roles 12000 v
+@ pg_catalog.pg_sequence 2224 r
+@ pg_catalog.pg_sequences 12048 v
+@ pg_catalog.pg_settings 12104 v
+@ pg_catalog.pg_shdescription 2396 r
+@ pg_catalog.pg_statio_all_tables 12170 v
+@ pg_catalog.pg_statistic_ext 3381 r
+@ pg_catalog.pg_stats 12053 v
+@ pg_catalog.pg_subscription 6100 r
+@ pg_catalog.pg_tables 12033 v
+@ pg_catalog.pg_tablespace 1213 r
+@ pg_catalog.pg_timezone_names 12126 v
+@ pg_catalog.pg_trigger 2620 r
+@ pg_catalog.pg_ts_config 3602 r
+@ pg_catalog.pg_ts_dict 3600 r
+@ pg_catalog.pg_ts_parser 3601 r
+@ pg_catalog.pg_ts_template 3764 r
+@ pg_catalog.pg_type 1247 r
+@ pg_catalog.pg_user 12014 v
+@ pg_catalog.pg_user_mappings 12331 v
+@ pg_catalog.pg_views 12028 v
+% domain 13290 cardinal_number 23 -1 13289 13276 0 
+% domain 13293 character_data 1043 -1 13292 13276 950 
+% domain 13295 sql_identifier 19 -1 13294 13276 950 
+% domain 13301 time_stamp 1184 2 13300 13276 0 CURRENT_TIMESTAMP(2)
+% domain 13303 yes_or_no 1043 7 13302 13276 950 
+% check 13291 cardinal_number_domain_check 13290 CHECK ((VALUE >= 0))	CHECK (VALUE >= 0)
+% check 13304 yes_or_no_check 13303 CHECK (((VALUE)::text = ANY ((ARRAY['YES'::character varying, 'NO'::character varying])::text[])))	CHECK (VALUE::text = ANY (ARRAY['YES'::character varying, 'NO'::character varying]::text[]))

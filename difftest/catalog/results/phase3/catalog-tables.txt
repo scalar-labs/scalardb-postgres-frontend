@@ -1,0 +1,51 @@
+table | native count(*) | frontend count(*)
+pg_catalog.pg_tables | 70 | 52
+pg_catalog.pg_views | 141 | 29
+pg_catalog.pg_matviews | 0 | 0
+pg_catalog.pg_sequences | 0 | 0
+pg_catalog.pg_sequence | 0 | 0
+pg_catalog.pg_user | 1 | 1
+pg_catalog.pg_stat_activity | 6 | ERROR:  relation "pg_catalog.pg_stat_activity" does not exist
+pg_catalog.pg_stat_user_tables | 2 | ERROR:  relation "pg_catalog.pg_stat_user_tables" does not exist
+pg_catalog.pg_stat_all_tables | 111 | ERROR:  relation "pg_catalog.pg_stat_all_tables" does not exist
+pg_catalog.pg_statio_all_tables | 111 | 2
+pg_catalog.pg_locks | 2 | ERROR:  relation "pg_catalog.pg_locks" does not exist
+pg_catalog.pg_prepared_xacts | 0 | 0
+pg_catalog.pg_timezone_names | 487 | 603
+pg_catalog.pg_extension | 1 | 0
+pg_catalog.pg_available_extensions | 47 | 0
+pg_catalog.pg_cast | 229 | 98
+pg_catalog.pg_operator | 799 | 378
+pg_catalog.pg_aggregate | 157 | 55
+pg_catalog.pg_stats | 409 | 0
+pg_catalog.pg_indexes | 127 | 3
+pg_catalog.pg_roles | 15 | 1
+pg_catalog.pg_proc | 3297 | 242
+pg_catalog.pg_type | 617 | 75
+pg_catalog.pg_class | 420 | 84
+pg_catalog.pg_attribute | 3144 | 860
+pg_catalog.pg_depend | 1719 | 8
+pg_catalog.pg_collation | 878 | 4
+pg_catalog.pg_am | 7 | 2
+pg_catalog.pg_opclass | 177 | 17
+pg_tables | 70 | 52
+pg_cast | 229 | 98
+information_schema.tables | 211 | 81
+information_schema.columns | 2064 | 806
+information_schema.schemata | 5 | 4
+information_schema.views | 141 | 29
+information_schema.routines | 3297 | 242
+information_schema.parameters | 6607 | 317
+information_schema.table_constraints | 624 | 2
+information_schema.key_column_usage | 184 | 3
+information_schema.referential_constraints | 0 | 0
+information_schema.constraint_column_usage | 184 | 3
+information_schema.check_constraints | 514 | ERROR:  relation "information_schema.check_constraints" does not exist
+information_schema.sequences | 0 | 0
+information_schema.triggers | 0 | 0
+information_schema.table_privileges | 1668 | ERROR:  relation "information_schema.table_privileges" does not exist
+information_schema.role_table_grants | 1668 | ERROR:  relation "information_schema.role_table_grants" does not exist
+information_schema.character_sets | 1 | 1
+information_schema.domains | 5 | 5
+information_schema.element_types | 281 | ERROR:  relation "information_schema.element_types" does not exist
+information_schema.applicable_roles | 4 | ERROR:  relation "information_schema.applicable_roles" does not exist
