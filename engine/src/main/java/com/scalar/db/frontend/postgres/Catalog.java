@@ -72,6 +72,9 @@ final class Catalog {
       null,
       "Sets the display format for date and time values."
     },
+    // read committed: ScalarDB's SNAPSHOT reads each record's committed version with no snapshot
+    // across records, which is what PostgreSQL calls READ COMMITTED; the server raises this for
+    // SERIALIZABLE
     {
       "default_transaction_isolation",
       "read committed",
@@ -116,7 +119,7 @@ final class Catalog {
       "max_index_keys", "32", "integer", "internal", null, "Shows the maximum number of index keys."
     },
     {
-      "scalardb.max_rows_per_write",
+      QueryProcessor.MAX_ROWS_PER_WRITE,
       String.valueOf(QueryParser.DEFAULT_MAX_ROWS_PER_WRITE),
       "integer",
       "user",
@@ -1471,23 +1474,35 @@ final class Catalog {
   private static List<Map<String, Object>> settings() {
     Evaluator.Settings session = Evaluator.settings();
     Map<String, List<Map<String, Object>>> t = new HashMap<>();
-    t.put("pg_catalog.pg_settings", new ArrayList<>());
     for (String[] s : SETTINGS) {
-      String value = session == null ? null : session.get(s[0]);
+      String value = s[1];
+      String source = "default";
+      String reset = s[1];
+      if (session != null) {
+        value = Objects.requireNonNullElse(session.get(s[0]), s[1]);
+        source = session.source(s[0]);
+        reset = session.resetValue(s[0]);
+      }
       row(
           t,
           "pg_catalog.pg_settings",
           s[0],
-          value == null ? s[1] : value,
+          inUnit(s, value),
           s[4],
           s[2],
           s[3],
-          session == null ? "default" : session.source(s[0]),
+          source,
           s[1],
-          session == null ? s[1] : session.resetValue(s[0]),
+          inUnit(s, reset),
           s[5]);
     }
-    return t.get("pg_catalog.pg_settings");
+    return Objects.requireNonNull(t.get("pg_catalog.pg_settings"));
+  }
+
+  /** pg_settings.setting: a value in the setting's unit, as SHOW's "5s" is 5000 in ms. */
+  private static String inUnit(String[] setting, String value) {
+    // statement_timeout is the only setting with a unit
+    return setting[4] == null ? value : String.valueOf(QueryProcessor.millis(value));
   }
 
   private void load() throws ExecutionException {
@@ -1750,31 +1765,30 @@ final class Catalog {
                   : 0L;
           columnCollations.put(column, collation);
           columnOpclasses.put(column, defaultOpclass(typeOid));
-          row(
-              t,
-              "pg_catalog.pg_attribute",
-              relOid,
-              (long) attnum,
+          attributes.put(
               column,
-              typeOid,
-              typmod,
-              key,
-              false,
-              false,
-              collation,
-              "",
-              "",
-              "p",
-              "",
-              -1L,
-              null,
-              typeLength(typeOid),
-              0L,
-              0L,
-              true);
-          List<Map<String, Object>> attributeRows =
-              Objects.requireNonNull(t.get("pg_catalog.pg_attribute"));
-          attributes.put(column, attributeRows.get(attributeRows.size() - 1));
+              row(
+                  t,
+                  "pg_catalog.pg_attribute",
+                  relOid,
+                  (long) attnum,
+                  column,
+                  typeOid,
+                  typmod,
+                  key,
+                  false,
+                  false,
+                  collation,
+                  "",
+                  "",
+                  "p",
+                  "",
+                  -1L,
+                  null,
+                  typeLength(typeOid),
+                  0L,
+                  0L,
+                  true));
           row(
               t,
               "information_schema.columns",
@@ -2214,7 +2228,7 @@ final class Catalog {
         false);
   }
 
-  private static void row(
+  private static Map<String, Object> row(
       Map<String, List<Map<String, Object>>> t, String table, @Nullable Object... values) {
     List<String> columns =
         table.startsWith("pg_catalog.")
@@ -2231,5 +2245,6 @@ final class Catalog {
       row.put(columns.get(i), values[i]);
     }
     t.computeIfAbsent(table, k -> new ArrayList<>()).add(row);
+    return row;
   }
 }

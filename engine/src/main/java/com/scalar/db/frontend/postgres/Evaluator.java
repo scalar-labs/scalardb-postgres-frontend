@@ -3605,7 +3605,7 @@ final class Evaluator {
         case "PG_GET_PARTKEYDEF": // ScalarDB tables are not partitioned in PostgreSQL's sense
           return null;
         case "PG_STAT_GET_NUMSCANS": // DBeaver's index list; ScalarDB keeps no statistics
-          return 0L;
+          return 0L; // PostgreSQL's answer for a relation with no statistics entry
         case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
         case "PG_TYPE_IS_VISIBLE":
         case "PG_OPCLASS_IS_VISIBLE":

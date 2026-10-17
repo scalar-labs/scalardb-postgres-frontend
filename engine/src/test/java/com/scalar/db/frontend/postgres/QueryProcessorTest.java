@@ -165,6 +165,19 @@ public class QueryProcessorTest {
     processor.execute("COMMIT");
     assertThat(processor.execute("SHOW application_name"))
         .containsExactly(Collections.singletonMap("application_name", ""));
+    // as in PostgreSQL, a SET after SET LOCAL outlasts the transaction, and ROLLBACK undoes SET
+    processor.execute("BEGIN");
+    processor.execute("SET LOCAL application_name = 'local'");
+    processor.execute("SET application_name = 'kept'");
+    processor.execute("COMMIT");
+    assertThat(processor.execute("SHOW application_name"))
+        .containsExactly(Collections.singletonMap("application_name", "kept"));
+    processor.execute("BEGIN");
+    processor.execute("SET application_name = 'undone'");
+    processor.execute("ROLLBACK");
+    assertThat(processor.execute("SHOW application_name"))
+        .containsExactly(Collections.singletonMap("application_name", "kept"));
+    processor.execute("RESET application_name");
     // outside a transaction block SET LOCAL has no effect and warns, as in PostgreSQL
     assertThat(processor.open("SET LOCAL application_name = 'outside'").notices())
         .containsExactly(
@@ -432,7 +445,9 @@ public class QueryProcessorTest {
         .noneMatch(row -> "is_superuser".equals(row.get("name")));
     // pg_settings, SHOW and current_setting read one table, with the session's values
     processor.setClientDefault("DateStyle", "ISO, DMY");
-    processor.execute("SET statement_timeout = 5000");
+    processor.execute("SET statement_timeout = '5s'"); // pg_settings has it in its unit, ms
+    assertThat(processor.execute("SHOW statement_timeout"))
+        .containsExactly(Collections.singletonMap("statement_timeout", "5s"));
     assertThat(
             processor.execute(
                 "SELECT name, setting, source, reset_val FROM pg_settings WHERE name IN"
@@ -476,8 +491,13 @@ public class QueryProcessorTest {
                 "UTC"));
     assertThat(processor.execute("SELECT current_setting('server_version_num') AS v"))
         .containsExactly(Collections.singletonMap("v", "160000"));
-    assertThatThrownBy(() -> processor.execute("SET server_version = '1'"))
-        .hasMessageContaining("parameter \"server_version\" cannot be changed");
+    for (String sql :
+        new String[] {
+          "SET server_version = '1'", "SET server_version TO DEFAULT", "RESET server_version"
+        }) {
+      assertThatThrownBy(() -> processor.execute(sql))
+          .hasMessageContaining("parameter \"server_version\" cannot be changed");
+    }
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
   }

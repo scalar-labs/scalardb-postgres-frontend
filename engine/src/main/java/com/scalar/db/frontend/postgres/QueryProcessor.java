@@ -102,7 +102,7 @@ public class QueryProcessor {
   private static final java.util.regex.Pattern BEGIN_WORD =
       java.util.regex.Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
   // The most rows a read-then-write statement may write; 0 means no limit
-  private static final String MAX_ROWS_PER_WRITE = "scalardb.max_rows_per_write";
+  static final String MAX_ROWS_PER_WRITE = "scalardb.max_rows_per_write";
   // SET ROLE and SET SESSION AUTHORIZATION, in every spelling, including RESET
   private static final java.util.regex.Pattern SET_IDENTITY =
       java.util.regex.Pattern.compile(
@@ -120,9 +120,6 @@ public class QueryProcessor {
   QueryProcessor(DistributedTransactionManager manager, QueryParser parser) {
     this.manager = manager;
     this.parser = parser;
-    // transaction_isolation is read committed: ScalarDB's SNAPSHOT reads each record's committed
-    // version with no snapshot across records, which is what PostgreSQL calls READ COMMITTED; the
-    // server raises this for SERIALIZABLE
     for (String[] s : Catalog.SETTINGS) {
       defaults.put(s[0], s[1]);
     }
@@ -158,19 +155,22 @@ public class QueryProcessor {
   public void setDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, value);
-    configured.add(key == null ? name : key);
+    sources.put(key == null ? name : key, "configuration file");
     searchPathChanged(key);
   }
 
-  // pg_settings.source of the settings not SET in the session: the server's, and the client's
-  private final java.util.Set<String> configured = new java.util.HashSet<>();
-  private final java.util.Set<String> fromClient = new java.util.HashSet<>();
+  // pg_settings.source of the settings not SET in the session; absent: "default"
+  private final Map<String, String> sources = new java.util.HashMap<>();
 
   private static final java.util.regex.Pattern SET_VALUE =
       java.util.regex.Pattern.compile(
           "(?is)SET\\s+(?:(SESSION|LOCAL)\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+)|TIME\\s+ZONE\\s+(.+))");
   // SET LOCAL: the values to restore when the transaction ends (null: the setting was absent)
   private final Map<String, String> localSaved = new LinkedHashMap<>();
+  // the session settings at BEGIN, which ROLLBACK restores
+  // ponytail: ROLLBACK TO SAVEPOINT keeps SETs made after the savepoint; snapshot per savepoint
+  // if a client relies on it
+  private Map<String, String> settingsAtBegin = new LinkedHashMap<>();
   private String zoneName = "";
   private java.time.ZoneId zone = java.time.ZoneOffset.UTC;
   private static final java.util.regex.Pattern RESET_NAME =
@@ -221,24 +221,41 @@ public class QueryProcessor {
       } else if (value.equalsIgnoreCase("DEFAULT")) {
         String key = settingKey(name);
         if (key != null) {
-          if (local) {
-            localSaved.putIfAbsent(key, settings.get(key));
-          }
-          settings.remove(key);
-          searchPathChanged(key);
+          checkChangeable(key);
+          put(key, null, local);
         }
         return null;
       }
       String key = settingKey(name);
-      value = checkedValue(key, name, value);
-      if (local) {
-        localSaved.putIfAbsent(key == null ? name : key, settings.get(key == null ? name : key));
-      }
-      settings.put(key == null ? name : key, value);
-      searchPathChanged(key);
+      put(key == null ? name : key, checkedValue(key, name, value), local);
       return null;
     }
     return resetOrDiscard(sql);
+  }
+
+  /** SET or SET LOCAL of a setting; a null value returns it to its default. */
+  private void put(String key, @Nullable String value, boolean local) {
+    if (local) {
+      if (!localSaved.containsKey(key)) {
+        localSaved.put(key, settings.get(key));
+      }
+    } else if (localSaved.containsKey(key)) {
+      localSaved.put(key, value); // as in PostgreSQL, a later SET outlasts the SET LOCAL
+    }
+    if (value == null) {
+      settings.remove(key);
+    } else {
+      settings.put(key, value);
+    }
+    searchPathChanged(key);
+  }
+
+  /** As PostgreSQL: is_superuser reports the login, and the internal settings the server. */
+  private static void checkChangeable(@Nullable String key) {
+    String[] known = key == null ? null : Catalog.setting(key);
+    if ("is_superuser".equals(key) || known != null && known[3].equals("internal")) {
+      throw new PgException.Argument("55P02", "parameter \"" + key + "\" cannot be changed");
+    }
   }
 
   /**
@@ -260,15 +277,13 @@ public class QueryProcessor {
       value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(value);
     }
-    String[] known = key == null ? null : Catalog.setting(key);
-    if ("is_superuser".equals(key) || known != null && known[3].equals("internal")) {
-      // as PostgreSQL: is_superuser reports the login, and the internal ones the server
-      throw new PgException.Argument("55P02", "parameter \"" + key + "\" cannot be changed");
-    }
-    if ("statement_timeout".equals(key)
-        && !DURATION.matcher(value.trim().replace("'", "")).matches()) {
-      throw new PgException.Argument(
-          "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
+    checkChangeable(key);
+    if ("statement_timeout".equals(key)) {
+      if (!DURATION.matcher(value.trim().replace("'", "")).matches()) {
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
+      }
+      value = duration(millis(value)); // as SHOW writes it: 5000 is 5s
     }
     if (MAX_ROWS_PER_WRITE.equals(key) && !value.matches("\\d{1,9}")) {
       throw new PgException.Argument(
@@ -297,7 +312,7 @@ public class QueryProcessor {
   public void setClientDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, checkedValue(key, name, value));
-    fromClient.add(key == null ? name : key);
+    sources.put(key == null ? name : key, "client");
     searchPathChanged(key);
   }
 
@@ -309,6 +324,7 @@ public class QueryProcessor {
       } else {
         String key = settingKey(reset.group(1));
         if (key != null) {
+          checkChangeable(key);
           settings.remove(key);
           searchPathChanged(key);
         }
@@ -588,7 +604,7 @@ public class QueryProcessor {
     applyZone();
     java.time.Instant now =
         inTransaction() && transactionStart != null ? transactionStart : java.time.Instant.now();
-    Evaluator.startStatement(now, statementTimeoutMillis());
+    Evaluator.startStatement(now, millis(current("statement_timeout")));
     Evaluator.setSettings(sessionSettings);
   }
 
@@ -613,6 +629,7 @@ public class QueryProcessor {
         pendingReadOnly = isOn(current("default_transaction_read_only"));
         transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
         pending = true;
+        settingsAtBegin = new LinkedHashMap<>(settings);
         transactionStart = java.time.Instant.now();
         lastCommandTag = word.equals("START") ? "START TRANSACTION" : "BEGIN";
         return new Rows(null, QueryParser.Cursor.EMPTY);
@@ -628,10 +645,12 @@ public class QueryProcessor {
           rollback();
           return new Rows(null, QueryParser.Cursor.EMPTY);
         }
+        boolean committed = false;
         try {
           if (transaction != null) {
             transaction.commit();
           }
+          committed = true;
         } catch (TransactionException e) {
           // ScalarDB finds an INSERT's existing key only at commit, as the conflict DB-CORE-20013,
           // which is also what a write-write conflict raises. After plain INSERTs alone it is
@@ -643,7 +662,7 @@ public class QueryProcessor {
           }
           throw e;
         } finally {
-          endTransaction();
+          endTransaction(committed);
         }
         lastCommandTag = "COMMIT";
         return new Rows(null, QueryParser.Cursor.EMPTY);
@@ -822,9 +841,8 @@ public class QueryProcessor {
       java.util.regex.Pattern.compile(
           "(\\d+(?:\\.\\d+)?)\\s*(ms|s|min|h|d)?", java.util.regex.Pattern.CASE_INSENSITIVE);
 
-  /** statement_timeout in milliseconds, PostgreSQL's default unit; 0 (the default) for none. */
-  private long statementTimeoutMillis() {
-    String value = current("statement_timeout");
+  /** A statement_timeout in milliseconds, PostgreSQL's default unit; 0 (the default) for none. */
+  static long millis(String value) {
     java.util.regex.Matcher m = DURATION.matcher(value.trim().replace("'", ""));
     if (!m.matches()) {
       return 0;
@@ -848,7 +866,19 @@ public class QueryProcessor {
       default:
         millis = amount;
     }
-    return (long) Math.min(millis, Integer.MAX_VALUE);
+    return Math.round(Math.min(millis, Integer.MAX_VALUE));
+  }
+
+  /** Milliseconds as SHOW writes them: in the largest unit that holds them whole. */
+  private static String duration(long millis) {
+    long[] sizes = {86_400_000, 3_600_000, 60_000, 1_000};
+    String[] units = {"d", "h", "min", "s"};
+    for (int i = 0; millis != 0 && i < sizes.length; i++) {
+      if (millis % sizes[i] == 0) {
+        return millis / sizes[i] + units[i];
+      }
+    }
+    return millis == 0 ? "0" : millis + "ms";
   }
 
   private String current(String key) {
@@ -859,8 +889,8 @@ public class QueryProcessor {
     return value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true") || value.equals("1");
   }
 
-  /** Forgets the transaction and what BEGIN or SET TRANSACTION set for it. */
-  private void endTransaction() {
+  /** Forgets the transaction and what BEGIN, SET TRANSACTION and, if it rolled back, SET set. */
+  private void endTransaction(boolean committed) {
     transaction = null;
     transactionStart = null;
     pending = false;
@@ -868,6 +898,11 @@ public class QueryProcessor {
     savepoints.clear();
     writes = 0;
     onlyInserts = true;
+    if (!committed) {
+      localSaved.clear();
+      settings.clear();
+      settings.putAll(settingsAtBegin);
+    }
     for (Map.Entry<String, String> saved : localSaved.entrySet()) {
       if (saved.getValue() == null) {
         settings.remove(saved.getKey()); // SET LOCAL ends with the transaction
@@ -892,7 +927,7 @@ public class QueryProcessor {
         transaction.rollback();
       }
     } finally {
-      endTransaction();
+      endTransaction(false);
       aborted = false;
     }
     lastCommandTag = "ROLLBACK";
@@ -1121,17 +1156,12 @@ public class QueryProcessor {
         @Override
         public String source(String name) {
           String key = settingKey(name);
-          return settings.containsKey(key)
-              ? "session"
-              : fromClient.contains(key)
-                  ? "client"
-                  : configured.contains(key) ? "configuration file" : "default";
+          return settings.containsKey(key) ? "session" : sources.getOrDefault(key, "default");
         }
 
         @Override
         public String resetValue(String name) {
-          String key = settingKey(name);
-          return key == null ? "" : defaults.getOrDefault(key, "");
+          return defaults.getOrDefault(name, ""); // a name from Catalog.SETTINGS, as stored
         }
       };
 
