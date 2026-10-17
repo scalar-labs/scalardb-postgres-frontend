@@ -986,7 +986,7 @@ public class QueryProcessor {
 
   /** The type of placeholder {@code $index} in the statement {@link #describe} last planned. */
   public int describedParameterOid(int index) {
-    return describedPlan == null ? 25 : describedPlan.parameterOid(index);
+    return describedPlan == null ? 0 : describedPlan.parameterOid(index);
   }
 
   /** The type modifiers of the columns {@link #describe} last returned; -1 where there is none. */
@@ -1003,6 +1003,7 @@ public class QueryProcessor {
 
   public Map<String, DataType> describe(String sql, List<Object> parameters)
       throws ExecutionException {
+    describedPlan = null; // nothing of a previous statement, if this one plans nothing
     applyZone();
     Map<String, DataType> columns = new LinkedHashMap<>();
     String word = firstWord(sql);

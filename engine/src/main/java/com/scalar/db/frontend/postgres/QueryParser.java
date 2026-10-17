@@ -408,10 +408,11 @@ public class QueryParser {
 
     /**
      * The type PostgreSQL would give placeholder {@code $index}, from where it stands (a cast, a
-     * column it is compared with or assigned to); text where nothing says.
+     * column it is compared with or assigned to); 0, unspecified, where the frontend cannot tell,
+     * so a driver such as pgx picks the type from its value as it did before.
      */
     public int parameterOid(int index) {
-      return parameterOids.getOrDefault(index, 25);
+      return parameterOids.getOrDefault(index, 0);
     }
 
     /** Warnings for the client (PostgreSQL NOTICEs): what a DDL accepted but cannot enforce. */
@@ -2243,8 +2244,40 @@ public class QueryParser {
 
           @Override
           protected <S> Void visitBinaryExpression(BinaryExpression b, S context) {
-            note(b.getLeftExpression(), b.getRightExpression());
-            note(b.getRightExpression(), b.getLeftExpression());
+            // only where the operand types are the same in PostgreSQL: a comparison, LIKE, ||, and
+            // arithmetic between numbers; not timestamp + $1 (an interval) or jsonb ? $1 (text)
+            boolean sameType =
+                b instanceof ComparisonOperator
+                    || b instanceof LikeExpression
+                    || b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat;
+            boolean arithmetic =
+                b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Addition
+                    || b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Subtraction
+                    || b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Multiplication
+                    || b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Division
+                    || b instanceof net.sf.jsqlparser.expression.operators.arithmetic.Modulo;
+            if (sameType
+                || (arithmetic && isNumericOid(typeOf.applyAsInt(b.getRightExpression())))) {
+              note(b.getLeftExpression(), b.getRightExpression());
+            }
+            if (sameType
+                || (arithmetic && isNumericOid(typeOf.applyAsInt(b.getLeftExpression())))) {
+              note(b.getRightExpression(), b.getLeftExpression());
+            }
+            Function q = arrayQuantifier(b.getRightExpression());
+            if (q != null && q.getParameters() != null && q.getParameters().size() == 1) {
+              // x = ANY($1): an array of x's type, as pgx sends a Go slice
+              Expression p = unwrap(q.getParameters().get(0));
+              int element =
+                  unwrap(b.getLeftExpression()) instanceof JdbcParameter
+                      ? 0
+                      : typeOf.applyAsInt(b.getLeftExpression());
+              if (p instanceof JdbcParameter && element != 0) {
+                PARAMETER_OIDS
+                    .get()
+                    .putIfAbsent(((JdbcParameter) p).getIndex(), (int) Catalog.arrayOid(element));
+              }
+            }
             return super.visitBinaryExpression(b, context);
           }
 
@@ -2288,6 +2321,18 @@ public class QueryParser {
             }
           }
         });
+  }
+
+  private static boolean isNumericOid(int oid) {
+    return oid == 20 || oid == 21 || oid == 23 || oid == 700 || oid == 701 || oid == 1700;
+  }
+
+  /** LIMIT $n, OFFSET $n: bigint, as in PostgreSQL. */
+  private static void inferCount(@Nullable Expression e) {
+    Expression p = e == null ? null : unwrap(e);
+    if (p instanceof JdbcParameter) {
+      PARAMETER_OIDS.get().putIfAbsent(((JdbcParameter) p).getIndex(), 20);
+    }
   }
 
   /** As {@link #inferParameters}, where columns are those of the written table {@code t}. */
@@ -4271,6 +4316,13 @@ public class QueryParser {
         }
       }
     }
+    if (select.getLimit() != null) {
+      inferCount(select.getLimit().getRowCount());
+      inferCount(select.getLimit().getOffset());
+    }
+    if (select.getOffset() != null) {
+      inferCount(select.getOffset().getOffset());
+    }
     if (select.getLimit() != null && !select.getLimit().isLimitAll()) {
       plan.limit = intValue(select.getLimit().getRowCount(), -1, "LIMIT");
       if (select.getLimit().getOffset() != null) {
@@ -5309,7 +5361,7 @@ public class QueryParser {
         throw new IllegalArgumentException("generate_series takes 2 or 3 arguments: " + function);
       }
       long step = args.size() == 3 ? args.get(2) : 1;
-      if (step == 0) {
+      if (step == 0 && !nothing) {
         throw new IllegalArgumentException("step size cannot equal zero");
       }
       String qualifier = alias != null ? alias : "generate_series";
@@ -5318,13 +5370,16 @@ public class QueryParser {
         column = unquote(item.getAlias().getAliasColumns().get(0).name);
       }
       List<Map<String, Object>> rows = new ArrayList<>();
-      for (long v = args.get(0);
-          !nothing && (step > 0 ? v <= args.get(1) : v >= args.get(1));
-          v += step) {
+      for (long v = args.get(0); !nothing && (step > 0 ? v <= args.get(1) : v >= args.get(1)); ) {
         rows.add(Collections.<String, Object>singletonMap(qualifier + "." + column, v));
         if (rows.size() > MAX_SERIES_ROWS) {
           throw new PgException.Argument(
               "54000", "generate_series produces too many rows: " + function);
+        }
+        try {
+          v = Math.addExact(v, step);
+        } catch (ArithmeticException pastTheEnd) {
+          break; // the next value is beyond bigint, so beyond stop
         }
       }
       LogicalPlan.Source source =

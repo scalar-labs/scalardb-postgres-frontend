@@ -127,7 +127,10 @@ public class PostgresServerTest {
     // round its own introspection query forever
     String[][] cases = {
       {"SELECT id FROM t WHERE id = ? AND name = ?", "int4", "text"},
-      {"SELECT ?::bigint, ?", "int8", "text"},
+      {"SELECT ?::bigint", "int8"},
+      {"SELECT id FROM t WHERE id = ANY(?) AND name = ANY(?)", "_int4", "_text"},
+      {"SELECT id FROM t WHERE id > ? + 1 LIMIT ? OFFSET ?", "int4", "int8", "int8"},
+      {"SELECT id FROM t WHERE name LIKE ? OR name = 'a' || ?", "text", "text"},
       {"SELECT id FROM t WHERE id IN (?, ?)", "int4", "int4"},
       {"INSERT INTO t (id, name) VALUES (?, ?)", "int4", "text"},
       {"UPDATE t SET name = ? WHERE id = ?", "text", "int4"},

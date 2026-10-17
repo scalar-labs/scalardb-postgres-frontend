@@ -1079,6 +1079,29 @@ public class QueryParserTest {
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P01"));
     assertThatThrownBy(() -> parser.parse("SELECT * FROM pg_nosuch"))
         .hasMessage("relation \"pg_nosuch\" does not exist");
+    // where the frontend cannot tell a placeholder's type, it stays unspecified (0) rather than a
+    // wrong guess: now() + $1 is an interval in PostgreSQL, jsonb ? $1 a text
+    for (String sql :
+        new String[] {
+          "SELECT now() + $1", "SELECT CURRENT_DATE - $1", "SELECT '{}'::jsonb ? $1", "SELECT $1"
+        }) {
+      assertThat(parser.parse(sql, Collections.singletonList(null)).parameterOid(1))
+          .as(sql)
+          .isZero();
+    }
+    // a NULL step gives no rows, and the series stops at the end of bigint, as in PostgreSQL
+    assertThat(parser.parse("SELECT * FROM generate_series(1, 10, NULL)").execute(transaction))
+        .isEmpty();
+    assertThat(
+            parser
+                .parse("SELECT * FROM generate_series(9223372036854775806, 9223372036854775807) g")
+                .execute(transaction))
+        .hasSize(2);
+    assertThat(
+            parser
+                .parse("SELECT generate_series(9223372036854775806, 9223372036854775807) AS g")
+                .execute(transaction))
+        .hasSize(2);
     // generate_series is capped in the select list as in FROM
     assertThatThrownBy(
             () ->

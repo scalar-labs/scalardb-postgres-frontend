@@ -3333,10 +3333,15 @@ final class Evaluator {
           if (step == 0) {
             throw new PgException.Argument("22023", "step size cannot equal zero");
           }
-          for (long v = start; step > 0 ? v <= stop : v >= stop; v += step) {
+          for (long v = start; step > 0 ? v <= stop : v >= stop; ) {
             series.add(v);
             if (series.size() > QueryParser.MAX_SERIES_ROWS) {
               throw new PgException.Argument("54000", "generate_series produces too many rows");
+            }
+            try {
+              v = Math.addExact(v, step);
+            } catch (ArithmeticException pastTheEnd) {
+              break; // the next value is beyond bigint, so beyond stop
             }
           }
           return series;
