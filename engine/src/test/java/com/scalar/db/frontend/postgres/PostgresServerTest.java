@@ -1480,6 +1480,64 @@ public class PostgresServerTest {
     }
   }
 
+  @Test
+  @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
+      value = "UNENCRYPTED_SOCKET",
+      justification = "A test speaking the plaintext protocol to a local server")
+  public void protocol_FailingCatalogQueries_ShouldFailEveryTimeAndLeaveTheSessionUsable()
+      throws Exception {
+    // no plan, cached or described, may carry an answer for a query that fails (todo 057)
+    try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
+        java.io.DataOutputStream out =
+            new java.io.DataOutputStream(
+                new java.io.BufferedOutputStream(socket.getOutputStream()));
+        java.io.DataInputStream in = new java.io.DataInputStream(socket.getInputStream())) {
+      socket.setSoTimeout(5000);
+      startup(out);
+      assertThat(readUntil(in, 'Z')).isEmpty();
+      // an unknown catalog table fails when described (the frontend plans at Describe, not at
+      // Parse), a setting that does not exist when it runs; both fail every time they run
+      String[][] cases = {
+        {"SELECT * FROM pg_catalog.pg_stat_activity", "42P01", "42P01"},
+        {"SELECT current_setting('nosuch') AS v", "", "42704"}
+      };
+      for (String[] c : cases) {
+        parse(out, "s", c[0]);
+        assertThat(readUntil(in, 'Z')).isEmpty();
+        byte[] describe = "Ss\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        out.writeByte('D');
+        out.writeInt(4 + describe.length);
+        out.write(describe);
+        out.writeByte('S');
+        out.writeInt(4);
+        out.flush();
+        assertThat(readUntil(in, 'Z')).isEqualTo(c[1]);
+        if (!c[1].isEmpty()) {
+          assertThat(readUntil(in, 'Z')).isEmpty();
+        }
+        for (int i = 0; i < 2; i++) {
+          bind(out, "");
+          execute(out, "", 0);
+          out.writeByte('S');
+          out.writeInt(4);
+          out.flush();
+          assertThat(readUntil(in, 'Z')).isEqualTo(c[2]);
+          assertThat(readUntil(in, 'Z')).isEmpty();
+        }
+      }
+      // no failed transaction is left behind: the next statement runs, and the session is idle
+      byte[] query = "SELECT 1\0".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      out.writeByte('Q');
+      out.writeInt(4 + query.length);
+      out.write(query);
+      out.flush();
+      assertThat(readUntil(in, 'C')).isEmpty();
+      assertThat(in.read()).isEqualTo('Z');
+      assertThat(in.readInt()).isEqualTo(5);
+      assertThat(in.read()).isEqualTo('I');
+    }
+  }
+
   private static void bind(java.io.DataOutputStream out, String portal) throws java.io.IOException {
     byte[] names = (portal + "\0s\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);
     out.writeByte('B');

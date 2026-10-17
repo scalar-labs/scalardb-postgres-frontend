@@ -66,7 +66,6 @@ commit U t
 committed U t
 compression U t
 concurrently T t
-conditional U t
 configuration U t
 conflict U t
 connection U t
@@ -121,14 +120,11 @@ double U t
 drop U t
 each U t
 else R t
-empty U t
 enable U t
 encoding U t
 encrypted U t
 end R t
-enforced U t
 enum U t
-error U t
 escape U t
 event U t
 except R f
@@ -207,18 +203,11 @@ is T t
 isnull T f
 isolation U t
 join T t
-json C t
+json U t
 json_array C t
 json_arrayagg C t
-json_exists C t
 json_object C t
 json_objectagg C t
-json_query C t
-json_scalar C t
-json_serialize C t
-json_table C t
-json_value C t
-keep U t
 key U t
 keys U t
 label U t
@@ -248,7 +237,6 @@ matched U t
 materialized U t
 maxvalue U t
 merge U t
-merge_action C t
 method U t
 minute U f
 minvalue U t
@@ -260,7 +248,6 @@ names U t
 national C t
 natural T t
 nchar C t
-nested U t
 new U t
 next U t
 nfc U t
@@ -281,13 +268,11 @@ nullif C t
 nulls U t
 numeric C t
 object U t
-objects U t
 of U t
 off U t
 offset R f
 oids U t
 old U t
-omit U t
 on R f
 only R t
 operator U t
@@ -312,10 +297,7 @@ partial U t
 partition U t
 passing U t
 password U t
-path U t
-period U t
 placing R t
-plan U t
 plans U t
 policy U t
 position C t
@@ -333,11 +315,11 @@ procedures U t
 program U t
 publication U t
 quote U t
-quotes U t
 range U t
 read U t
 real C t
 reassign U t
+recheck U t
 recursive U t
 ref U t
 references R t
@@ -392,7 +374,6 @@ skip U t
 smallint C t
 snapshot U t
 some R t
-source U t
 sql U t
 stable U t
 standalone U t
@@ -404,7 +385,6 @@ stdout U t
 storage U t
 stored U t
 strict U t
-string U t
 strip U t
 subscription U t
 substring C t
@@ -417,7 +397,6 @@ table R t
 tables U t
 tablesample T t
 tablespace U t
-target U t
 temp U t
 template U t
 temporary U t
@@ -441,7 +420,6 @@ types U t
 uescape U t
 unbounded U t
 uncommitted U t
-unconditional U t
 unencrypted U t
 union R f
 unique R t
@@ -465,7 +443,6 @@ verbose T t
 version U t
 view U t
 views U t
-virtual U t
 volatile U t
 when R t
 where R f

@@ -428,6 +428,56 @@ public class QueryProcessorTest {
     assertThat(processor.execute("SHOW ALL"))
         .anyMatch(row -> "server_version".equals(row.get("name")));
     assertThat(processor.describe("SHOW server_version")).containsOnlyKeys("server_version");
+    assertThat(processor.execute("SHOW ALL"))
+        .noneMatch(row -> "is_superuser".equals(row.get("name")));
+    // pg_settings, SHOW and current_setting read one table, with the session's values
+    processor.setClientDefault("DateStyle", "ISO, DMY");
+    processor.execute("SET statement_timeout = 5000");
+    assertThat(
+            processor.execute(
+                "SELECT name, setting, source, reset_val FROM pg_settings WHERE name IN"
+                    + " ('DateStyle', 'statement_timeout', 'TimeZone', 'server_version_num')"))
+        .containsExactlyInAnyOrder(
+            Map.of(
+                "name",
+                "DateStyle",
+                "setting",
+                "ISO, DMY",
+                "source",
+                "client",
+                "reset_val",
+                "ISO, DMY"),
+            Map.of(
+                "name",
+                "server_version_num",
+                "setting",
+                "160000",
+                "source",
+                "default",
+                "reset_val",
+                "160000"),
+            Map.of(
+                "name",
+                "statement_timeout",
+                "setting",
+                "5000",
+                "source",
+                "session",
+                "reset_val",
+                "0"),
+            Map.of(
+                "name",
+                "TimeZone",
+                "setting",
+                "Asia/Tokyo",
+                "source",
+                "session",
+                "reset_val",
+                "UTC"));
+    assertThat(processor.execute("SELECT current_setting('server_version_num') AS v"))
+        .containsExactly(Collections.singletonMap("v", "160000"));
+    assertThatThrownBy(() -> processor.execute("SET server_version = '1'"))
+        .hasMessageContaining("parameter \"server_version\" cannot be changed");
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
   }

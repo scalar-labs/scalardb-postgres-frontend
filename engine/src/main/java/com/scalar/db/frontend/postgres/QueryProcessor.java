@@ -120,25 +120,13 @@ public class QueryProcessor {
   QueryProcessor(DistributedTransactionManager manager, QueryParser parser) {
     this.manager = manager;
     this.parser = parser;
-    defaults.put("server_version", "16.0");
-    defaults.put("server_encoding", "UTF8");
-    defaults.put("client_encoding", "UTF8");
-    defaults.put("DateStyle", "ISO, MDY");
-    defaults.put("TimeZone", "UTC");
-    defaults.put("integer_datetimes", "on");
-    defaults.put("standard_conforming_strings", "on");
-    defaults.put(MAX_ROWS_PER_WRITE, String.valueOf(QueryParser.DEFAULT_MAX_ROWS_PER_WRITE));
-    defaults.put("is_superuser", "off");
-    defaults.put("search_path", "\"$user\", public");
-    // ScalarDB's SNAPSHOT reads each record's committed version with no snapshot across records,
-    // which is what PostgreSQL calls READ COMMITTED; the server raises this for SERIALIZABLE
-    defaults.put("transaction_isolation", "read committed");
-    defaults.put("default_transaction_isolation", "read committed");
-    defaults.put("default_transaction_read_only", "off");
-    defaults.put("application_name", "");
-    defaults.put("max_identifier_length", "63");
-    defaults.put("client_min_messages", "notice");
-    defaults.put("statement_timeout", "0");
+    // transaction_isolation is read committed: ScalarDB's SNAPSHOT reads each record's committed
+    // version with no snapshot across records, which is what PostgreSQL calls READ COMMITTED; the
+    // server raises this for SERIALIZABLE
+    for (String[] s : Catalog.SETTINGS) {
+      defaults.put(s[0], s[1]);
+    }
+    defaults.put("is_superuser", "off"); // shown by SHOW, not by SHOW ALL or pg_settings
   }
 
   /** The user the client connected as, for {@code current_user}. */
@@ -170,8 +158,13 @@ public class QueryProcessor {
   public void setDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, value);
+    configured.add(key == null ? name : key);
     searchPathChanged(key);
   }
+
+  // pg_settings.source of the settings not SET in the session: the server's, and the client's
+  private final java.util.Set<String> configured = new java.util.HashSet<>();
+  private final java.util.Set<String> fromClient = new java.util.HashSet<>();
 
   private static final java.util.regex.Pattern SET_VALUE =
       java.util.regex.Pattern.compile(
@@ -267,9 +260,10 @@ public class QueryProcessor {
       value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(value);
     }
-    if ("is_superuser".equals(key)) {
-      // as PostgreSQL: it reports the login, it is not the client's to claim
-      throw new PgException.Argument("55P02", "parameter \"is_superuser\" cannot be changed");
+    String[] known = key == null ? null : Catalog.setting(key);
+    if ("is_superuser".equals(key) || known != null && known[3].equals("internal")) {
+      // as PostgreSQL: is_superuser reports the login, and the internal ones the server
+      throw new PgException.Argument("55P02", "parameter \"" + key + "\" cannot be changed");
     }
     if ("statement_timeout".equals(key)
         && !DURATION.matcher(value.trim().replace("'", "")).matches()) {
@@ -303,6 +297,7 @@ public class QueryProcessor {
   public void setClientDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, checkedValue(key, name, value));
+    fromClient.add(key == null ? name : key);
     searchPathChanged(key);
   }
 
@@ -405,10 +400,14 @@ public class QueryProcessor {
     if (m.group(1).equalsIgnoreCase("ALL")) {
       List<Map<String, Object>> rows = new ArrayList<>();
       for (Map.Entry<String, String> e : all.entrySet()) {
+        if (e.getKey().equals("is_superuser")) {
+          continue; // as in PostgreSQL, SHOW names it but SHOW ALL does not
+        }
+        String[] known = Catalog.setting(e.getKey());
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("name", e.getKey());
         row.put("setting", e.getValue());
-        row.put("description", null);
+        row.put("description", known == null ? null : known[5]);
         rows.add(row);
       }
       return QueryParser.Plan.constant(
@@ -1117,6 +1116,22 @@ public class QueryProcessor {
           // outside a transaction a local set_config is not kept, as SET LOCAL is not
           setting(
               "SET " + (local ? "LOCAL " : "") + name + " TO '" + value.replace("'", "''") + "'");
+        }
+
+        @Override
+        public String source(String name) {
+          String key = settingKey(name);
+          return settings.containsKey(key)
+              ? "session"
+              : fromClient.contains(key)
+                  ? "client"
+                  : configured.contains(key) ? "configuration file" : "default";
+        }
+
+        @Override
+        public String resetValue(String name) {
+          String key = settingKey(name);
+          return key == null ? "" : defaults.getOrDefault(key, "");
         }
       };
 

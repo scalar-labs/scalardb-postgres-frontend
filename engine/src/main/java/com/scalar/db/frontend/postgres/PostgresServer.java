@@ -1071,6 +1071,12 @@ public class PostgresServer implements AutoCloseable {
           columns = processor.describe(sql, Collections.nCopies(n, null));
           described = true;
         } catch (RuntimeException e) {
+          if (n == 0
+              || e instanceof PgException
+                  && java.util.Arrays.asList("42P01", "42703")
+                      .contains(((PgException) e).sqlState())) {
+            throw e; // no parameter value can change it: the error, not NoData (todo 057)
+          }
           columns = Collections.emptyMap(); // the row shape depends on the parameter values
           described = false;
         }

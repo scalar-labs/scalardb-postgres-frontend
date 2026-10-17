@@ -4,6 +4,7 @@
 -- oids: public.items=16385 public.items_name_idx=16392 public.items_pkey=16390 sales.orders=16394 sales.orders_pkey=16397
 -- [django]
 -- postgres16: 1 21a48c94c8b9
+-- expect: 1  # the frontend describes a table by its keys
 SELECT
                 c.relname,
                 CASE
@@ -20,6 +21,7 @@ SELECT
 -----
 -- [django]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT a1.attname, c2.relname, a2.attname
             FROM pg_constraint con
             LEFT JOIN pg_class c1 ON con.conrelid = c1.oid
@@ -36,6 +38,7 @@ SELECT a1.attname, c2.relname, a2.attname
 -----
 -- [django]
 -- postgres16: 1 ff7e2936568f
+-- expect: same
 SELECT
                 c.conname,
                 array(
@@ -57,6 +60,7 @@ SELECT
 -----
 -- [django]
 -- postgres16: 2 7841d9266745
+-- expect: same
 SELECT
                 indexname,
                 array_agg(attname ORDER BY arridx),
@@ -98,6 +102,7 @@ SELECT
 -----
 -- [django]
 -- postgres16: 11 936175e87c5f
+-- expect: 5  # system columns are not listed yet (todo 057, Phase 3)
 SELECT
                 a.attname AS column_name,
                 NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)) AS is_nullable,

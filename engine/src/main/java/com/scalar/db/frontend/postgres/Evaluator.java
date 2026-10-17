@@ -671,6 +671,12 @@ final class Evaluator {
 
     /** As SET [LOCAL] name = value. */
     void set(String name, String value, boolean local);
+
+    /** pg_settings.source: session after SET, client from the startup message, or default. */
+    String source(String name);
+
+    /** pg_settings.reset_val: what RESET returns the setting to. */
+    String resetValue(String name);
   }
 
   private static final ThreadLocal<Settings> SETTINGS = new ThreadLocal<>();
@@ -678,6 +684,11 @@ final class Evaluator {
   /** The settings of the session whose statement runs on this thread. */
   static void setSettings(Settings settings) {
     SETTINGS.set(settings);
+  }
+
+  /** The settings of the session on this thread; null outside one. */
+  @Nullable static Settings settings() {
+    return SETTINGS.get();
   }
 
   /** Gives the session running on this thread its cancel flag, once, at startup. */
@@ -3590,6 +3601,7 @@ final class Evaluator {
         case "COL_DESCRIPTION":
         case "SHOBJ_DESCRIPTION":
         case "PG_DATABASE_SIZE":
+        case "PG_TABLESPACE_SIZE":
         case "PG_GET_PARTKEYDEF": // ScalarDB tables are not partitioned in PostgreSQL's sense
           return null;
         case "PG_STAT_GET_NUMSCANS": // DBeaver's index list; ScalarDB keeps no statistics

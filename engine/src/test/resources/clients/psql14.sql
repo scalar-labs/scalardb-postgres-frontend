@@ -4,6 +4,7 @@
 -- oids: public.items=16385 public.items_name_idx=16388 public.items_pkey=16386 sales.orders=16390 sales.orders_pkey=16391
 -- [d]
 -- postgres16: 1 004cafc38c13
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -20,6 +21,7 @@ ORDER BY 1,2;
 -----
 -- [d+]
 -- postgres16: 1 df8db7a12f41
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -40,6 +42,7 @@ ORDER BY 1,2;
 -----
 -- [dS]
 -- postgres16: 141 b47968481df1
+-- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -53,6 +56,7 @@ ORDER BY 1,2;
 -----
 -- [d items]
 -- postgres16: 1 1999fb1986ce
+-- expect: same
 SELECT c.oid,
   n.nspname,
   c.relname
@@ -64,6 +68,7 @@ ORDER BY 2, 3;
 -----
 -- [d items]
 -- postgres16: 1 a53efb0953fe
+-- expect: same
 SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, '', c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname
 FROM pg_catalog.pg_class c
  LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)
@@ -72,6 +77,7 @@ WHERE c.oid = '16385';
 -----
 -- [d items]
 -- postgres16: 5 d6901923d626
+-- expect: 5  # ScalarDB's types and the scalardb owner in the test schema
 SELECT a.attname,
   pg_catalog.format_type(a.atttypid, a.atttypmod),
   (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)
@@ -88,6 +94,7 @@ ORDER BY a.attnum;
 -----
 -- [d items]
 -- postgres16: 2 4071bbc29a49
+-- expect: 2  # ScalarDB's types and the scalardb owner in the test schema
 SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid, pg_catalog.pg_get_indexdef(i.indexrelid, 0, true),
   pg_catalog.pg_get_constraintdef(con.oid, true), contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace
 FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i
@@ -97,6 +104,7 @@ ORDER BY i.indisprimary DESC, c2.relname;
 -----
 -- [d items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pol.polname, pol.polpermissive,
   CASE WHEN pol.polroles = '{0}' THEN NULL ELSE pg_catalog.array_to_string(array(select rolname from pg_catalog.pg_roles where oid = any (pol.polroles) order by 1),',') END,
   pg_catalog.pg_get_expr(pol.polqual, pol.polrelid),
@@ -112,6 +120,7 @@ WHERE pol.polrelid = '16385' ORDER BY 1;
 -----
 -- [d items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT oid, stxrelid::pg_catalog.regclass, stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, stxname,
 pg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns,
   'd' = any(stxkind) AS ndist_enabled,
@@ -124,6 +133,7 @@ ORDER BY nsp, stxname;
 -----
 -- [d items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pubname
 FROM pg_catalog.pg_publication p
 JOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid
@@ -136,6 +146,7 @@ ORDER BY 1;
 -----
 -- [d items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT c.oid::pg_catalog.regclass
 FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i
 WHERE c.oid = i.inhparent AND i.inhrelid = '16385'
@@ -144,6 +155,7 @@ ORDER BY inhseqno;
 -----
 -- [d items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT c.oid::pg_catalog.regclass, c.relkind, inhdetachpending, pg_catalog.pg_get_expr(c.relpartbound, c.oid)
 FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i
 WHERE c.oid = i.inhrelid AND i.inhparent = '16385'
@@ -151,6 +163,7 @@ ORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT', c.oid::pg_ca
 -----
 -- [d+ items]
 -- postgres16: 1 1999fb1986ce
+-- expect: same
 SELECT c.oid,
   n.nspname,
   c.relname
@@ -162,6 +175,7 @@ ORDER BY 2, 3;
 -----
 -- [d+ items]
 -- postgres16: 1 a53efb0953fe
+-- expect: same
 SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, pg_catalog.array_to_string(c.reloptions || array(select 'toast.' || x from pg_catalog.unnest(tc.reloptions) x), ', ')
 , c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname
 FROM pg_catalog.pg_class c
@@ -171,6 +185,7 @@ WHERE c.oid = '16385';
 -----
 -- [d+ items]
 -- postgres16: 5 238b2b23a7ec
+-- expect: 5  # ScalarDB's types and the scalardb owner in the test schema
 SELECT a.attname,
   pg_catalog.format_type(a.atttypid, a.atttypmod),
   (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)
@@ -191,6 +206,7 @@ ORDER BY a.attnum;
 -----
 -- [d+ items]
 -- postgres16: 2 4071bbc29a49
+-- expect: 2  # ScalarDB's types and the scalardb owner in the test schema
 SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid, pg_catalog.pg_get_indexdef(i.indexrelid, 0, true),
   pg_catalog.pg_get_constraintdef(con.oid, true), contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace
 FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i
@@ -200,6 +216,7 @@ ORDER BY i.indisprimary DESC, c2.relname;
 -----
 -- [d+ items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pol.polname, pol.polpermissive,
   CASE WHEN pol.polroles = '{0}' THEN NULL ELSE pg_catalog.array_to_string(array(select rolname from pg_catalog.pg_roles where oid = any (pol.polroles) order by 1),',') END,
   pg_catalog.pg_get_expr(pol.polqual, pol.polrelid),
@@ -215,6 +232,7 @@ WHERE pol.polrelid = '16385' ORDER BY 1;
 -----
 -- [d+ items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT oid, stxrelid::pg_catalog.regclass, stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, stxname,
 pg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns,
   'd' = any(stxkind) AS ndist_enabled,
@@ -227,6 +245,7 @@ ORDER BY nsp, stxname;
 -----
 -- [d+ items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pubname
 FROM pg_catalog.pg_publication p
 JOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid
@@ -239,6 +258,7 @@ ORDER BY 1;
 -----
 -- [d+ items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT c.oid::pg_catalog.regclass
 FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i
 WHERE c.oid = i.inhparent AND i.inhrelid = '16385'
@@ -247,6 +267,7 @@ ORDER BY inhseqno;
 -----
 -- [d+ items]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT c.oid::pg_catalog.regclass, c.relkind, inhdetachpending, pg_catalog.pg_get_expr(c.relpartbound, c.oid)
 FROM pg_catalog.pg_class c, pg_catalog.pg_inherits i
 WHERE c.oid = i.inhrelid AND i.inhparent = '16385'
@@ -254,6 +275,7 @@ ORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT', c.oid::pg_ca
 -----
 -- [d sales.orders]
 -- postgres16: 1 8c6fe1d87bd0
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT c.oid,
   n.nspname,
   c.relname
@@ -265,6 +287,7 @@ ORDER BY 2, 3;
 -----
 -- [d sales.orders]
 -- postgres16: 1 a53efb0953fe
+-- expect: same
 SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, '', c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname
 FROM pg_catalog.pg_class c
  LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)
@@ -273,6 +296,7 @@ WHERE c.oid = '16390';
 -----
 -- [d sales.orders]
 -- postgres16: 4 a9ab52b50b1b
+-- expect: same
 SELECT a.attname,
   pg_catalog.format_type(a.atttypid, a.atttypmod),
   (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)
@@ -289,6 +313,7 @@ ORDER BY a.attnum;
 -----
 -- [d items_pkey]
 -- postgres16: 1 fd817e45fa12
+-- expect: same
 SELECT a.attname,
   pg_catalog.format_type(a.atttypid, a.atttypmod),
   CASE WHEN a.attnum <= (SELECT i.indnkeyatts FROM pg_catalog.pg_index i WHERE i.indexrelid = '16386') THEN 'yes' ELSE 'no' END AS is_key,
@@ -299,6 +324,7 @@ ORDER BY a.attnum;
 -----
 -- [d items_name_idx]
 -- postgres16: 1 75065622d6c3
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT a.attname,
   pg_catalog.format_type(a.atttypid, a.atttypmod),
   CASE WHEN a.attnum <= (SELECT i.indnkeyatts FROM pg_catalog.pg_index i WHERE i.indexrelid = '16388') THEN 'yes' ELSE 'no' END AS is_key,
@@ -309,6 +335,7 @@ ORDER BY a.attnum;
 -----
 -- [da]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname AS "Name",
   pg_catalog.format_type(p.prorettype, NULL) AS "Result data type",
@@ -327,6 +354,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [daS]
 -- postgres16: 157 8e8b98a0afc0
+-- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   p.proname AS "Name",
   pg_catalog.format_type(p.prorettype, NULL) AS "Result data type",
@@ -343,6 +371,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dA]
 -- postgres16: 7 4ba94d0be0be
+-- expect: 2  # only heap and btree
 SELECT amname AS "Name",
   CASE amtype WHEN 'i' THEN 'Index' WHEN 't' THEN 'Table' END AS "Type"
 FROM pg_catalog.pg_am
@@ -350,6 +379,7 @@ ORDER BY 1;
 -----
 -- [dA+]
 -- postgres16: 7 81f81e144396
+-- expect: 2  # only heap and btree
 SELECT amname AS "Name",
   CASE amtype WHEN 'i' THEN 'Index' WHEN 't' THEN 'Table' END AS "Type",
   amhandler AS "Handler",
@@ -359,6 +389,7 @@ ORDER BY 1;
 -----
 -- [dAc]
 -- postgres16: 177 d26fddbe02a0
+-- expect: 17  # the default btree classes of the supported types
 SELECT
   am.amname AS "AM",
   pg_catalog.format_type(c.opcintype, NULL) AS "Input type",
@@ -385,6 +416,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dAf]
 -- postgres16: 146 8ff5268c8bb7
+-- expect: 12  # the default btree classes of the supported types
 SELECT
   am.amname AS "AM",
   CASE
@@ -403,6 +435,7 @@ ORDER BY 1, 2;
 -----
 -- [dAo]
 -- postgres16: 945 f4efba32067e
+-- expect: 0  # operator families' members are not exposed
 SELECT
   am.amname AS "AM",
   CASE
@@ -428,6 +461,7 @@ ORDER BY 1, 2,
 -----
 -- [dAp]
 -- postgres16: 696 555d331c33b4
+-- expect: 0  # operator families' members are not exposed
 SELECT
   am.amname AS "AM",
   CASE
@@ -450,6 +484,7 @@ ORDER BY 1, 2,
 -----
 -- [db]
 -- postgres16: 2 7091e1f7e511
+-- expect: 2  # owned by scalardb
 SELECT spcname AS "Name",
   pg_catalog.pg_get_userbyid(spcowner) AS "Owner",
   pg_catalog.pg_tablespace_location(oid) AS "Location"
@@ -458,6 +493,7 @@ ORDER BY 1;
 -----
 -- [db+]
 -- postgres16: 2 da8c9e145b93
+-- expect: 2  # owned by scalardb
 SELECT spcname AS "Name",
   pg_catalog.pg_get_userbyid(spcowner) AS "Owner",
   pg_catalog.pg_tablespace_location(oid) AS "Location",
@@ -470,6 +506,7 @@ ORDER BY 1;
 -----
 -- [dc]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname AS "Schema",
        c.conname AS "Name",
        pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source",
@@ -486,6 +523,7 @@ ORDER BY 1, 2;
 -----
 -- [dcS]
 -- postgres16: 128 944e8dc1a25f
+-- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname AS "Schema",
        c.conname AS "Name",
        pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source",
@@ -500,6 +538,7 @@ ORDER BY 1, 2;
 -----
 -- [dC]
 -- postgres16: 229 7e7a21ca0da2
+-- expect: ERROR 42P01  # pg_cast is not declared yet (todo 057, Phase 2)
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -527,6 +566,7 @@ ORDER BY 1, 2;
 -----
 -- [dC+]
 -- postgres16: 229 0594bea9a456
+-- expect: ERROR 42P01  # pg_cast is not declared yet (todo 057, Phase 2)
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -557,6 +597,7 @@ ORDER BY 1, 2;
 -----
 -- [dd]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT DISTINCT tt.nspname AS "Schema", tt.name AS "Name", tt.object AS "Object", d.description AS "Description"
 FROM (
   SELECT pgc.oid as oid, pgc.tableoid AS tableoid,
@@ -627,6 +668,7 @@ ORDER BY 1, 2, 3;
 -----
 -- [ddS]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT DISTINCT tt.nspname AS "Schema", tt.name AS "Name", tt.object AS "Object", d.description AS "Description"
 FROM (
   SELECT pgc.oid as oid, pgc.tableoid AS tableoid,
@@ -685,6 +727,7 @@ ORDER BY 1, 2, 3;
 -----
 -- [dD]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
        t.typname as "Name",
        pg_catalog.format_type(t.typbasetype, t.typtypmod) as "Type",
@@ -705,6 +748,7 @@ ORDER BY 1, 2;
 -----
 -- [dD+]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
        t.typname as "Name",
        pg_catalog.format_type(t.typbasetype, t.typtypmod) as "Type",
@@ -728,6 +772,7 @@ ORDER BY 1, 2;
 -----
 -- [ddp]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pg_catalog.pg_get_userbyid(d.defaclrole) AS "Owner",
   n.nspname AS "Schema",
   CASE d.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'function' WHEN 'T' THEN 'type' WHEN 'n' THEN 'schema' END AS "Type",
@@ -738,6 +783,7 @@ ORDER BY 1, 2, 3;
 -----
 -- [dE]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -753,6 +799,7 @@ ORDER BY 1,2;
 -----
 -- [di]
 -- postgres16: 2 7c7b67dd2355
+-- expect: 2  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -772,6 +819,7 @@ ORDER BY 1,2;
 -----
 -- [di+]
 -- postgres16: 2 146d1d3dd68c
+-- expect: 2  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -795,6 +843,7 @@ ORDER BY 1,2;
 -----
 -- [diS]
 -- postgres16: 126 02d2de9bb510
+-- expect: 2  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -811,6 +860,7 @@ ORDER BY 1,2;
 -----
 -- [dm]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -827,6 +877,7 @@ ORDER BY 1,2;
 -----
 -- [ds]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -842,6 +893,7 @@ ORDER BY 1,2;
 -----
 -- [dt]
 -- postgres16: 1 004cafc38c13
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -858,6 +910,7 @@ ORDER BY 1,2;
 -----
 -- [dt+]
 -- postgres16: 1 df8db7a12f41
+-- expect: 1  # ScalarDB's types and the scalardb owner in the test schema
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -878,6 +931,7 @@ ORDER BY 1,2;
 -----
 -- [dtS]
 -- postgres16: 65 86c76b658cd4
+-- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -891,6 +945,7 @@ ORDER BY 1,2;
 -----
 -- [dt *.*]
 -- postgres16: 111 c9f93c0a1b61
+-- expect: 2  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -903,6 +958,7 @@ ORDER BY 1,2;
 -----
 -- [dvS]
 -- postgres16: 76 653bfbb3a818
+-- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 's' THEN 'special' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -915,6 +971,7 @@ ORDER BY 1,2;
 -----
 -- [des]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT s.srvname AS "Name",
   pg_catalog.pg_get_userbyid(s.srvowner) AS "Owner",
   f.fdwname AS "Foreign-data wrapper"
@@ -924,6 +981,7 @@ ORDER BY 1;
 -----
 -- [det]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname AS "Schema",
   c.relname AS "Table",
   s.srvname AS "Server"
@@ -936,6 +994,7 @@ ORDER BY 1, 2;
 -----
 -- [deu]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT um.srvname AS "Server",
   um.usename AS "User name"
 FROM pg_catalog.pg_user_mappings um
@@ -943,6 +1002,7 @@ ORDER BY 1, 2;
 -----
 -- [dew]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT fdw.fdwname AS "Name",
   pg_catalog.pg_get_userbyid(fdw.fdwowner) AS "Owner",
   fdw.fdwhandler::pg_catalog.regproc AS "Handler",
@@ -952,6 +1012,7 @@ ORDER BY 1;
 -----
 -- [df]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -971,6 +1032,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [df+]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1007,6 +1069,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
+-- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1024,6 +1087,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfa]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1046,6 +1110,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfaS]
 -- postgres16: 157 957a27792435
+-- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1066,6 +1131,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfn]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1089,6 +1155,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfp]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1111,6 +1178,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dft]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1133,6 +1201,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dF]
 -- postgres16: 29 0360be8655df
+-- expect: 0  # no text search
 SELECT
    n.nspname as "Schema",
    c.cfgname as "Name",
@@ -1144,6 +1213,7 @@ ORDER BY 1, 2;
 -----
 -- [dF+]
 -- postgres16: 29 a0365cb512b3
+-- expect: 0  # no text search
 SELECT c.oid, c.cfgname,
    n.nspname,
    p.prsname,
@@ -1158,6 +1228,7 @@ ORDER BY 3, 2;
 -----
 -- [dFd]
 -- postgres16: 29 4de02ad45349
+-- expect: 0  # no text search
 SELECT
   n.nspname as "Schema",
   d.dictname as "Name",
@@ -1169,6 +1240,7 @@ ORDER BY 1, 2;
 -----
 -- [dFp]
 -- postgres16: 1 a45771a0e229
+-- expect: 0  # no text search
 SELECT
   n.nspname as "Schema",
   p.prsname as "Name",
@@ -1180,6 +1252,7 @@ ORDER BY 1, 2;
 -----
 -- [dFt]
 -- postgres16: 5 de04bb7c2b35
+-- expect: 0  # no text search
 SELECT
   n.nspname AS "Schema",
   t.tmplname AS "Name",
@@ -1191,6 +1264,7 @@ ORDER BY 1, 2;
 -----
 -- [dg]
 -- postgres16: 1 69b93cd4d2e5
+-- expect: 1  # the scalardb role
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1206,6 +1280,7 @@ ORDER BY 1;
 -----
 -- [dg+]
 -- postgres16: 1 207fd1aee938
+-- expect: 1  # the scalardb role
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1222,6 +1297,7 @@ ORDER BY 1;
 -----
 -- [dgS]
 -- postgres16: 15 54dc8bb1da1d
+-- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1236,6 +1312,7 @@ ORDER BY 1;
 -----
 -- [dl]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT oid as "ID",
   pg_catalog.pg_get_userbyid(lomowner) as "Owner",
   pg_catalog.obj_description(oid, 'pg_largeobject') as "Description"
@@ -1243,6 +1320,7 @@ SELECT oid as "ID",
 -----
 -- [dL]
 -- postgres16: 1 a2ef04c3c0c2
+-- expect: 0  # no procedural language
 SELECT l.lanname AS "Name",
        pg_catalog.pg_get_userbyid(l.lanowner) as "Owner",
        l.lanpltrusted AS "Trusted",
@@ -1256,6 +1334,7 @@ ORDER BY 1;
 -----
 -- [dLS]
 -- postgres16: 4 e559bba0d1f2
+-- expect: 1  # only internal
 SELECT l.lanname AS "Name",
        pg_catalog.pg_get_userbyid(l.lanowner) as "Owner",
        l.lanpltrusted AS "Trusted",
@@ -1268,6 +1347,7 @@ ORDER BY 1;
 -----
 -- [dn]
 -- postgres16: 2 88572772e4ab
+-- expect: 2  # owned by scalardb
 SELECT n.nspname AS "Name",
   pg_catalog.pg_get_userbyid(n.nspowner) AS "Owner"
 FROM pg_catalog.pg_namespace n
@@ -1276,6 +1356,7 @@ ORDER BY 1;
 -----
 -- [dn+]
 -- postgres16: 2 8a1c4afee932
+-- expect: 2  # owned by scalardb
 SELECT n.nspname AS "Name",
   pg_catalog.pg_get_userbyid(n.nspowner) AS "Owner",
   pg_catalog.array_to_string(n.nspacl, E'\n') AS "Access privileges",
@@ -1286,6 +1367,7 @@ ORDER BY 1;
 -----
 -- [dnS]
 -- postgres16: 5 4a7471a2086a
+-- expect: 3  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname AS "Name",
   pg_catalog.pg_get_userbyid(n.nspowner) AS "Owner"
 FROM pg_catalog.pg_namespace n
@@ -1293,6 +1375,7 @@ ORDER BY 1;
 -----
 -- [do]
 -- postgres16: 0 e3b0c44298fc
+-- expect: ERROR 42P01  # pg_operator is not declared yet (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   o.oprname AS "Name",
   CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type",
@@ -1309,6 +1392,7 @@ ORDER BY 1, 2, 3, 4;
 -----
 -- [doS]
 -- postgres16: 799 92dbd6588d14
+-- expect: ERROR 42P01  # pg_operator is not declared yet (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   o.oprname AS "Name",
   CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type",
@@ -1323,6 +1407,7 @@ ORDER BY 1, 2, 3, 4;
 -----
 -- [dO]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname AS "Schema",
        c.collname AS "Name",
        c.collcollate AS "Collate",
@@ -1339,6 +1424,7 @@ ORDER BY 1, 2;
 -----
 -- [dOS]
 -- postgres16: 878 f11ae8309d5f
+-- expect: 0  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname AS "Schema",
        c.collname AS "Name",
        c.collcollate AS "Collate",
@@ -1353,6 +1439,7 @@ ORDER BY 1, 2;
 -----
 -- [dp]
 -- postgres16: ERROR 42725 ERROR:  operator is not unique: unknown || "char"
+-- expect: 1  # PostgreSQL 16 rejects psql 14's query (operator is not unique); the frontend answers
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as "Type",
@@ -1399,6 +1486,7 @@ ORDER BY 1, 2;
 -----
 -- [dpS]
 -- postgres16: ERROR 42725 ERROR:  operator is not unique: unknown || "char"
+-- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as "Type",
@@ -1445,6 +1533,7 @@ ORDER BY 1, 2;
 -----
 -- [dP]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   pg_catalog.pg_get_userbyid(c.relowner) as "Owner",
@@ -1464,6 +1553,7 @@ ORDER BY "Schema", "Type" DESC, "Name";
 -----
 -- [dPi]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   pg_catalog.pg_get_userbyid(c.relowner) as "Owner",
@@ -1482,6 +1572,7 @@ ORDER BY "Schema", "Name";
 -----
 -- [dPt]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   pg_catalog.pg_get_userbyid(c.relowner) as "Owner"
@@ -1497,6 +1588,7 @@ ORDER BY "Schema", "Name";
 -----
 -- [drds]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT rolname AS "Role", datname AS "Database",
 pg_catalog.array_to_string(setconfig, E'\n') AS "Settings"
 FROM pg_catalog.pg_db_role_setting s
@@ -1506,6 +1598,7 @@ ORDER BY 1, 2;
 -----
 -- [dRp]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT pubname AS "Name",
   pg_catalog.pg_get_userbyid(pubowner) AS "Owner",
   puballtables AS "All tables",
@@ -1519,6 +1612,7 @@ ORDER BY 1;
 -----
 -- [dRs]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT subname AS "Name"
 ,  pg_catalog.pg_get_userbyid(subowner) AS "Owner"
 ,  subenabled AS "Enabled"
@@ -1530,6 +1624,7 @@ WHERE subdbid = (SELECT oid
 -----
 -- [dT]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   pg_catalog.format_type(t.oid, NULL) AS "Name",
   pg_catalog.obj_description(t.oid, 'pg_type') as "Description"
@@ -1544,6 +1639,7 @@ ORDER BY 1, 2;
 -----
 -- [dT+]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname as "Schema",
   pg_catalog.format_type(t.oid, NULL) AS "Name",
   t.typname AS "Internal name",
@@ -1576,6 +1672,7 @@ ORDER BY 1, 2;
 -----
 -- [dTS]
 -- postgres16: 107 bbc1a3f89193
+-- expect: 28  # only the types the frontend implements (todo 057, Phase 2)
 SELECT n.nspname as "Schema",
   pg_catalog.format_type(t.oid, NULL) AS "Name",
   pg_catalog.obj_description(t.oid, 'pg_type') as "Description"
@@ -1588,6 +1685,7 @@ ORDER BY 1, 2;
 -----
 -- [du]
 -- postgres16: 1 69b93cd4d2e5
+-- expect: 1  # the scalardb role
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1603,6 +1701,7 @@ ORDER BY 1;
 -----
 -- [du+]
 -- postgres16: 1 207fd1aee938
+-- expect: 1  # the scalardb role
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1619,6 +1718,7 @@ ORDER BY 1;
 -----
 -- [duS]
 -- postgres16: 15 54dc8bb1da1d
+-- expect: 1  # system objects are not listed yet (todo 057, Phase 3)
 SELECT r.rolname, r.rolsuper, r.rolinherit,
   r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
   r.rolconnlimit, r.rolvaliduntil,
@@ -1633,18 +1733,21 @@ ORDER BY 1;
 -----
 -- [dx]
 -- postgres16: 1 43191e7600ac
+-- expect: 0  # no extensions
 SELECT e.extname AS "Name", e.extversion AS "Version", n.nspname AS "Schema", c.description AS "Description"
 FROM pg_catalog.pg_extension e LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace LEFT JOIN pg_catalog.pg_description c ON c.objoid = e.oid AND c.classoid = 'pg_catalog.pg_extension'::pg_catalog.regclass
 ORDER BY 1;
 -----
 -- [dx+]
 -- postgres16: 1 e23c0b42f5ab
+-- expect: 0  # no extensions
 SELECT e.extname, e.oid
 FROM pg_catalog.pg_extension e
 ORDER BY 1;
 -----
 -- [dX]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT 
 es.stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS "Schema", 
 es.stxname AS "Name", 
@@ -1663,6 +1766,7 @@ ORDER BY 1, 2;
 -----
 -- [dy]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT evtname as "Name", evtevent as "Event", pg_catalog.pg_get_userbyid(e.evtowner) as "Owner",
  case evtenabled when 'O' then 'enabled'  when 'R' then 'replica'  when 'A' then 'always'  when 'D' then 'disabled' end as "Enabled",
  e.evtfoid::pg_catalog.regproc as "Function", pg_catalog.array_to_string(array(select x from pg_catalog.unnest(evttags) as t(x)), ', ') as "Tags"
@@ -1670,6 +1774,7 @@ FROM pg_catalog.pg_event_trigger e ORDER BY 1
 -----
 -- [l]
 -- postgres16: 5 18ad45209d80
+-- expect: 2  # databases are ScalarDB namespaces
 SELECT d.datname as "Name",
        pg_catalog.pg_get_userbyid(d.datdba) as "Owner",
        pg_catalog.pg_encoding_to_char(d.encoding) as "Encoding",
@@ -1681,6 +1786,7 @@ ORDER BY 1;
 -----
 -- [l+]
 -- postgres16: 5 dd5e6b9c266a
+-- expect: 2  # databases are ScalarDB namespaces
 SELECT d.datname as "Name",
        pg_catalog.pg_get_userbyid(d.datdba) as "Owner",
        pg_catalog.pg_encoding_to_char(d.encoding) as "Encoding",
@@ -1699,22 +1805,27 @@ ORDER BY 1;
 -----
 -- [sf now]
 -- postgres16: 1 df4011e630c0
+-- expect: 1  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
 SELECT 'now'::pg_catalog.regproc::pg_catalog.oid
 -----
 -- [sf now]
 -- postgres16: 1 b582d3167c70
+-- expect: ERROR 0A000  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
 SELECT pg_catalog.pg_get_functiondef(0)
 -----
 -- [sf+ now]
 -- postgres16: 1 df4011e630c0
+-- expect: 1  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
 SELECT 'now'::pg_catalog.regproc::pg_catalog.oid
 -----
 -- [sf+ now]
 -- postgres16: 1 b582d3167c70
+-- expect: ERROR 0A000  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
 SELECT pg_catalog.pg_get_functiondef(0)
 -----
 -- [dconfig]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname AS "Schema",
        c.conname AS "Name",
        pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source",
@@ -1731,6 +1842,7 @@ ORDER BY 1, 2;
 -----
 -- [dconfig+ work_mem]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT n.nspname AS "Schema",
        c.conname AS "Name",
        pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source",
@@ -1749,6 +1861,7 @@ ORDER BY 1, 2;
 -----
 -- [lo_list]
 -- postgres16: 0 e3b0c44298fc
+-- expect: same
 SELECT oid as "ID",
   pg_catalog.pg_get_userbyid(lomowner) as "Owner",
   pg_catalog.obj_description(oid, 'pg_largeobject') as "Description"

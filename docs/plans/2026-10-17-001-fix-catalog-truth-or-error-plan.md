@@ -185,7 +185,10 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
       relation: `relation "pg_catalog.pg_x" does not exist`, the name as written.)
   - `searchNamespaces()` (2992-3001) skips an explicit `pg_catalog` entry. Catalog names already resolve
     first (5025), as in PostgreSQL.
-- [ ] **Plan cache.** No cached or described plan can carry an old constant answer. Test it on one
+- [x] **Plan cache.** (`PostgresServerTest.protocol_FailingCatalogQueries_ShouldFailEveryTimeAndLeaveTheSessionUsable`.
+      Describe used to answer NoData for any statement it could not plan; it now reports the error when
+      no parameter value could change it: no parameters, or 42P01 and 42703. The frontend still plans at
+      Describe, not at Parse.) No cached or described plan can carry an old constant answer. Test it on one
       connection over the extended protocol: Describe, then Execute, then Execute again, for a query that
       now fails. Check for a clean ErrorResponse, then ReadyForQuery after Sync, and that no failed
       transaction is left behind when none was open (`QueryProcessor.java:54-71, 906-912`).
@@ -211,7 +214,11 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
 
   Acceptance: `get_columns`, `get_multi_columns`, `get_pk_constraint`, `get_indexes`,
   `get_unique_constraints` and `get_multi_*` give PostgreSQL's answers for `items` and `sales.orders`.
-- [ ] Re-check each remaining Phase 0 hit against its fixture.
+- [x] Re-check each remaining Phase 0 hit against its fixture. Every fixture query has an `-- expect:`
+      line: `same` for 143 of 300, else the frontend's count or error with why. The re-check fixed
+      `\d <index>` (an index had no `pg_attribute` rows), `pg_get_keywords()` (PostgreSQL 18's list;
+      now 16's, in its order), `\dconfig` (`pg_settings.boot_val`) and `\df+` (`pg_proc.proparallel`,
+      `proleakproof`, `proowner`). Left for Phase 3: the `information_schema` namespace and its domains.
 
 **Tables declared because they are truly empty**, added to `Catalog.EMPTY_BECAUSE` with a reason each
 (done; `ClientCatalogTest.catalogTables_ShouldBeEmptyOnlyWithAReason` is the guard, a new table takes
@@ -242,13 +249,16 @@ The tables already declared empty move into the allowlist too: `pg_trigger`, `pg
 and `pg_shdescription`.
 
 **Tables populated with true rows:**
-- [ ] `pg_tables`: the user tables, as in `pg_class`; system tables arrive with Phase 3.
-- [ ] `pg_views`: empty, because there are no views. It goes in the allowlist until Phase 3.
-- [ ] `pg_user`: from the roles, with `usesuper` from the role, `passwd` shown as `********`, and
+- [x] `pg_tables`: the user tables, as in `pg_class`; system tables arrive with Phase 3.
+- [x] `pg_views`: empty, because there are no views. It goes in the allowlist until Phase 3.
+- [x] `pg_user`: from the roles, with `usesuper` from the role, `passwd` shown as `********`, and
       `usecreatedb` false.
-- [ ] `pg_timezone_names`: the zones `SET TimeZone` accepts, from `ZoneId.getAvailableZoneIds()` filtered
-      by the frontend's own check. A test sets every listed zone.
-- [ ] `pg_stat_activity`: the sessions of this frontend process (`pid`, `datname`, `usename`,
+- [x] `pg_timezone_names`: the zones `SET TimeZone` accepts, from `ZoneId.getAvailableZoneIds()` filtered
+      by the frontend's own check. A test sets every listed zone. (All of Java's IDs pass. Offsets match
+      PostgreSQL 16 but for 5 zones whose rules changed after Java 17's tzdata; abbreviations are CLDR's,
+      which differ from tzdata's for 168 of 483 zones, e.g. `ART` where tzdata says `-03`.)
+- [x] `pg_stat_activity` (left undeclared: the server has no session registry; todo 058, with
+      `pg_backend_pid()` returning 0): the sessions of this frontend process (`pid`, `datname`, `usename`,
       `application_name`, `client_addr`, `backend_start`, `state`, `query`), from the server's session
       registry.
   - Columns the frontend cannot know are NULL, as PostgreSQL shows them to unprivileged users.
@@ -278,13 +288,14 @@ and `pg_shdescription`.
     `lanacl`;
   - one row, `internal` (oid 12, `lanispl` false);
   - so `\dL` is truly empty and `\dLS` lists `internal`.
-- [ ] **Settings, unified.** One `Catalog.SETTINGS` table (name, default, vartype, context, unit) feeds
+- [x] **Settings, unified.** (Internal settings refuse SET with 55P02; `SHOW ALL` leaves out
+      `is_superuser` and gives each description; `source` is `configuration file` for the server's own.) One `Catalog.SETTINGS` table (name, default, vartype, context, unit) feeds
       `pg_settings`, `SHOW`, `SHOW ALL` and `current_setting`. `QueryProcessor` seeds its defaults from
       that table.
   - `pg_settings.setting` and `source` are filled per read, from the session.
   - `source` is `session` after `SET`, `client` for startup parameters, and `default` otherwise.
   - This fixes `server_version_num`.
-- [ ] `pg_tablespace_size(oid)` returns NULL, since sizes are unknown, as table sizes already are.
+- [x] `pg_tablespace_size(oid)` returns NULL, since sizes are unknown, as table sizes already are.
 
 **Visibility (group D)** (`Evaluator.catalogFunction`):
 - [x] **`pg_table_is_visible(oid)`** is true when the relation's namespace is the first namespace on the
@@ -296,8 +307,9 @@ and `pg_shdescription`.
   - The connected namespace still shows as `public` (`Catalog.schemaName`, 731-733).
   - `$user` keeps its current mapping to the connected namespace; mapping it to a namespace named after
     the role is out of scope (note in LIMITATIONS).
-- [ ] **Cases with their own tests:** (the first two, a shadowed name and a path naming no schema are in
-      `QueryParserTest.execute_SearchPath_ShouldDecideWhatIsVisible`; the `public` note waits for Phase 4)
+- [ ] **Cases with their own tests:** (all but the `public` note, which waits for Phase 4, are in
+      `QueryParserTest.execute_SearchPath_ShouldDecideWhatIsVisible`, with a shadowed name, a path naming
+      no schema, and `SET search_path = ''`)
   - search_path `sales` alone: the connected namespace's tables are not visible, and `current_schemas`
     is `{sales}`;
   - an explicit `pg_catalog` placed later on the path;

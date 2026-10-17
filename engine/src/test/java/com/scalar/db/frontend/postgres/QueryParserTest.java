@@ -3165,6 +3165,13 @@ public class QueryParserTest {
                 "j",
                 null));
 
+    // a path of one other schema: the connected namespace's tables are not visible
+    parser.setSearchPath("other");
+    assertThat(parser.parse(visible).execute(transaction))
+        .containsExactly(map("r", "other.My T"), map("r", "other.t"), map("r", "other.u"));
+    assertThat(parser.parse("SELECT current_schemas(false) AS a").execute(transaction))
+        .containsExactly(map("a", Arrays.asList("other")));
+
     // an explicit pg_catalog, placed later, is where the path says
     parser.setSearchPath("other, pg_catalog");
     assertThat(parser.parse("SELECT current_schemas(false) AS a").execute(transaction))
@@ -3190,6 +3197,45 @@ public class QueryParserTest {
             map("c", null, "s", Arrays.asList("pg_catalog"), "t", "public.t", "r", "public.t"));
     assertThatThrownBy(() -> parser.parse("SELECT 'a..b'::regclass").execute(transaction))
         .hasMessageContaining("invalid name syntax");
+  }
+
+  @Test
+  public void execute_CatalogViews_ShouldListWhatExists() throws Exception {
+    assertThat(
+            parser
+                .parse("SELECT schemaname, tablename, tableowner, hasindexes FROM pg_tables")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "schemaname",
+                "public",
+                "tablename",
+                "t",
+                "tableowner",
+                "scalardb",
+                "hasindexes",
+                true));
+    assertThat(parser.parse("SELECT usename, usesuper, passwd FROM pg_user").execute(transaction))
+        .containsExactly(map("usename", "scalardb", "usesuper", true, "passwd", "********"));
+    assertThat(parser.parse("SELECT * FROM pg_views").execute(transaction)).isEmpty();
+    assertThat(
+            parser
+                .parse(
+                    "SELECT abbrev, utc_offset::text AS o, is_dst FROM pg_timezone_names"
+                        + " WHERE name IN ('Asia/Tokyo', 'Asia/Kolkata', 'Etc/GMT-14')"
+                        + " ORDER BY name")
+                .execute(transaction))
+        .containsExactly(
+            map("abbrev", "IST", "o", "05:30:00", "is_dst", false),
+            map("abbrev", "JST", "o", "09:00:00", "is_dst", false),
+            map("abbrev", "+14", "o", "14:00:00", "is_dst", false));
+    // every zone listed is one SET TimeZone takes
+    List<Map<String, Object>> zones =
+        parser.parse("SELECT name FROM pg_timezone_names").execute(transaction);
+    assertThat(zones).hasSizeGreaterThan(400);
+    for (Map<String, Object> zone : zones) {
+      QueryProcessor.zoneOf((String) zone.get("name"));
+    }
   }
 
   @Test

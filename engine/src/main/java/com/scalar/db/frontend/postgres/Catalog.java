@@ -37,19 +37,161 @@ final class Catalog {
   private static final long PG_CLASS_OID = 1259; // pg_description.classoid of a table
   private static final long DEFAULT_TABLESPACE = 1663;
   private static final long PG_CATALOG_NAMESPACE = 11;
-  // pg_settings: name, setting, vartype; what pgjdbc and DBeaver read when connecting
-  private static final String[][] SETTINGS = {
-    {"block_size", "8192", "integer"},
-    {"integer_datetimes", "on", "bool"},
-    {"max_function_args", "100", "integer"},
-    {"max_identifier_length", "63", "integer"},
-    {"max_index_keys", "32", "integer"},
-    {"server_encoding", "UTF8", "string"},
-    {"server_version", "16.0", "string"},
-    {"server_version_num", "160000", "integer"},
-    {"standard_conforming_strings", "on", "bool"},
-    {"search_path", "\"$user\", public", "string"}
+
+  /**
+   * The settings the frontend has, with PostgreSQL 16's vartype, context, unit and description:
+   * name, default, vartype, context, unit, short_desc. pg_settings, SHOW, SHOW ALL and
+   * current_setting all read them; the session's own values come from QueryProcessor.
+   */
+  static final String[][] SETTINGS = {
+    {
+      "application_name",
+      "",
+      "string",
+      "user",
+      null,
+      "Sets the application name to be reported in statistics and logs."
+    },
+    {"block_size", "8192", "integer", "internal", null, "Shows the size of a disk block."},
+    {
+      "client_encoding", "UTF8", "string", "user", null, "Sets the client's character set encoding."
+    },
+    {
+      "client_min_messages",
+      "notice",
+      "enum",
+      "user",
+      null,
+      "Sets the message levels that are sent to the client."
+    },
+    {
+      "DateStyle",
+      "ISO, MDY",
+      "string",
+      "user",
+      null,
+      "Sets the display format for date and time values."
+    },
+    {
+      "default_transaction_isolation",
+      "read committed",
+      "enum",
+      "user",
+      null,
+      "Sets the transaction isolation level of each new transaction."
+    },
+    {
+      "default_transaction_read_only",
+      "off",
+      "bool",
+      "user",
+      null,
+      "Sets the default read-only status of new transactions."
+    },
+    {
+      "integer_datetimes",
+      "on",
+      "bool",
+      "internal",
+      null,
+      "Shows whether datetimes are integer based."
+    },
+    {
+      "max_function_args",
+      "100",
+      "integer",
+      "internal",
+      null,
+      "Shows the maximum number of function arguments."
+    },
+    {
+      "max_identifier_length",
+      "63",
+      "integer",
+      "internal",
+      null,
+      "Shows the maximum identifier length."
+    },
+    {
+      "max_index_keys", "32", "integer", "internal", null, "Shows the maximum number of index keys."
+    },
+    {
+      "scalardb.max_rows_per_write",
+      String.valueOf(QueryParser.DEFAULT_MAX_ROWS_PER_WRITE),
+      "integer",
+      "user",
+      null,
+      "Sets the most rows a read-then-write statement may write; 0 for no limit."
+    },
+    {
+      "search_path",
+      "\"$user\", public",
+      "string",
+      "user",
+      null,
+      "Sets the schema search order for names that are not schema-qualified."
+    },
+    {
+      "server_encoding",
+      "UTF8",
+      "string",
+      "internal",
+      null,
+      "Shows the server (database) character set encoding."
+    },
+    {"server_version", "16.0", "string", "internal", null, "Shows the server version."},
+    {
+      "server_version_num",
+      "160000",
+      "integer",
+      "internal",
+      null,
+      "Shows the server version as an integer."
+    },
+    {
+      "standard_conforming_strings",
+      "on",
+      "bool",
+      "user",
+      null,
+      "Causes '...' strings to treat backslashes literally."
+    },
+    {
+      "statement_timeout",
+      "0",
+      "integer",
+      "user",
+      "ms",
+      "Sets the maximum allowed duration of any statement."
+    },
+    {
+      "TimeZone",
+      "UTC",
+      "string",
+      "user",
+      null,
+      "Sets the time zone for displaying and interpreting time stamps."
+    },
+    {
+      "transaction_isolation",
+      "read committed",
+      "enum",
+      "user",
+      null,
+      "Sets the current transaction's isolation level."
+    }
   };
+
+  /** A setting's row in {@link #SETTINGS}, by its exact name; null for one not listed. */
+  @Nullable static String[] setting(String name) {
+    for (String[] s : SETTINGS) {
+      if (s[0].equals(name)) {
+        return s;
+      }
+    }
+    return null;
+  }
+
   // tableoid, the system column every catalog row has: the catalog table's own pg_class OID
   private static final Map<String, Long> CATALOG_OIDS = new HashMap<>();
 
@@ -356,7 +498,10 @@ final class Catalog {
             "prosecdef",
             "provolatile",
             "proacl",
-            "proisstrict"));
+            "proisstrict",
+            "proparallel",
+            "proleakproof",
+            "proowner"));
     PG_CATALOG.put(
         "pg_language",
         cols(
@@ -387,10 +532,43 @@ final class Catalog {
     PG_CATALOG.put("pg_description", cols("objoid", "classoid", "objsubid", "description"));
     PG_CATALOG.put(
         "pg_settings",
-        cols("name", "setting", "unit", "vartype", "context", "reset_val", "short_desc"));
+        cols(
+            "name",
+            "setting",
+            "unit",
+            "vartype",
+            "context",
+            "source",
+            "boot_val",
+            "reset_val",
+            "short_desc"));
     PG_CATALOG.put("pg_tablespace", cols("oid", "spcname", "spcowner", "spcacl", "spcoptions"));
     PG_CATALOG.put(
         "pg_indexes", cols("schemaname", "tablename", "indexname", "tablespace", "indexdef"));
+    PG_CATALOG.put(
+        "pg_tables",
+        cols(
+            "schemaname",
+            "tablename",
+            "tableowner",
+            "tablespace",
+            "hasindexes",
+            "hasrules",
+            "hastriggers",
+            "rowsecurity"));
+    PG_CATALOG.put(
+        "pg_user",
+        cols(
+            "usename",
+            "usesysid",
+            "usecreatedb",
+            "usesuper",
+            "userepl",
+            "usebypassrls",
+            "passwd",
+            "valuntil",
+            "useconfig"));
+    PG_CATALOG.put("pg_timezone_names", cols("name", "abbrev", "utc_offset", "is_dst"));
     INFORMATION_SCHEMA.put("schemata", cols("catalog_name", "schema_name"));
     INFORMATION_SCHEMA.put(
         "tables", cols("table_catalog", "table_schema", "table_name", "table_type"));
@@ -717,6 +895,7 @@ final class Catalog {
     empty("pg_parameter_acl", "no parameter privileges");
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
+    empty("pg_views", "no views; the system views come with the system tables (todo 057, Phase 3)");
     PENDING_ROWS.put("pg_proc", "the built-in functions (todo 057, Phase 2)");
     PENDING_ROWS.put(
         "pg_depend", "dependencies, or a reason they are not kept (todo 057, Phase 3)");
@@ -1270,9 +1449,12 @@ final class Catalog {
       throws ExecutionException {
     load();
     List<Map<String, Object>> out = new ArrayList<>();
+    String table = qualifiedName(schema, name);
     for (Map<String, Object> row :
-        Objects.requireNonNull(tables, "loaded above")
-            .getOrDefault(qualifiedName(schema, name), Collections.emptyList())) {
+        table.equals("pg_catalog.pg_settings")
+            ? settings() // the session's, as it is now
+            : Objects.requireNonNull(tables, "loaded above")
+                .getOrDefault(table, Collections.emptyList())) {
       Map<String, Object> qualified = new LinkedHashMap<>();
       for (Map.Entry<String, Object> e : row.entrySet()) {
         qualified.put(qualifier + "." + e.getKey(), e.getValue());
@@ -1283,6 +1465,29 @@ final class Catalog {
       out.add(qualified);
     }
     return out;
+  }
+
+  /** pg_settings: each setting as the session running on this thread has it. */
+  private static List<Map<String, Object>> settings() {
+    Evaluator.Settings session = Evaluator.settings();
+    Map<String, List<Map<String, Object>>> t = new HashMap<>();
+    t.put("pg_catalog.pg_settings", new ArrayList<>());
+    for (String[] s : SETTINGS) {
+      String value = session == null ? null : session.get(s[0]);
+      row(
+          t,
+          "pg_catalog.pg_settings",
+          s[0],
+          value == null ? s[1] : value,
+          s[4],
+          s[2],
+          s[3],
+          session == null ? "default" : session.source(s[0]),
+          s[1],
+          session == null ? s[1] : session.resetValue(s[0]),
+          s[5]);
+    }
+    return t.get("pg_catalog.pg_settings");
   }
 
   private void load() throws ExecutionException {
@@ -1350,23 +1555,10 @@ final class Catalog {
     row(t, "pg_catalog.pg_tablespace", 1664L, "pg_global", OWNER_OID, null, null);
     // the schema of the built-in types, which drivers join pg_type with
     row(t, "pg_catalog.pg_namespace", PG_CATALOG_NAMESPACE, "pg_catalog", OWNER_OID, null);
-    // the defaults of the settings drivers and GUI tools read here; SHOW and current_setting()
-    // give a session's own values
-    for (String[] setting : SETTINGS) {
-      row(
-          t,
-          "pg_catalog.pg_settings",
-          setting[0],
-          setting[1],
-          null,
-          setting[2],
-          "internal",
-          setting[1],
-          "");
-    }
     if (!clusterUsers) {
       role(t, OWNER_OID, OWNER, true, true);
     }
+    timezoneNames(t);
     for (Map.Entry<Long, String> type : INTERNAL_TYPE_NAMES.entrySet()) {
       long oid = type.getKey();
       String name = type.getValue();
@@ -1518,6 +1710,7 @@ final class Catalog {
         relationNames.put(relOid, table);
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
+        row(t, "pg_catalog.pg_tables", schema, table, OWNER, null, true, false, false, false);
         row(t, "information_schema.tables", database, schema, table, "BASE TABLE");
         List<String> keys = new ArrayList<>(metadata.getPartitionKeyNames());
         keys.addAll(metadata.getClusteringKeyNames());
@@ -1534,6 +1727,7 @@ final class Catalog {
         }
         Map<String, Object> columnCollations = new HashMap<>(); // for pg_index.indcollation
         Map<String, Object> columnOpclasses = new HashMap<>(); // for pg_index.indclass
+        Map<String, Map<String, Object>> attributes = new HashMap<>(); // for an index's columns
         int attnum = 0;
         for (String column : metadata.getColumnNames()) {
           attnum++;
@@ -1578,6 +1772,9 @@ final class Catalog {
               0L,
               0L,
               true);
+          List<Map<String, Object>> attributeRows =
+              Objects.requireNonNull(t.get("pg_catalog.pg_attribute"));
+          attributes.put(column, attributeRows.get(attributeRows.size() - 1));
           row(
               t,
               "information_schema.columns",
@@ -1678,6 +1875,7 @@ final class Catalog {
                 + ")";
         indexDefs.put(pkeyOid, pkeyDef);
         indexColumns.put(pkeyOid, keys);
+        indexAttributes(t, pkeyOid, keys, attributes);
         relationOids.put(namespace + "." + table + "_pkey", pkeyOid);
         relationNames.put(pkeyOid, table + "_pkey");
         relationOids.put(schema + "." + table + "_pkey", pkeyOid);
@@ -1750,6 +1948,7 @@ final class Catalog {
                   + ")";
           indexDefs.put(indexOid, indexDef);
           indexColumns.put(indexOid, Collections.singletonList(index));
+          indexAttributes(t, indexOid, Collections.singletonList(index), attributes);
           relationOids.put(namespace + "." + indexName, indexOid);
           relationNames.put(indexOid, indexName);
           relationOids.put(schema + "." + indexName, indexOid);
@@ -1908,6 +2107,62 @@ final class Catalog {
         false,
         false,
         "********");
+    if (login) {
+      row(
+          t,
+          "pg_catalog.pg_user",
+          name,
+          oid,
+          false,
+          superuser,
+          false,
+          false,
+          "********",
+          null,
+          null);
+    }
+  }
+
+  /**
+   * pg_timezone_names: the zones SET TimeZone takes by name, with their abbreviation and offset
+   * now.
+   */
+  private static void timezoneNames(Map<String, List<Map<String, Object>>> t) {
+    java.time.Instant now = java.time.Instant.now();
+    for (String name : new TreeSet<>(java.time.ZoneId.getAvailableZoneIds())) {
+      java.time.zone.ZoneRules rules = java.time.ZoneId.of(name).getRules();
+      boolean dst = rules.isDaylightSavings(now);
+      // CLDR's abbreviation, as Java names it (tzdata, which PostgreSQL reads, has dropped some
+      // of them: ART where it says -03); one with no name is the offset, +0530 for GMT+05:30
+      String abbrev =
+          java.util.TimeZone.getTimeZone(name)
+              .getDisplayName(dst, java.util.TimeZone.SHORT, Locale.US)
+              .replaceFirst("^GMT([+-]\\d\\d):?(?:00|(\\d\\d))$", "$1$2");
+      long seconds = rules.getOffset(now).getTotalSeconds();
+      row(
+          t,
+          "pg_catalog.pg_timezone_names",
+          name,
+          abbrev,
+          new Interval(0, 0, seconds * 1_000_000L),
+          dst);
+    }
+  }
+
+  /** An index's pg_attribute rows: its key columns' rows, renumbered, which allow NULL. */
+  private static void indexAttributes(
+      Map<String, List<Map<String, Object>>> t,
+      long indexOid,
+      List<String> columns,
+      Map<String, Map<String, Object>> attributes) {
+    for (int i = 0; i < columns.size(); i++) {
+      Map<String, Object> attribute =
+          new LinkedHashMap<>(Objects.requireNonNull(attributes.get(columns.get(i))));
+      attribute.put("attrelid", indexOid);
+      attribute.put("attnum", (long) i + 1);
+      attribute.put("attnotnull", false);
+      Objects.requireNonNull(t.get("pg_catalog.pg_attribute")).add(attribute);
+    }
   }
 
   private static void member(
