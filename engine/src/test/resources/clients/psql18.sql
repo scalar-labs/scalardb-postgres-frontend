@@ -1846,7 +1846,7 @@ ORDER BY 1;
 -----
 -- [dx]
 -- postgres16: 1 ad253f3a87b1
--- expect: ERROR 0A000  # no extensions
+-- expect: 0  # no extensions; PostgreSQL 16 has plpgsql
 SELECT e.extname AS "Name", e.extversion AS "Version", ae.default_version AS "Default version",n.nspname AS "Schema", d.description AS "Description"
 FROM pg_catalog.pg_extension e LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace LEFT JOIN pg_catalog.pg_description d ON d.objoid = e.oid AND d.classoid = 'pg_catalog.pg_extension'::pg_catalog.regclass LEFT JOIN pg_catalog.pg_available_extensions() ae(name, default_version, comment) ON ae.name = e.extname
 ORDER BY 1;

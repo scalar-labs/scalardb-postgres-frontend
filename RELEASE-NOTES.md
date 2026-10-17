@@ -34,6 +34,8 @@ Behaviour that changes:
 - A function called with a number of arguments none of its signatures takes fails with `0A000`, as do the
   text functions on `bytea` and `date_trunc` with a time zone, which answered wrongly before.
   `'f'::regproc` and `'f(text)'::regprocedure` name functions by OID, and `pg_typeof` works.
+- Array text with an empty unquoted element (`'{a,,b}'`) fails with `22P02`, as in PostgreSQL; before, the
+  element was an empty string.
 - `ROLLBACK` undoes the `SET`s made in the transaction, and a `SET` after `SET LOCAL` outlasts the
   transaction, as in PostgreSQL. `SET`, `RESET` and `SET ... TO DEFAULT` of a setting PostgreSQL fixes, such
   as `server_version`, fail with `55P02`.

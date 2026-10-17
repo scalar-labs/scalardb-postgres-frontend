@@ -1,0 +1,1 @@
+# TypeInfo.java: lines the frontend gives that PostgreSQL does not (each should be none)

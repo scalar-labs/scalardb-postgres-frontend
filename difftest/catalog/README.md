@@ -31,7 +31,9 @@ java -cp $PGJDBC RunFile.java 15473 dbeaver.sql
 python3 -m venv venv && ./venv/bin/pip install 'psycopg[binary]' sqlalchemy && ./venv/bin/python inspect_all.py 15473
 ```
 
-Run each against 15499 too and compare. In `results/`, a frontend count of `(0rows)` or a `0`
+Run each against 15499 too and compare. `rerun.zsh OUT_DIR` does all of it against both servers, each
+answer next to the other; `results/phase2` is its run after Phases 1 and 2, with a `summary.md` of what
+still differs and why. In `results/`, a frontend count of `(0rows)` or a `0`
 where PostgreSQL has rows, with a fallback hit next to it, is an answer the frontend made up.
 
 ## Client fixtures

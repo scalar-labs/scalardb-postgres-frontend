@@ -435,7 +435,8 @@ last run lists none.
   - the newly declared catalog names, which now shadow an unqualified user table of the same name
     (`pg_tables`, `pg_user`, `pg_stats`, ...), as in PostgreSQL;
   - the logging property, if it is kept. (It was not: it stayed on the audit branch.)
-- [ ] **`difftest/catalog`.** Committed, with a re-run of its results after each phase.
+- [ ] **`difftest/catalog`.** Committed, with a re-run of its results after each phase. (After Phases 1
+      and 2: `difftest/catalog/results/phase2`, by `rerun.zsh`; Phase 3 still to run.)
 
 ## Technical Considerations
 
@@ -497,11 +498,15 @@ last run lists none.
       search_path cases above have tests.
 - [ ] The Phase 0 client matrix, re-run on the final branch with the opt-in logging on, shows zero
       unplanned catalog queries, or each one is listed as an expected error in a fixture.
+      (2026-10-17, after Phases 1 and 2: the catch-all and its logging are gone, so an unplanned query
+      fails. psql 18 and 14, pgjdbc, DBeaver's queries and SQLAlchemy re-run in
+      `difftest/catalog/results/phase2`; the compat sweep and asyncpg unchanged; Django by its fixture
+      only; Prisma and the low-privilege run not yet.)
 
 ### Quality gates
 - [ ] `./gradlew check` passes. `BuiltinsTest`, `OperatorsTest`, `CatalogGuardTest` and the client replay
       test are new.
-- [ ] `difftest/catalog` re-run results are committed. The difftest baselines and fuzz runs are unchanged.
+- [x] `difftest/catalog` re-run results are committed (`results/phase2`, after Phases 1 and 2). The difftest baselines and fuzz runs are unchanged.
 - [ ] Code review before merge.
 
 ## Dependencies & Risks

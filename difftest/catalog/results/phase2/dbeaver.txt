@@ -1,0 +1,33 @@
+0 | -- [connect, main connection] read default search_path | 1 | 1
+1 | -- [connect, main connection] current schema and user | 1 | 1
+2 | -- [connect, main connection] schema list | 5 | 3
+3 | -- [connect, separate metadata connection] read default search_path | 1 | 1
+4 | -- [connect, separate metadata connection] current schema and user | 1 | 1
+5 | -- [connect] database info for the connected database | 1 | 1
+6 | -- [connect] preload setting standard_conforming_strings | 1 | 1
+7 | -- [connect] SQL keywords, issued by pgjdbc 42.7.13 PgDatabaseMetaData.getSQLKeywords() on DBeaver's request | 1 | 1
+8 | -- [connect] server version string | 1 | 1
+9 | -- [connect] probe: pg_enum exists | 0 | 0
+10 | -- [connect] probe: pg_class.reltype exists | 0 | 0
+11 | -- [connect] data type cache | 195 | 65
+12 | -- [connect] enum values cache | 0 | 0
+13 | -- [navigator: expand schema public > Tables] table list | 1 | 1
+14 | -- [navigator: Tables folder, object size statistics, only if navigator statistics display is on] relation sizes for the schema | 3 | 3
+15 | -- [navigator: expand orders > Columns] columns of one table | 11 | 5
+16 | -- [navigator: expand orders > Constraints] constraints of one table; constraint columns come from conkey resolved against the cached columns | 1 | 1
+17 | -- [navigator: expand orders > Foreign Keys] super-table inheritance | 0 | 0
+18 | -- [navigator: expand orders > Indexes] indexes of one table; index columns come from indkey resolved against the cached columns | 2 | 2
+19 | -- [navigator: Indexes, while reading index columns] access methods cache | 7 | 2
+20 | -- [navigator: expand an index > its columns, Operator class property] operator classes cache | 177 | 17
+21 | -- [table editor Properties: Owner] roles cache | 15 | 1
+22 | -- [table editor Properties: Tablespace] tablespaces cache | 2 | 2
+23 | -- [table editor Properties: Statistics, skipped if schema statistics were already collected] table size | 1 | 1
+24 | -- [table editor Columns tab: Collation column] collations cache | 878 | 0
+25 | -- [table editor References tab] schemas holding FKs that point to this table | 0 | 0
+26 | -- [table editor Triggers tab / DDL] triggers | 0 | 0
+27 | -- [table editor Rules tab / DDL] rules | 0 | 0
+28 | -- [table editor Policies tab / DDL] row level security policies | 0 | 0
+29 | -- [table editor DDL tab] primary key definition | 1 | 1
+30 | -- [table editor DDL tab] index definition, only for indexes that are not the primary key index | 1 | 1
+31 | -- [table editor Dependencies tab] objects depending on the table | 4 | 0
+32 | -- [NOT sent with the default settings; only when 'Show all databases' is on] database list, connection database = demo | 3 | 2

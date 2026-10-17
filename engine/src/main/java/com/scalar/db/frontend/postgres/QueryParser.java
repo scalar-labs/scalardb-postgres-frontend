@@ -2605,10 +2605,7 @@ public class QueryParser {
       } else if (c == '{') {
         throw new PgException.Argument("0A000", "Nested arrays are not supported: " + text);
       } else if (c == ',') {
-        out.add(
-            wasQuoted || !cur.toString().trim().equalsIgnoreCase("NULL")
-                ? cur.toString().trim()
-                : null);
+        out.add(arrayElement(cur, wasQuoted, text));
         cur.setLength(0);
         wasQuoted = false;
       } else {
@@ -2617,12 +2614,18 @@ public class QueryParser {
       any = true;
     }
     if (any) {
-      out.add(
-          wasQuoted || !cur.toString().trim().equalsIgnoreCase("NULL")
-              ? cur.toString().trim()
-              : null);
+      out.add(arrayElement(cur, wasQuoted, text));
     }
     return out;
+  }
+
+  /** An element of array text: NULL unless quoted; an empty one unquoted is malformed ({a,,b}). */
+  @Nullable private static String arrayElement(StringBuilder cur, boolean quoted, String text) {
+    String e = cur.toString().trim();
+    if (!quoted && e.isEmpty()) {
+      throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
+    }
+    return quoted || !e.equalsIgnoreCase("NULL") ? e : null;
   }
 
   static boolean containsParameter(Expression e) {
@@ -5182,6 +5185,16 @@ public class QueryParser {
         LogicalPlan.Source source = new LogicalPlan.Source(qualifier, columns, null, null);
         source.catalogTable = "Function pg_get_keywords";
         source.catalogRows = rows;
+        return source;
+      }
+      if (name.equals("pg_available_extensions")) {
+        // psql's \\dx: no extension can be installed here, so none is available
+        String qualifier = alias != null ? alias : name;
+        LogicalPlan.Source source =
+            new LogicalPlan.Source(
+                qualifier, Arrays.asList("name", "default_version", "comment"), null, null);
+        source.catalogTable = "Function " + name;
+        source.catalogRows = new ArrayList<>();
         return source;
       }
       if (!name.equals("generate_series")) {

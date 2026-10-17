@@ -1,0 +1,36 @@
+getCatalogs | 4 | 2
+getSchemas | 4 | 3
+getSchemas(s%) | 1 | 1
+getTableTypes | 18 | 18
+getTables(all) | 420 | 5
+getTables(TABLE) | 2 | 2
+getTables(VIEW) | 0 | 0
+getTables(SYSTEM TABLE) | 68 | 0
+getColumns(items) | 5 | 5
+getColumns(all) | 2064 | 9
+getPrimaryKeys | 2 | 2
+getIndexInfo | 2 | 2
+getImportedKeys | 0 | 0
+getExportedKeys | 0 | 0
+getCrossReference | 0 | 0
+getBestRowIdentifier | 1 | 1
+getVersionColumns | 1 | 1
+getTablePrivileges | 1668 | 14
+getColumnPrivileges | 35 | 35
+getFunctions(all) | 3125 | 172
+getFunctions(upper) | 3 | 1
+getFunctionColumns(upper) | 6 | 2
+getProcedures(all) | 0 | 0
+getProcedureColumns(all) | 9778 | 559
+getTypeInfo | 409 | 68
+getUDTs | 76 | 0
+getSuperTypes | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getSuperTypes(String,String,String) is not yet implemented. | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getSuperTypes(String,String,String) is not yet implemented.
+getSuperTables | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getSuperTables(String,String,String,String) is not yet implemented. | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getSuperTables(String,String,String,String) is not yet implemented.
+getAttributes | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getAttributes(String,String,String,String) is not yet implemented. | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getAttributes(String,String,String,String) is not yet implemented.
+getClientInfoProperties | 1 | 1
+getPseudoColumns | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getPseudoColumns(String, String, String, String) is not yet implemented. | ERR Method org.postgresql.jdbc.PgDatabaseMetaData.getPseudoColumns(String, String, String, String) is not yet implemented.
+getSQLKeywords | 1520 chars | 1520 chars
+getNumericFunctions | 122 chars | 122 chars
+getStringFunctions | 84 chars | 84 chars
+getSystemFunctions | 20 chars | 20 chars
+getTimeDateFunctions | 124 chars | 124 chars
