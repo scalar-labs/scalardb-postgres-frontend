@@ -1411,7 +1411,7 @@ final class Evaluator {
         if (i == null) {
           return null;
         }
-        long k = integral(i, e) + (array instanceof Catalog.Int2Vector ? 1 : 0); // it counts from 0
+        long k = integral(i, e) + 1 - lowerBound(array); // int2vector counts from 0
         return k < 1 || k > items.size() ? null : items.get((int) k - 1);
       }
       // a slice [from:to], 1-based and inclusive, clipped to the array as PostgreSQL does
@@ -1833,7 +1833,7 @@ final class Evaluator {
       return null;
     }
     // int2vector (pg_index.indkey, indoption) counts from 0
-    int index = ((Number) subscript).intValue() + (value instanceof Catalog.Int2Vector ? 1 : 0);
+    int index = ((Number) subscript).intValue() + 1 - (int) lowerBound(value);
     List<?> array = value instanceof List ? (List<?>) value : null;
     return array == null || index < 1 || index > array.size() ? null : array.get(index - 1);
   }
@@ -1972,6 +1972,11 @@ final class Evaluator {
   static boolean isFinite(Object v) {
     return !(v instanceof Double || v instanceof Float)
         || Double.isFinite(((Number) v).doubleValue());
+  }
+
+  /** An array's first subscript: 0 for int2vector (pg_index.indkey), as in PostgreSQL; else 1. */
+  static long lowerBound(@Nullable Object array) {
+    return array instanceof Catalog.Int2Vector ? 0 : 1;
   }
 
   static boolean isIntegral(Object v) {
@@ -3317,7 +3322,8 @@ final class Evaluator {
         {
           List<Object> subscripts = new ArrayList<>();
           int count = arg(args, 0) == null ? 0 : elements(args.get(0)).size();
-          for (long i = 1; i <= count; i++) {
+          long lower = lowerBound(arg(args, 0));
+          for (long i = lower; i < lower + count; i++) {
             subscripts.add(i);
           }
           return subscripts;
@@ -3387,11 +3393,18 @@ final class Evaluator {
           return true;
         case "ARRAY_LENGTH":
         case "ARRAY_UPPER":
+        case "ARRAY_LOWER":
           {
             // null for an empty array, as PostgreSQL has no dimension to report
             Object a = arg(args, 0);
             List<?> items = a == null ? Collections.emptyList() : elements(a);
-            return items.isEmpty() ? null : (Object) (long) items.size();
+            long lower = lowerBound(a);
+            return items.isEmpty()
+                ? null
+                : (Object)
+                    (name.equals("ARRAY_LENGTH")
+                        ? (long) items.size()
+                        : name.equals("ARRAY_LOWER") ? lower : lower + items.size() - 1);
           }
         case "ARRAY_TO_STRING":
           if (!(arg(args, 0) instanceof List)) {

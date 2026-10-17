@@ -4809,6 +4809,8 @@ public class QueryParser {
       case "ASCII":
       case "CARDINALITY":
       case "ARRAY_LENGTH":
+      case "ARRAY_UPPER":
+      case "ARRAY_LOWER":
         return 23;
       case "POWER":
       case "POW":

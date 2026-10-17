@@ -2954,6 +2954,29 @@ public class QueryParserTest {
   }
 
   @Test
+  public void execute_Int2VectorSubscripts_ShouldCountFromZero() throws Exception {
+    // ActiveRecord's primary key lookup: generate_subscripts over indkey, then indkey[idx]
+    assertThat(
+            parser
+                .parse(
+                    "SELECT a.attname FROM (SELECT indrelid, indkey,"
+                        + " generate_subscripts(indkey, 1) idx FROM pg_index"
+                        + " WHERE indrelid = 't'::regclass AND indisprimary) i"
+                        + " JOIN pg_attribute a ON a.attrelid = i.indrelid"
+                        + " AND a.attnum = i.indkey[i.idx] ORDER BY i.idx")
+                .execute(transaction))
+        .containsExactly(map("attname", "id"), map("attname", "seq"));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT array_lower(indkey, 1) AS l, array_upper(indkey, 1) AS u,"
+                        + " array_lower(ARRAY[5, 6], 1) AS al, array_upper(ARRAY[5, 6], 1) AS au"
+                        + " FROM pg_index WHERE indrelid = 't'::regclass AND indisprimary")
+                .execute(transaction))
+        .containsExactly(map("l", 0L, "u", 1L, "al", 1L, "au", 2L));
+  }
+
+  @Test
   public void execute_RegValues_ShouldPrintAsNamesAndCompareAsOids() throws Exception {
     // asyncpg names its codecs from typ::regtype::text; psql prints c.oid::regclass
     assertThat(

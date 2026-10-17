@@ -158,8 +158,9 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
     `pg_type` lists the type; `oid`, `"char"`, `uuid` and the `reg*` types are added to `pg_type`;
     `int2vector.typelem` is `int2`, and it goes out in binary as an `int2` array from 0; `json`,
     `jsonb` and `uuid` casts are described as those types.
-- [ ] `generate_subscripts` and `array_lower` follow an `int2vector`'s (or `oidvector`'s) lower bound of
-      0. Acceptance: compat/ruby's primary-key, find/update and destroy steps.
+- [x] `generate_subscripts` and `array_lower` follow an `int2vector`'s (or `oidvector`'s) lower bound of
+      0. Acceptance: compat/ruby's primary-key, find/update and destroy steps (all 11 steps pass).
+      `oidvector` takes the same `Evaluator.lowerBound` when it arrives with `pg_index.indclass`.
 - [ ] `unnest(...) WITH ORDINALITY` and a column list on its alias (`co(colid, arridx)`). Acceptance:
       Django `inspectdb` keeps `primary_key=True`.
 - [x] Re-run asyncpg after the `reg*` fix, and look at its `jsonb` value (the binary version byte reached
