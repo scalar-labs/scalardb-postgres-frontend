@@ -9,11 +9,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeSet;
 import javax.annotation.Nullable;
 
@@ -58,6 +60,7 @@ final class Catalog {
     CATALOG_OIDS.put("pg_constraint", 2606L);
     CATALOG_OIDS.put("pg_opclass", 2616L);
     CATALOG_OIDS.put("pg_opfamily", 2753L);
+    CATALOG_OIDS.put("pg_language", 2612L);
     CATALOG_OIDS.put("pg_rewrite", 2618L);
     CATALOG_OIDS.put("pg_trigger", 2620L);
     CATALOG_OIDS.put("pg_database", 1262L);
@@ -170,7 +173,8 @@ final class Catalog {
             "typsend",
             "typmodin",
             "typmodout",
-            "typanalyze"));
+            "typanalyze",
+            "typacl"));
     PG_CATALOG.put(
         "pg_range",
         cols(
@@ -221,7 +225,13 @@ final class Catalog {
             "indisexclusion",
             "indimmediate",
             "indcheckxmin",
-            "indisready"));
+            "indisready",
+            "indnatts",
+            "indnkeyatts",
+            "indcollation",
+            "indclass",
+            "indnullsnotdistinct",
+            "indislive"));
     PG_CATALOG.put(
         "pg_constraint",
         cols(
@@ -261,8 +271,19 @@ final class Catalog {
             "colllocale",
             "colliculocale", // PostgreSQL 16's name, which psql asks a 16 server for
             "collicurules"));
-    PG_CATALOG.put("pg_opclass", cols("oid", "opcname", "opcmethod", "opcnamespace"));
-    PG_CATALOG.put("pg_opfamily", cols("oid", "opfname", "opfmethod", "opfnamespace"));
+    PG_CATALOG.put(
+        "pg_opclass",
+        cols(
+            "oid",
+            "opcmethod",
+            "opcname",
+            "opcnamespace",
+            "opcowner",
+            "opcfamily",
+            "opcintype",
+            "opcdefault",
+            "opckeytype"));
+    PG_CATALOG.put("pg_opfamily", cols("oid", "opfmethod", "opfname", "opfnamespace", "opfowner"));
     PG_CATALOG.put(
         "pg_policy",
         cols(
@@ -327,8 +348,27 @@ final class Catalog {
             "proargtypes",
             "proargnames",
             "proargmodes",
-            "proallargtypes"));
-    PG_CATALOG.put("pg_language", cols("oid", "lanname"));
+            "proallargtypes",
+            // what psql and pgjdbc read; the rows come with the function registry (Phase 2)
+            "pronargs",
+            "prolang",
+            "prosrc",
+            "prosecdef",
+            "provolatile",
+            "proacl",
+            "proisstrict"));
+    PG_CATALOG.put(
+        "pg_language",
+        cols(
+            "oid",
+            "lanname",
+            "lanowner",
+            "lanispl",
+            "lanpltrusted",
+            "lanplcallfoid",
+            "laninline",
+            "lanvalidator",
+            "lanacl"));
     PG_CATALOG.put(
         "pg_depend",
         cols("classid", "objid", "objsubid", "refclassid", "refobjid", "refobjsubid", "deptype"));
@@ -391,6 +431,7 @@ final class Catalog {
     type(3802, "jsonb", "jsonb");
     type(19, "name", "name");
     type(22, "int2vector", "int2vector"); // pg_index.indkey, which drivers look up by OID
+    type(30, "oidvector", "oidvector"); // pg_index.indclass and indcollation
     type(26, "oid", "oid");
     type(18, "char", "\"char\""); // the one-byte codes of catalog columns: relkind, typtype
     type(2950, "uuid", "uuid"); // uuid values; a uuid column is stored as TEXT
@@ -443,8 +484,79 @@ final class Catalog {
     KEYWORD_CATEGORIES.put("R", "reserved");
   }
 
+  /**
+   * {type, opclass, opfamily}: PostgreSQL 16's default btree operator class of each type, in its
+   * pg_opclass order, which an unordered string_agg (psql's \dAf) shows.
+   */
+  private static final long[][] OPCLASSES = {
+    {16, 10003, 424},
+    {1042, 10004, 426},
+    {17, 10006, 428},
+    {1082, 3122, 434},
+    {700, 10012, 1970},
+    {701, 3123, 1970},
+    {21, 1979, 1976},
+    {23, 1978, 1976},
+    {20, 3124, 1976},
+    {1186, 10022, 1982},
+    {1700, 3125, 1988},
+    {25, 3126, 1994},
+    {1083, 10038, 1996},
+    {1184, 3127, 434},
+    {1114, 3128, 434},
+    {2950, 10065, 2968},
+    {3802, 10088, 4033}
+  };
+
+  private static final Map<Long, String> OPCLASS_NAMES = new HashMap<>();
+  private static final Map<Long, String> OPFAMILY_NAMES = new HashMap<>();
+
+  static {
+    for (long[] c : OPCLASSES) {
+      OPCLASS_NAMES.put(c[1], INTERNAL_TYPE_NAMES.get(c[0]) + "_ops");
+    }
+    OPFAMILY_NAMES.put(424L, "bool_ops");
+    OPFAMILY_NAMES.put(428L, "bytea_ops");
+    OPFAMILY_NAMES.put(1976L, "integer_ops");
+    OPFAMILY_NAMES.put(1994L, "text_ops");
+    OPFAMILY_NAMES.put(1970L, "float_ops");
+    OPFAMILY_NAMES.put(426L, "bpchar_ops");
+    OPFAMILY_NAMES.put(434L, "datetime_ops");
+    OPFAMILY_NAMES.put(1996L, "time_ops");
+    OPFAMILY_NAMES.put(1982L, "interval_ops");
+    OPFAMILY_NAMES.put(1988L, "numeric_ops");
+    OPFAMILY_NAMES.put(2968L, "uuid_ops");
+    OPFAMILY_NAMES.put(4033L, "jsonb_ops");
+  }
+
+  /** The default btree operator class of a column type: varchar's is text's; 0 if it has none. */
+  private static long defaultOpclass(long typeOid) {
+    long type = typeOid == 1043 ? 25 : typeOid;
+    for (long[] c : OPCLASSES) {
+      if (c[0] == type) {
+        return c[1];
+      }
+    }
+    return 0;
+  }
+
+  private static List<Object> map(List<String> keys, Map<String, Object> values) {
+    List<Object> mapped = new ArrayList<>();
+    for (String key : keys) {
+      mapped.add(values.get(key));
+    }
+    return mapped;
+  }
+
+  /** PostgreSQL's oidvector, as pg_index.indclass: an int2vector of oids. */
+  static final class OidVector extends Int2Vector {
+    OidVector(List<Object> values) {
+      super(values);
+    }
+  }
+
   /** PostgreSQL's int2vector, as pg_index.indkey: a list whose text is space-separated. */
-  static final class Int2Vector extends ArrayList<Object> {
+  static class Int2Vector extends ArrayList<Object> {
     Int2Vector(List<Object> values) {
       super(values);
     }
@@ -516,11 +628,7 @@ final class Catalog {
             Object namespace = c.get("c.relnamespace");
             String schema = namespace instanceof Long ? namespaceName((Long) namespace) : null;
             String relation = (String) c.get("c.relname");
-            // ponytail: qualified unless public or pg_catalog; search_path visibility is todo 057's
-            name =
-                "public".equals(schema) || "pg_catalog".equals(schema)
-                    ? relation
-                    : schema + "." + relation;
+            name = visible(oid) ? relation : schema + "." + relation; // qualified as psql shows it
           }
         }
         if (name == null) {
@@ -598,14 +706,11 @@ final class Catalog {
     empty("pg_ts_parser", "no text search");
     empty("pg_ts_template", "no text search");
     empty("pg_conversion", "no encoding conversions: the server encoding is UTF8 only");
-    empty("pg_amop", "operator families have no members exposed");
-    empty("pg_amproc", "operator families have no members exposed");
+    empty("pg_amop", "the operator families' members are not exposed");
+    empty("pg_amproc", "the operator families' members are not exposed");
     empty("pg_parameter_acl", "no parameter privileges");
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
-    PENDING_ROWS.put("pg_opclass", "the default btree operator classes (todo 057, Phase 1)");
-    PENDING_ROWS.put("pg_opfamily", "the default btree operator families (todo 057, Phase 1)");
-    PENDING_ROWS.put("pg_language", "the internal language (todo 057, Phase 1)");
     PENDING_ROWS.put("pg_proc", "the built-in functions (todo 057, Phase 2)");
     PENDING_ROWS.put(
         "pg_depend", "dependencies, or a reason they are not kept (todo 057, Phase 3)");
@@ -813,13 +918,18 @@ final class Catalog {
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
   private final Map<Long, List<String>> indexColumns = new HashMap<>();
-  private final Map<Long, String> descriptions = new HashMap<>(); // table oid -> its comment
+  // "catalog oid" -> its comment: a table's keys, the internal language's
+  private final Map<String, String> descriptions = new HashMap<>();
   private final Map<String, Long> relationOids = new HashMap<>(); // namespace.name -> oid
+  private final Map<Long, String> relationNames = new HashMap<>(); // a user relation's oid -> name
+  // the session's search_path as namespaces, in order (QueryParser.setSearchPath)
+  List<String> searchPath;
   private final Map<String, Long> namespaceOids = new HashMap<>();
 
   Catalog(DistributedTransactionAdmin admin, String database) {
     this.admin = admin;
     this.database = database;
+    this.searchPath = Collections.singletonList(database);
   }
 
   /** The columns of a catalog table, or null if {@code schema.name} is not one. */
@@ -933,6 +1043,7 @@ final class Catalog {
   void invalidate() {
     tables = null;
     relationOids.clear();
+    relationNames.clear();
     namespaceOids.clear();
     descriptions.clear();
   }
@@ -957,6 +1068,45 @@ final class Catalog {
     }
   }
 
+  /**
+   * pg_table_is_visible: whether this relation is the one its bare name finds, the first of that
+   * name on search_path. Catalog relations are, as pg_catalog is always searched.
+   */
+  boolean visible(long oid) throws ExecutionException {
+    load();
+    String name = relationNames.get(oid);
+    if (name == null) {
+      return true;
+    }
+    for (String namespace : searchPath) {
+      Long found = relationOids.get(namespace + "." + name);
+      if (found != null) {
+        return found == oid;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * current_schemas: search_path's schemas that exist, as shown (the connected namespace as
+   * public), with pg_catalog first when implicit ones are wanted and the path does not place it.
+   */
+  List<Object> schemas(boolean implicit) throws ExecutionException {
+    load();
+    List<Object> schemas = new ArrayList<>();
+    if (implicit && !searchPath.contains("pg_catalog")) {
+      schemas.add("pg_catalog");
+    }
+    for (String namespace : searchPath) {
+      if (namespace.equals("pg_catalog")
+          || namespace.equals(database)
+          || namespaceOids.containsKey(namespace)) {
+        schemas.add(namespace.equals("pg_catalog") ? namespace : schemaName(namespace));
+      }
+    }
+    return schemas;
+  }
+
   /** The schema name a namespace is shown under: the connected one is {@code public}. */
   String schemaName(String namespace) {
     return namespace.equals(database) ? "public" : namespace;
@@ -970,18 +1120,22 @@ final class Catalog {
       throw new IllegalStateException(e);
     }
     String n = name.trim().replace("\"", "");
-    Long oid = n.contains(".") ? relationOids.get(n) : relationOids.get(database + "." + n);
-    if (oid == null && !n.contains(".")) {
-      for (Map.Entry<String, Long> e : relationOids.entrySet()) {
-        if (e.getKey().endsWith("." + n)) {
-          oid = e.getValue();
-          break;
-        }
-      }
-    }
-    if (oid == null) {
+    Long oid;
+    if (n.startsWith("pg_catalog.")) {
+      oid = CATALOG_OIDS.get(n.substring("pg_catalog.".length()));
+    } else if (n.contains(".")) {
+      oid = relationOids.get(n);
+    } else {
+      // pg_catalog first unless search_path places it, then search_path's namespaces in order;
       // a catalog table itself, as in pgjdbc's d.classoid = 'pg_class'::regclass
-      oid = CATALOG_OIDS.get(n.startsWith("pg_catalog.") ? n.substring(11) : n);
+      oid = searchPath.contains("pg_catalog") ? null : CATALOG_OIDS.get(n);
+      for (int i = 0; oid == null && i < searchPath.size(); i++) {
+        String namespace = searchPath.get(i);
+        oid =
+            namespace.equals("pg_catalog")
+                ? CATALOG_OIDS.get(n)
+                : relationOids.get(namespace + "." + n);
+      }
     }
     if (oid == null) {
       throw new PgException.Argument("42P01", "relation \"" + n + "\" does not exist");
@@ -1031,10 +1185,10 @@ final class Catalog {
     return columns == null || n < 1 || n > columns.size() ? null : columns.get((int) n - 1);
   }
 
-  /** A table's comment: which of its key columns are the partition key and the clustering key. */
-  @Nullable String description(long oid) throws ExecutionException {
+  /** obj_description: a table's key columns, or the internal language's comment. */
+  @Nullable String description(long oid, String catalog) throws ExecutionException {
     load();
-    return descriptions.get(oid);
+    return descriptions.get(catalog + " " + oid);
   }
 
   @Nullable String constraintDef(long oid) throws ExecutionException {
@@ -1093,6 +1247,36 @@ final class Catalog {
     }
     row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t", "heap_tableam_handler");
     row(t, "pg_catalog.pg_am", BTREE_AM, "btree", "i", "bthandler");
+    // the default btree operator class of each column type, with PostgreSQL 16's oids
+    Set<Long> families = new HashSet<>();
+    for (long[] c : OPCLASSES) {
+      row(
+          t,
+          "pg_catalog.pg_opclass",
+          c[1],
+          BTREE_AM,
+          OPCLASS_NAMES.get(c[1]),
+          PG_CATALOG_NAMESPACE,
+          OWNER_OID,
+          c[2],
+          c[0],
+          true,
+          0L);
+      if (families.add(c[2])) {
+        row(
+            t,
+            "pg_catalog.pg_opfamily",
+            c[2],
+            BTREE_AM,
+            OPFAMILY_NAMES.get(c[2]),
+            PG_CATALOG_NAMESPACE,
+            OWNER_OID);
+      }
+    }
+    // the language of the built-in functions; there is no procedural language
+    row(t, "pg_catalog.pg_language", 12L, "internal", OWNER_OID, false, false, 0L, 0L, 2246L, null);
+    row(t, "pg_catalog.pg_description", 12L, 2612L, 0L, "built-in functions");
+    descriptions.put("pg_language 12", "built-in functions");
     row(t, "pg_catalog.pg_tablespace", DEFAULT_TABLESPACE, "pg_default", OWNER_OID, null, null);
     row(t, "pg_catalog.pg_tablespace", 1664L, "pg_global", OWNER_OID, null, null);
     // the schema of the built-in types, which drivers join pg_type with
@@ -1125,7 +1309,8 @@ final class Catalog {
           name,
           PG_CATALOG_NAMESPACE,
           oid == 25 || oid == 1043 ? 100L : 0L,
-          oid == 22 ? 21L : 0L, // typelem: int2vector is subscripted as an int2 array
+          // typelem: int2vector and oidvector are subscripted as int2 and oid arrays
+          oid == 22 ? 21L : oid == 30 ? 26L : 0L,
           ",",
           name + "in",
           "b",
@@ -1148,7 +1333,8 @@ final class Catalog {
           name + "send",
           "-",
           "-",
-          "-");
+          "-",
+          null);
       if (arrayOid != 0) {
         // the array type of each base type, which drivers look up by typelem
         row(
@@ -1181,7 +1367,8 @@ final class Catalog {
             "array_send",
             "-",
             "-",
-            "array_typanalyze");
+            "array_typanalyze",
+            null);
       }
     }
     Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
@@ -1259,6 +1446,7 @@ final class Catalog {
                 ? null
                 : Collections.singletonList("encrypted=" + String.join(",", encrypted)));
         relationOids.put(namespace + "." + table, relOid);
+        relationNames.put(relOid, table);
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
         row(t, "information_schema.tables", database, schema, table, "BASE TABLE");
@@ -1275,6 +1463,8 @@ final class Catalog {
                   && metadata.getClusteringOrder(key) == com.scalar.db.api.Scan.Ordering.Order.DESC;
           keyOptions.add(descending ? 1L : 0L);
         }
+        Map<String, Object> columnCollations = new HashMap<>(); // for pg_index.indcollation
+        Map<String, Object> columnOpclasses = new HashMap<>(); // for pg_index.indclass
         int attnum = 0;
         for (String column : metadata.getColumnNames()) {
           attnum++;
@@ -1289,6 +1479,14 @@ final class Catalog {
           long typeOid = declared.encoded() ? declared.oid() : typeOid(type);
           long typmod = declared.encoded() ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
+          // ScalarDB's ICU collation, which psql's \d shows as the column's collation
+          long collation =
+              !Evaluator.icuCollationName().isEmpty()
+                      && (typeOid == 25 || typeOid == 1042 || typeOid == 1043)
+                  ? ICU_COLLATION_OID
+                  : 0L;
+          columnCollations.put(column, collation);
+          columnOpclasses.put(column, defaultOpclass(typeOid));
           row(
               t,
               "pg_catalog.pg_attribute",
@@ -1300,11 +1498,7 @@ final class Catalog {
               key,
               false,
               false,
-              // ScalarDB's ICU collation, which psql's \d shows as the column's collation
-              !Evaluator.icuCollationName().isEmpty()
-                      && (typeOid == 25 || typeOid == 1042 || typeOid == 1043)
-                  ? ICU_COLLATION_OID
-                  : 0L,
+              collation,
               "",
               "",
               "p",
@@ -1352,7 +1546,7 @@ final class Catalog {
                 + (clustering.isEmpty()
                     ? ""
                     : ", clustering key (" + String.join(", ", clustering) + ")");
-        descriptions.put(relOid, description);
+        descriptions.put("pg_class " + relOid, description);
         row(t, "pg_catalog.pg_description", relOid, PG_CLASS_OID, 0L, description);
         row(
             t,
@@ -1396,6 +1590,12 @@ final class Catalog {
             false,
             true,
             false,
+            true,
+            (long) keys.size(),
+            (long) keys.size(),
+            new OidVector(map(keys, columnCollations)),
+            new OidVector(map(keys, columnOpclasses)),
+            false,
             true);
         String pkeyDef =
             "CREATE UNIQUE INDEX "
@@ -1410,6 +1610,7 @@ final class Catalog {
         indexDefs.put(pkeyOid, pkeyDef);
         indexColumns.put(pkeyOid, keys);
         relationOids.put(namespace + "." + table + "_pkey", pkeyOid);
+        relationNames.put(pkeyOid, table + "_pkey");
         relationOids.put(schema + "." + table + "_pkey", pkeyOid);
         row(t, "pg_catalog.pg_indexes", schema, table, table + "_pkey", null, pkeyDef);
         long constraintOid = oid++;
@@ -1461,6 +1662,12 @@ final class Catalog {
               false,
               true,
               false,
+              true,
+              1L,
+              1L,
+              new OidVector(map(Collections.singletonList(index), columnCollations)),
+              new OidVector(map(Collections.singletonList(index), columnOpclasses)),
+              false,
               true);
           String indexDef =
               "CREATE INDEX "
@@ -1475,6 +1682,7 @@ final class Catalog {
           indexDefs.put(indexOid, indexDef);
           indexColumns.put(indexOid, Collections.singletonList(index));
           relationOids.put(namespace + "." + indexName, indexOid);
+          relationNames.put(indexOid, indexName);
           relationOids.put(schema + "." + indexName, indexOid);
           row(t, "pg_catalog.pg_indexes", schema, table, indexName, null, indexDef);
         }

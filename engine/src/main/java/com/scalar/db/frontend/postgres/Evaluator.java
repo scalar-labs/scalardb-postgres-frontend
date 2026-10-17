@@ -13,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -447,6 +448,70 @@ final class Evaluator {
               "QUOTE_IDENT",
               "REGEXP_REPLACE",
               "REGEXP_MATCH"));
+
+  /** quote_ident: quoted unless a lower-case name that is not a reserved keyword. */
+  static String quoteIdent(String name) {
+    if (name.matches("[a-z_][a-z0-9_]*") && !RESERVED.contains(name)) {
+      return name;
+    }
+    return '"' + name.replace("\"", "\"\"") + '"';
+  }
+
+  private static final Set<String> RESERVED = new HashSet<>();
+
+  static {
+    for (Map<String, Object> keyword : Catalog.keywords()) {
+      if (!"U".equals(keyword.get("catcode"))) {
+        RESERVED.add((String) keyword.get("word"));
+      }
+    }
+  }
+
+  /** quote_literal: an E'' string when it holds a backslash, as PostgreSQL writes it. */
+  static String quoteLiteral(String value) {
+    String quoted = "'" + value.replace("'", "''").replace("\\", "\\\\") + "'";
+    return value.contains("\\") ? "E" + quoted : quoted;
+  }
+
+  /** format(fmt, args...): %s, %I, %L and %% in order; widths and n$ positions are not taken. */
+  private static String format(String fmt, List<Object> args) {
+    StringBuilder out = new StringBuilder();
+    int next = 1;
+    for (int i = 0; i < fmt.length(); i++) {
+      char c = fmt.charAt(i);
+      if (c != '%') {
+        out.append(c);
+        continue;
+      }
+      char spec = ++i < fmt.length() ? fmt.charAt(i) : 0;
+      if (spec == '%') {
+        out.append('%');
+        continue;
+      }
+      if (spec != 's' && spec != 'I' && spec != 'L') {
+        throw new PgException.Argument(
+            spec == 0 ? "22023" : "0A000",
+            spec == 0
+                ? "unterminated format() type specifier"
+                : "format() specifier %" + spec + " is not supported");
+      }
+      if (next >= args.size()) {
+        throw new PgException.Argument("22023", "too few arguments for format()");
+      }
+      Object value = args.get(next++);
+      if (spec == 's') {
+        out.append(value == null ? "" : text(value));
+      } else if (spec == 'L') {
+        out.append(value == null ? "NULL" : quoteLiteral(text(value)));
+      } else if (value == null) {
+        throw new PgException.Argument(
+            "22004", "null values cannot be formatted as an SQL identifier");
+      } else {
+        out.append(quoteIdent(text(value)));
+      }
+    }
+    return out.toString();
+  }
 
   /**
    * The first column of a subquery's rows as a hash set, for IN. Only values whose hash equality
@@ -2681,7 +2746,7 @@ final class Evaluator {
       return widest;
     }
     if (e instanceof Function && ((Function) e).getParameters() != null) {
-      String name = ((Function) e).getName().toUpperCase(Locale.ROOT);
+      String name = functionName((Function) e);
       if (SAME_TYPE_AS_ARGUMENTS.matcher(name).matches()) {
         for (Expression p : ((Function) e).getParameters()) {
           widest = Math.max(widest, widening(p, group, ctx));
@@ -3026,6 +3091,12 @@ final class Evaluator {
           }
         }
         return sb.toString();
+      case "QUOTE_IDENT":
+        return arg(args, 0) == null ? null : quoteIdent(text(args.get(0)));
+      case "QUOTE_LITERAL":
+        return arg(args, 0) == null ? null : quoteLiteral(text(args.get(0)));
+      case "FORMAT":
+        return arg(args, 0) == null ? null : format(text(args.get(0)), args);
       case "CONCAT_WS":
         if (arg(args, 0) == null) {
           return null;
@@ -3409,7 +3480,10 @@ final class Evaluator {
   }
 
   /** The pg_catalog functions psql uses when describing objects. */
-  @Nullable private static Object catalogFunction(String name, List<Object> args, Context ctx) {
+  @Nullable private static Object catalogFunction(String name, List<Object> rawArgs, Context ctx) {
+    // an OID argument may be written 't'::regclass, as psql and drivers do
+    List<Object> args = new ArrayList<>(rawArgs);
+    args.replaceAll(a -> a instanceof Catalog.Reg ? (Object) ((Catalog.Reg) a).oid : a);
     try {
       switch (name) {
         case "PG_GET_USERBYID":
@@ -3417,6 +3491,9 @@ final class Evaluator {
         case "PG_ENCODING_TO_CHAR":
           return "UTF8";
         case "PG_TABLE_IS_VISIBLE":
+          return ctx.catalog == null || !(arg(args, 0) instanceof Number)
+              ? null
+              : ctx.catalog.visible(num(args, 0).longValue());
         case "PG_RELATION_IS_PUBLISHABLE":
           return true;
         case "ARRAY_LENGTH":
@@ -3471,12 +3548,7 @@ final class Evaluator {
             if (ctx.catalog == null) {
               return null;
             }
-            List<Object> schemas = new ArrayList<>();
-            if (isTrue(arg(args, 0))) {
-              schemas.add("pg_catalog");
-            }
-            schemas.add("public"); // the connected namespace shows as public
-            return schemas;
+            return arg(args, 0) == null ? null : ctx.catalog.schemas(isTrue(arg(args, 0)));
           }
         case "PG_GET_INDEXDEF":
           if (ctx.catalog == null || !(arg(args, 0) instanceof Number)) {
@@ -3492,9 +3564,10 @@ final class Evaluator {
         case "OBJ_DESCRIPTION": // a table's: its partition and clustering keys
           return ctx.catalog == null
                   || !(arg(args, 0) instanceof Number)
-                  || (args.size() > 1 && !"pg_class".equals(arg(args, 1)))
+                  || (args.size() > 1 && arg(args, 1) == null)
               ? null
-              : ctx.catalog.description(num(args, 0).longValue());
+              : ctx.catalog.description(
+                  num(args, 0).longValue(), args.size() > 1 ? text(args.get(1)) : "pg_class");
         case "PG_SIZE_PRETTY":
           if (arg(args, 0) != null) {
             return NOT_A_CATALOG_FUNCTION; // only the unknown sizes below reach it, from psql's
@@ -3526,8 +3599,14 @@ final class Evaluator {
           return "UTF8";
         case "PG_TABLESPACE_LOCATION": // the built-in tablespaces have none
           return "";
-        case "CURRENT_SCHEMA":
-          return ctx.catalog == null ? null : "public"; // the connected namespace shows as public
+        case "CURRENT_SCHEMA": // the first schema of search_path that exists
+          {
+            if (ctx.catalog == null) {
+              return null;
+            }
+            List<Object> schemas = ctx.catalog.schemas(false);
+            return schemas.isEmpty() ? null : schemas.get(0);
+          }
         case "CURRENT_DATABASE":
           return ctx.catalog == null ? null : ctx.catalog.database;
         case "PG_BACKEND_PID":
@@ -3605,7 +3684,7 @@ final class Evaluator {
   }
 
   @Nullable private static Object aggregate(Function f, List<Map<String, Object>> group, Context ctx) {
-    String name = f.getName().toUpperCase(Locale.ROOT);
+    String name = functionName(f); // pg_catalog.string_agg, as psql's \dAf writes it
     ExpressionList<?> params = f.getParameters();
     boolean star =
         f.isAllColumns()

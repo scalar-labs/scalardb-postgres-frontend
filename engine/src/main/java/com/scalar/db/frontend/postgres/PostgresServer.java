@@ -1697,6 +1697,8 @@ public class PostgresServer implements AutoCloseable {
             .array();
       case 22: // int2vector: an int2 array indexed from 0, as pg_index.indkey is
         return arrayBinary(21, Evaluator.elements(value), 0);
+      case 30: // oidvector, as pg_index.indclass
+        return arrayBinary(26, Evaluator.elements(value), 0);
       default:
         if (Catalog.elementOid(oid) != 0) {
           // every array type the catalog knows, not a hand-kept list of them (todo 019)
@@ -1999,6 +2001,9 @@ public class PostgresServer implements AutoCloseable {
         }
         if (v instanceof Json.Value) {
           return ((Json.Value) v).binary ? 3802 : 114;
+        }
+        if (v instanceof Catalog.OidVector) {
+          return 30;
         }
         if (v instanceof Catalog.Int2Vector) {
           return 22;

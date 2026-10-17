@@ -200,7 +200,8 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
   - Acceptance: `getTypeInfo` reports `_interval` as ARRAY (2003). `jdbcMetadata_ShouldDescribeTablesAsPostgreSqlDoes`
     (`PostgresServerTest.java:961-1001`) passes without the fallback; it is the test that fails today when
     the fallback is disabled.
-- [ ] **SQLAlchemy 2.0 columns query** (full text in `difftest/catalog/results/fallback-hits.txt`). It
+- [x] **SQLAlchemy 2.0 columns query** (`get_columns`, `get_pk_constraint`, `get_indexes`,
+      `get_unique_constraints` and `get_multi_indexes` match PostgreSQL 16 for `items` and `sales.orders`) (full text in `difftest/catalog/results/fallback-hits.txt`). It
       needs:
   - correlated scalar subqueries over an empty `pg_sequence`;
   - `json_build_object` inside a subquery that returns no row;
@@ -257,19 +258,22 @@ and `pg_shdescription`.
   which DBeaver reads; check that its values are NULL, not invented zeros.
 
 **Missing columns (group B):**
-- [ ] `pg_index`:
+- [x] `pg_index`: (also `indnullsnotdistinct` and `indislive`, which SQLAlchemy reads; `indcollation`
+      follows `pg_attribute.attcollation`, which is 0 where PostgreSQL says 100, the default collation)
   - `indnatts` and `indnkeyatts` are the key count;
   - `indcollation` is 0 per column;
   - `indclass` is an oidvector of each column type's default btree operator class.
   - This needs an `OidVector`, modelled on `Int2Vector` (`Catalog.java:437-450`), plus a `catalogColumnOid`
     case.
-- [ ] `pg_opclass` gains `opcintype`, `opcfamily` and `opcdefault`, and `pg_opfamily` gains `opfmethod`.
+- [x] `pg_opclass` gains `opcintype`, `opcfamily` and `opcdefault`, and `pg_opfamily` gains `opfmethod`.
       Both get rows for the default btree classes of the types the frontend supports, using PostgreSQL's
       OIDs (for example `int4_ops` = 1978). `\dAc` and `\dAf` then list them truthfully.
-- [ ] `pg_proc` gains `pronargs`, `prolang`, `prosrc`, `prosecdef`, `provolatile`, `proacl` and
+- [x] `pg_proc` gains `pronargs`, `prolang`, `prosrc`, `prosecdef`, `provolatile`, `proacl` and
       `proisstrict`, the columns psql 14 and 18 and pgjdbc read. Its rows come in Phase 2.
-- [ ] `pg_type.typacl`: NULL.
-- [ ] `pg_language`:
+- [x] `pg_type.typacl`: NULL.
+- [x] `pg_language`: (with its `pg_description` row, and `obj_description` reading the catalog it is
+      given; `\dAc` and `\dAf` needed `format()`, `quote_ident` and `quote_literal`, and a schema-qualified
+      `pg_catalog.string_agg`)
   - columns `lanowner`, `lanispl`, `lanpltrusted`, `lanplcallfoid`, `laninline`, `lanvalidator` and
     `lanacl`;
   - one row, `internal` (oid 12, `lanispl` false);
@@ -283,16 +287,17 @@ and `pg_shdescription`.
 - [ ] `pg_tablespace_size(oid)` returns NULL, since sizes are unknown, as table sizes already are.
 
 **Visibility (group D)** (`Evaluator.catalogFunction`):
-- [ ] **`pg_table_is_visible(oid)`** is true when the relation's namespace is the first namespace on the
+- [x] **`pg_table_is_visible(oid)`** is true when the relation's namespace is the first namespace on the
       effective search path that has a relation of that name. Catalog relations are always visible.
   - This needs an oid → (namespace, name) map in `Catalog`, and the session's search path in the
     evaluation context. Today the path lives only in `QueryParser.searchNamespaces()` (2977-3001).
-- [ ] **`current_schemas(bool)`** returns the effective path, with `pg_catalog` first when the argument is
+- [x] **`current_schemas(bool)`** returns the effective path, with `pg_catalog` first when the argument is
       true.
   - The connected namespace still shows as `public` (`Catalog.schemaName`, 731-733).
   - `$user` keeps its current mapping to the connected namespace; mapping it to a namespace named after
     the role is out of scope (note in LIMITATIONS).
-- [ ] **Cases with their own tests:**
+- [ ] **Cases with their own tests:** (the first two, a shadowed name and a path naming no schema are in
+      `QueryParserTest.execute_SearchPath_ShouldDecideWhatIsVisible`; the `public` note waits for Phase 4)
   - search_path `sales` alone: the connected namespace's tables are not visible, and `current_schemas`
     is `{sales}`;
   - an explicit `pg_catalog` placed later on the path;

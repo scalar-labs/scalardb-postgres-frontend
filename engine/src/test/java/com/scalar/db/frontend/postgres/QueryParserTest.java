@@ -3044,6 +3044,150 @@ public class QueryParserTest {
   }
 
   @Test
+  public void execute_IndexOperatorClasses_ShouldBeTheDefaultBtreeOnes() throws Exception {
+    // SQLAlchemy's get_indexes and psql's \dAc read these as PostgreSQL 16 writes them
+    assertThat(
+            parser
+                .parse(
+                    "SELECT indnatts AS n, indnkeyatts AS k, indclass::text AS c,"
+                        + " indclass[0] AS c0, o.opcname, f.opfname FROM pg_index i"
+                        + " JOIN pg_opclass o ON o.oid = i.indclass[0]"
+                        + " JOIN pg_opfamily f ON f.oid = o.opcfamily"
+                        + " WHERE indrelid = 't'::regclass ORDER BY indisprimary")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "n",
+                1L,
+                "k",
+                1L,
+                "c",
+                "3126",
+                "c0",
+                3126L,
+                "opcname",
+                "text_ops",
+                "opfname",
+                "text_ops"),
+            map(
+                "n",
+                2L,
+                "k",
+                2L,
+                "c",
+                "1978 3124",
+                "c0",
+                1978L,
+                "opcname",
+                "int4_ops",
+                "opfname",
+                "integer_ops"));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT lanname, obj_description(oid, 'pg_language') AS d,"
+                        + " obj_description(oid, 'pg_class') AS c FROM pg_language")
+                .execute(transaction))
+        .containsExactly(map("lanname", "internal", "d", "built-in functions", "c", null));
+  }
+
+  @Test
+  public void execute_SearchPath_ShouldDecideWhatIsVisible() throws Exception {
+    // namespace other has its own t, which shadows the connected namespace's t when first
+    when(admin.getNamespaceNames())
+        .thenReturn(new java.util.LinkedHashSet<>(Arrays.asList(NS, "other")));
+    when(admin.getNamespaceTableNames("other"))
+        .thenReturn(new java.util.LinkedHashSet<>(Arrays.asList("t", "u")));
+    when(admin.getTableMetadata("other", "t")).thenReturn(METADATA);
+    when(admin.getTableMetadata("other", "u")).thenReturn(METADATA);
+    String visible =
+        "SELECT n.nspname || '.' || c.relname AS r FROM pg_class c"
+            + " JOIN pg_namespace n ON n.oid = c.relnamespace"
+            + " WHERE c.relkind = 'r' AND pg_table_is_visible(c.oid) ORDER BY 1";
+    String names =
+        "SELECT current_schemas(true) AS a, current_schemas(false) AS b, current_schema() AS c,"
+            + " 'public.t'::regclass::text AS d, 'other.t'::regclass::text AS e,"
+            + " pg_table_is_visible('pg_class'::regclass) AS f";
+    assertThat(parser.parse(visible).execute(transaction)).containsExactly(map("r", "public.t"));
+    assertThat(parser.parse(names).execute(transaction))
+        .containsExactly(
+            map(
+                "a",
+                Arrays.asList("pg_catalog", "public"),
+                "b",
+                Arrays.asList("public"),
+                "c",
+                "public",
+                "d",
+                "t",
+                "e",
+                "other.t",
+                "f",
+                true));
+    assertThatThrownBy(() -> parser.parse("SELECT 'u'::regclass").execute(transaction))
+        .hasMessageContaining("relation \"u\" does not exist");
+
+    parser.setSearchPath("other, public");
+    assertThat(parser.parse(visible).execute(transaction))
+        .containsExactly(map("r", "other.t"), map("r", "other.u"));
+    assertThat(parser.parse(names).execute(transaction))
+        .containsExactly(
+            map(
+                "a",
+                Arrays.asList("pg_catalog", "other", "public"),
+                "b",
+                Arrays.asList("other", "public"),
+                "c",
+                "other",
+                "d",
+                "public.t",
+                "e",
+                "t",
+                "f",
+                true));
+
+    // an explicit pg_catalog, placed later, is where the path says
+    parser.setSearchPath("other, pg_catalog");
+    assertThat(parser.parse("SELECT current_schemas(false) AS a").execute(transaction))
+        .containsExactly(map("a", Arrays.asList("other", "pg_catalog")));
+
+    parser.setSearchPath("nosuch");
+    assertThat(
+            parser
+                .parse("SELECT current_schema() AS c, current_schemas(false) AS s")
+                .execute(transaction))
+        .containsExactly(map("c", null, "s", Collections.emptyList()));
+    assertThat(parser.parse(visible).execute(transaction)).isEmpty();
+  }
+
+  @Test
+  public void execute_Format_ShouldQuoteAsPostgreSqlDoes() throws Exception {
+    assertThat(
+            parser
+                .parse(
+                    "SELECT format('%I.%I', 'public', 'My t') AS a, format('%I', 'select') AS b,"
+                        + " format('%L, %L, %s%%', 'it''s', NULL, NULL) AS c,"
+                        + " quote_ident('abc') AS d, quote_literal('a\\b') AS e")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a",
+                "public.\"My t\"",
+                "b",
+                "\"select\"",
+                "c",
+                "'it''s', NULL, %",
+                "d",
+                "abc",
+                "e",
+                "E'a\\\\b'"));
+    assertThatThrownBy(() -> parser.parse("SELECT format('%I', NULL)").execute(transaction))
+        .hasMessageContaining("null values cannot be formatted");
+    assertThatThrownBy(() -> parser.parse("SELECT format('%s %s', 'a')").execute(transaction))
+        .hasMessageContaining("too few arguments");
+  }
+
+  @Test
   public void execute_RegValues_ShouldPrintAsNamesAndCompareAsOids() throws Exception {
     // asyncpg names its codecs from typ::regtype::text; psql prints c.oid::regclass
     assertThat(

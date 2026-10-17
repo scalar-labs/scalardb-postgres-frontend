@@ -3101,6 +3101,7 @@ public class QueryParser {
       }
     }
     searchPath = entries.isEmpty() ? Arrays.asList("$user", "public") : entries;
+    catalog.searchPath = searchNamespaces();
   }
 
   /** The namespaces search_path names, in order, without repeats. */
@@ -4852,6 +4853,9 @@ public class QueryParser {
       case "LOWER":
       case "CONCAT":
       case "CONCAT_WS":
+      case "FORMAT":
+      case "QUOTE_IDENT":
+      case "QUOTE_LITERAL":
       case "SUBSTRING":
       case "SUBSTR":
       case "TRIM":
