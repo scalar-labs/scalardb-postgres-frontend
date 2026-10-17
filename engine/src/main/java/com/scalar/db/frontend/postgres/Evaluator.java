@@ -3536,7 +3536,9 @@ final class Evaluator {
               : null;
         case "TO_REGTYPE":
           try {
-            return arg(args, 0) == null ? null : (Object) Catalog.typeOid(str(args, 0));
+            return arg(args, 0) == null || ctx.catalog == null
+                ? null
+                : ctx.catalog.reg("regtype", Catalog.typeOid(str(args, 0)));
           } catch (IllegalArgumentException unknownType) {
             return null;
           }

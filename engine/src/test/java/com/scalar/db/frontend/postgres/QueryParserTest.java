@@ -3456,7 +3456,7 @@ public class QueryParserTest {
     assertThat(
             parser
                 .parse(
-                    "SELECT true AS primary, false AS unique, to_regtype('int4') AS t, "
+                    "SELECT true AS primary, false AS unique, to_regtype('int4')::text AS t, "
                         + "to_regtype('hstore') AS none, to_regclass('t') IS NOT NULL AS exists, "
                         + "current_schemas(false) AS schemas")
                 .execute(transaction))
@@ -3467,7 +3467,7 @@ public class QueryParserTest {
                 "unique",
                 false,
                 "t",
-                23L,
+                "integer",
                 "none",
                 null,
                 "exists",

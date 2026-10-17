@@ -327,6 +327,10 @@ and `pg_shdescription`.
       `inferOid`, `QueryParser.java:4214`).
   - Also assert that `AGGREGATES`, `Windows.RANKING`, `TEXT_FUNCTIONS` and `NUMERIC_FUNCTIONS` are
     subsets of the registry.
+- [ ] **`pg_typeof(x)`.** It fails with `0A000 Unsupported function` today, which is honest, and no
+      captured client sends it. It must answer the argument's declared type as a `regtype`, which only
+      the planner knows (a Java `Long` may be `int4` or `int8`), so it takes `inferOid` at plan time
+      rather than a runtime case in `Evaluator`; do it with the registry, or sooner if a client sends it.
 - [ ] **`pg_proc` rows** from the registry:
   - namespace `pg_catalog`, `prolang` 12, `prosrc` = the name, OIDs taken from PostgreSQL 16 for the same
     signature, so that clients caching OIDs agree.

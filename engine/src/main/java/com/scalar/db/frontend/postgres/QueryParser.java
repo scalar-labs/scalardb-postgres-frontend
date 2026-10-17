@@ -4776,7 +4776,7 @@ public class QueryParser {
       case "CURRENT_SCHEMAS":
         return 1009;
       case "TO_REGTYPE":
-        return 26;
+        return 2206;
       case "TO_REGCLASS":
         return 2205;
       case "SUM":
