@@ -1,0 +1,48 @@
+ 103 generate_series needs integer start, stop and step values: generate_series(1, array_upper(current_schemas(false), 1)) :: SELECT typinput='pg_catalog.array_in'::regproc as is_array, typtype, typname, pg_type.oid FROM pg_catalog.pg_type LEFT JOIN (select ns.oid as nspoid, ns.nspname, r.r from pg_namespace as ns join ( sel
+  58 Table not found: pg_catalog.pg_conversion :: SELECT n.nspname AS "Schema", c.conname AS "Name", pg_catalog.pg_encoding_to_char(c.conforencoding) AS "Source", pg_catalog.pg_encoding_to_char(c.contoencoding) AS "Destination", CASE WHEN c.condefaul
+  40 Table not found: pg_catalog.pg_operator :: SELECT n.nspname as "Schema", o.oprname AS "Name", CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type", CASE WHEN o.oprkind='r' THEN NULL ELSE pg_cata
+  40 Table not found: pg_catalog.pg_cast :: SELECT pg_catalog.format_type(castsource, NULL) AS "Source type", pg_catalog.format_type(casttarget, NULL) AS "Target type", CASE WHEN c.castmethod = 'b' THEN '(binary coercible)' WHEN c.castmethod = 
+  38 Table not found: pg_catalog.pg_largeobject_metadata :: SELECT oid as "ID", pg_catalog.pg_get_userbyid(lomowner) as "Owner", pg_catalog.obj_description(oid, 'pg_largeobject') as "Description" FROM pg_catalog.pg_largeobject_metadata ORDER BY oid
+  28 generate_series needs integer start, stop and step values: pg_catalog.generate_series(0, pg_catalog.array_upper(pr.prattrs::pg_catalog.int2[], 1)) :: SELECT pubname , NULL , NULL FROM pg_catalog.pg_publication p JOIN pg_catalog.pg_publication_namespace pn ON p.oid = pn.pnpubid JOIN pg_catalog.pg_class pc ON pc.relnamespace = pn.pnnspid WHERE pc.oid
+  20 Table not found: pg_catalog.pg_user_mappings :: SELECT um.srvname AS "Server", um.usename AS "User name" FROM pg_catalog.pg_user_mappings um ORDER BY 1, 2
+  20 Table not found: pg_catalog.pg_ts_template :: SELECT n.nspname AS "Schema", t.tmplname AS "Name", pg_catalog.obj_description(t.oid, 'pg_ts_template') AS "Description" FROM pg_catalog.pg_ts_template t LEFT JOIN pg_catalog.pg_namespace n ON n.oid =
+  20 Table not found: pg_catalog.pg_ts_parser :: SELECT n.nspname as "Schema", p.prsname as "Name", pg_catalog.obj_description(p.oid, 'pg_ts_parser') as "Description" FROM pg_catalog.pg_ts_parser p LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pr
+  20 Table not found: pg_catalog.pg_ts_dict :: SELECT n.nspname as "Schema", d.dictname as "Name", pg_catalog.obj_description(d.oid, 'pg_ts_dict') as "Description" FROM pg_catalog.pg_ts_dict d LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.dictn
+  20 Table not found: pg_catalog.pg_ts_config :: SELECT n.nspname as "Schema", c.cfgname as "Name", pg_catalog.obj_description(c.oid, 'pg_ts_config') as "Description" FROM pg_catalog.pg_ts_config c LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.cf
+  20 Table not found: pg_catalog.pg_ts_config :: SELECT c.oid, c.cfgname, n.nspname, p.prsname, np.nspname as pnspname FROM pg_catalog.pg_ts_config c LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.cfgnamespace, pg_catalog.pg_ts_parser p LEFT JOIN 
+  20 Table not found: pg_catalog.pg_subscription :: SELECT subname AS "Name" , pg_catalog.pg_get_userbyid(subowner) AS "Owner" , subenabled AS "Enabled" , subpublications AS "Publication" FROM pg_catalog.pg_subscription WHERE subdbid = (SELECT oid FROM
+  20 Table not found: pg_catalog.pg_foreign_table :: SELECT n.nspname AS "Schema", c.relname AS "Table", s.srvname AS "Server" FROM pg_catalog.pg_foreign_table ft INNER JOIN pg_catalog.pg_class c ON c.oid = ft.ftrelid INNER JOIN pg_catalog.pg_namespace 
+  20 Table not found: pg_catalog.pg_foreign_server :: SELECT s.srvname AS "Name", pg_catalog.pg_get_userbyid(s.srvowner) AS "Owner", f.fdwname AS "Foreign-data wrapper" FROM pg_catalog.pg_foreign_server s JOIN pg_catalog.pg_foreign_data_wrapper f ON f.oi
+  20 Table not found: pg_catalog.pg_foreign_data_wrapper :: SELECT fdw.fdwname AS "Name", pg_catalog.pg_get_userbyid(fdw.fdwowner) AS "Owner", fdw.fdwhandler::pg_catalog.regproc AS "Handler", fdw.fdwvalidator::pg_catalog.regproc AS "Validator" FROM pg_catalog.
+  20 Table not found: pg_catalog.pg_extension :: SELECT e.extname, e.oid FROM pg_catalog.pg_extension e ORDER BY 1
+  20 Table not found: pg_catalog.pg_event_trigger :: SELECT evtname as "Name", evtevent as "Event", pg_catalog.pg_get_userbyid(e.evtowner) as "Owner", case evtenabled when 'O' then 'enabled' when 'R' then 'replica' when 'A' then 'always' when 'D' then '
+  20 Table not found: pg_catalog.pg_default_acl :: SELECT pg_catalog.pg_get_userbyid(d.defaclrole) AS "Owner", n.nspname AS "Schema", CASE d.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'function' WHEN 'T' THEN 'type' WHE
+  20 Table not found: pg_catalog.pg_db_role_setting :: SELECT rolname AS "Role", datname AS "Database", pg_catalog.array_to_string(setconfig, E'\n') AS "Settings" FROM pg_catalog.pg_db_role_setting s LEFT JOIN pg_catalog.pg_database d ON d.oid = setdataba
+  20 Table not found: pg_catalog.pg_amproc :: SELECT am.amname AS "AM", CASE WHEN pg_catalog.pg_opfamily_is_visible(of.oid) THEN pg_catalog.format('%I', of.opfname) ELSE pg_catalog.format('%I.%I', ns.nspname, of.opfname) END AS "Operator family",
+  20 Table not found: pg_catalog.pg_amop :: SELECT am.amname AS "AM", CASE WHEN pg_catalog.pg_opfamily_is_visible(of.oid) THEN pg_catalog.format('%I', of.opfname) ELSE pg_catalog.format('%I.%I', nsf.nspname, of.opfname) END AS "Operator family"
+  20 generate_series needs integer start, stop and step values: generate_series(1, array_upper(current_schemas(false), 1)) :: SELECT pg_type.oid, typname FROM pg_catalog.pg_type LEFT JOIN (select ns.oid as nspoid, ns.nspname, r.r from pg_namespace as ns join ( select s.r, (current_schemas(false))[s.r] as nspname from generat
+  15 Table not found: pg_catalog.pg_sequence :: SELECT pg_catalog.pg_attribute.attname AS name, pg_catalog.format_type(pg_catalog.pg_attribute.atttypid, pg_catalog.pg_attribute.atttypmod) AS format_type, (SELECT pg_catalog.pg_get_expr(pg_catalog.pg
+  10 Table not found: pg_catalog.pg_extension :: SELECT e.extname AS "Name", e.extversion AS "Version", n.nspname AS "Schema", c.description AS "Description" FROM pg_catalog.pg_extension e LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespac
+  10 Table not found: pg_catalog.pg_extension :: SELECT e.extname AS "Name", e.extversion AS "Version", ae.default_version AS "Default version",n.nspname AS "Schema", d.description AS "Description" FROM pg_catalog.pg_extension e LEFT JOIN pg_catalog
+   9 Table not found: pg_catalog.pg_parameter_acl :: SELECT s.name AS "Parameter", pg_catalog.current_setting(s.name) AS "Value", s.vartype AS "Type", s.context AS "Context", CASE WHEN pg_catalog.array_length(p.paracl, 1) = 0 THEN '(none)' ELSE pg_catal
+   7 The column list [key, option, arridx] has more names than the query has columns :: SELECT indexname, array_agg(attname ORDER BY arridx), indisunique, indisprimary, array_agg(ordering ORDER BY arridx), amname, exprdef, s2.attoptions FROM ( SELECT c2.relname as indexname, idx.*, attr.
+   7 The column list [colid, arridx] has more names than the query has columns :: SELECT c.conname, array( SELECT attname FROM unnest(c.conkey) WITH ORDINALITY cols(colid, arridx) JOIN pg_attribute AS ca ON cols.colid = ca.attnum WHERE ca.attrelid = c.conrelid ORDER BY cols.arridx 
+   6 table function pg_catalog.unnest(tc.reloptions) :: pg_catalog.unnest(tc.reloptions)
+   2 Table not found: pg_catalog.pg_views :: select count(*) from pg_catalog.pg_views
+   2 Table not found: pg_catalog.pg_user :: select count(*) from pg_catalog.pg_user
+   2 Table not found: pg_catalog.pg_timezone_names :: select count(*) from pg_catalog.pg_timezone_names
+   2 Table not found: pg_catalog.pg_tables :: select count(*) from pg_catalog.pg_tables
+   2 Table not found: pg_catalog.pg_stats :: select count(*) from pg_catalog.pg_stats
+   2 Table not found: pg_catalog.pg_stat_user_tables :: select count(*) from pg_catalog.pg_stat_user_tables
+   2 Table not found: pg_catalog.pg_stat_all_tables :: select count(*) from pg_catalog.pg_stat_all_tables
+   2 Table not found: pg_catalog.pg_stat_activity :: select count(*) from pg_catalog.pg_stat_activity
+   2 Table not found: pg_catalog.pg_sequences :: select count(*) from pg_catalog.pg_sequences
+   2 Table not found: pg_catalog.pg_sequence :: select count(*) from pg_catalog.pg_sequence
+   2 Table not found: pg_catalog.pg_prepared_xacts :: select count(*) from pg_catalog.pg_prepared_xacts
+   2 Table not found: pg_catalog.pg_operator :: select count(*) from pg_catalog.pg_operator
+   2 Table not found: pg_catalog.pg_matviews :: select count(*) from pg_catalog.pg_matviews
+   2 Table not found: pg_catalog.pg_locks :: select count(*) from pg_catalog.pg_locks
+   2 Table not found: pg_catalog.pg_extension :: select count(*) from pg_catalog.pg_extension
+   2 Table not found: pg_catalog.pg_cast :: select count(*) from pg_catalog.pg_cast
+   2 Table not found: pg_catalog.pg_available_extensions :: select count(*) from pg_catalog.pg_available_extensions
+   2 Table not found: pg_catalog.pg_aggregate :: select count(*) from pg_catalog.pg_aggregate

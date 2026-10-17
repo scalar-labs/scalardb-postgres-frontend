@@ -1,0 +1,98 @@
+\d
+\d+
+\dS
+\d items
+\d+ items
+\d sales.orders
+\d items_pkey
+\d items_name_idx
+\da
+\daS
+\dA
+\dA+
+\dAc
+\dAf
+\dAo
+\dAp
+\db
+\db+
+\dc
+\dcS
+\dC
+\dC+
+\dd
+\ddS
+\dD
+\dD+
+\ddp
+\dE
+\di
+\di+
+\diS
+\dm
+\ds
+\dt
+\dt+
+\dtS
+\dt *.*
+\dv
+\dvS
+\des
+\det
+\deu
+\dew
+\df
+\df+
+\dfS
+\dfa
+\dfaS
+\dfn
+\dfp
+\dft
+\dfw
+\dF
+\dF+
+\dFd
+\dFp
+\dFt
+\dg
+\dg+
+\dgS
+\dl
+\dL
+\dLS
+\dn
+\dn+
+\dnS
+\do
+\doS
+\dO
+\dOS
+\dp
+\dpS
+\dP
+\dPi
+\dPt
+\drds
+\drg
+\drgS
+\dRp
+\dRs
+\dT
+\dT+
+\dTS
+\du
+\du+
+\duS
+\dx
+\dx+
+\dX
+\dy
+\l
+\l+
+\z
+\sf now
+\sf+ now
+\dconfig
+\dconfig+ work_mem
+\lo_list

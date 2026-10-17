@@ -1,0 +1,51 @@
+table | native count(*) | frontend count(*)
+pg_catalog.pg_tables | 70 | (0rows)
+pg_catalog.pg_views | 145 | (0rows)
+pg_catalog.pg_matviews | 0 | (0rows)
+pg_catalog.pg_sequences | 0 | (0rows)
+pg_catalog.pg_sequence | 0 | (0rows)
+pg_catalog.pg_user | 1 | (0rows)
+pg_catalog.pg_stat_activity | 9 | (0rows)
+pg_catalog.pg_stat_user_tables | 2 | (0rows)
+pg_catalog.pg_stat_all_tables | 110 | (0rows)
+pg_catalog.pg_statio_all_tables | 110 | 2
+pg_catalog.pg_locks | 2 | (0rows)
+pg_catalog.pg_prepared_xacts | 0 | (0rows)
+pg_catalog.pg_timezone_names | 598 | (0rows)
+pg_catalog.pg_extension | 1 | (0rows)
+pg_catalog.pg_available_extensions | 56 | (0rows)
+pg_catalog.pg_cast | 235 | (0rows)
+pg_catalog.pg_operator | 799 | (0rows)
+pg_catalog.pg_aggregate | 161 | (0rows)
+pg_catalog.pg_stats | 412 | (0rows)
+pg_catalog.pg_indexes | 127 | 3
+pg_catalog.pg_roles | 17 | 1
+pg_catalog.pg_proc | 3413 | 0
+pg_catalog.pg_type | 625 | 39
+pg_catalog.pg_class | 422 | 5
+pg_catalog.pg_attribute | 3197 | 9
+pg_catalog.pg_depend | 1743 | 0
+pg_catalog.pg_collation | 1286 | 0
+pg_catalog.pg_am | 7 | 2
+pg_catalog.pg_opclass | 177 | 0
+pg_tables (unqualified) | 70 | ERR  Table not found: audit.pg_tables
+pg_cast (unqualified) | 235 | ERR  Table not found: audit.pg_cast
+information_schema.tables | 215 | 2
+information_schema.columns | 2128 | 9
+information_schema.schemata | 5 | 2
+information_schema.views | 145 | ERR  Table not found: information_schema.views
+information_schema.routines | 3413 | ERR  Table not found: information_schema.routines
+information_schema.parameters | 6828 | ERR  Table not found: information_schema.parameters
+information_schema.table_constraints | 197 | 2
+information_schema.key_column_usage | 184 | 3
+information_schema.referential_constraints | 0 | ERR  Table not found: information_schema.referential_constraints
+information_schema.constraint_column_usage | 269 | ERR  Table not found: information_schema.constraint_column_usage
+information_schema.check_constraints | 87 | ERR  Table not found: information_schema.check_constraints
+information_schema.sequences | 0 | ERR  Table not found: information_schema.sequences
+information_schema.triggers | 0 | ERR  Table not found: information_schema.triggers
+information_schema.table_privileges | 1700 | ERR  Table not found: information_schema.table_privileges
+information_schema.role_table_grants | 1700 | ERR  Table not found: information_schema.role_table_grants
+information_schema.character_sets | 1 | ERR  Table not found: information_schema.character_sets
+information_schema.domains | 5 | ERR  Table not found: information_schema.domains
+information_schema.element_types | 276 | ERR  Table not found: information_schema.element_types
+information_schema.applicable_roles | 4 | ERR  Table not found: information_schema.applicable_roles

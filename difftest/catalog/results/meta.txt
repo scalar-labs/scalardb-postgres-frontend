@@ -1,0 +1,98 @@
+\d | 1 | 2 | 
+\d+ | 1 | 2 | 
+\dS | 145 | 2 | 
+\d items | out:                      Table "public.items"| Column |         | out:                      Table "public.items"| Column |         | generate_series needs integer start, stop and step values: pg_catalog.;
+\d+ items | out:                                                 Table "publ | out:                                                 Table "publ | generate_series needs integer start, stop and step values: pg_catalog.;
+\d sales.orders | out:                    Table "sales.orders"| Column  |       Ty | out:                    Table "sales.orders"| Column  |       Ty | generate_series needs integer start, stop and step values: pg_catalog.;
+\d items_pkey | out:      Index "public.items_pkey"| Column |  Type   | Key? | D | ERR ERROR:  Unknown column: i.indnkeyatts | 
+\d items_name_idx | out:           Index "public.items_name_idx"| Column |         T | ERR ERROR:  Unknown column: i.indnkeyatts | 
+\da | 0 | ERR ERROR:  Unknown column: p.pronargs | 
+\daS | 161 | ERR ERROR:  Unknown column: p.pronargs | 
+\dA | 7 | 2 | 
+\dA+ | 7 | 2 | 
+\dAc | 177 | ERR ERROR:  Unknown column: c.opcintype | 
+\dAf | 146 | ERR ERROR:  Unknown column: oc.opcfamily | 
+\dAo | 945 | 0 | Table not found: pg_catalog.pg_amop;
+\dAp | 714 | 0 | Table not found: pg_catalog.pg_amproc;
+\db | 2 | 2 | 
+\db+ | 2 | ERR ERROR:  Unsupported function: pg_catalog.pg_tablespace_size(pg_tablespace.oid) | 
+\dc | 0 | 0 | Table not found: pg_catalog.pg_conversion;
+\dcS | 128 | 0 | Table not found: pg_catalog.pg_conversion;
+\dC | 235 | 0 | Table not found: pg_catalog.pg_cast;
+\dC+ | 235 | 0 | Table not found: pg_catalog.pg_cast;
+\dd | 0 | 0 | 
+\ddS | 0 | 0 | 
+\dD | 0 | 0 | 
+\dD+ | 0 | ERR ERROR:  Unknown column: t.typacl | 
+\ddp | 0 | 0 | Table not found: pg_catalog.pg_default_acl;
+\dE | 0 | 0 | 
+\di | 2 | 3 | 
+\di+ | 2 | 3 | 
+\diS | 126 | 3 | 
+\dm | 0 | 0 | 
+\ds | 0 | 0 | 
+\dt | 1 | 2 | 
+\dt+ | 1 | 2 | 
+\dtS | 65 | 2 | 
+\dt *.* | 110 | 2 | 
+\dv | 0 | 0 | 
+\dvS | 80 | 0 | 
+\des | 0 | 0 | Table not found: pg_catalog.pg_foreign_server;
+\det | 0 | 0 | Table not found: pg_catalog.pg_foreign_table;
+\deu | 0 | 0 | Table not found: pg_catalog.pg_user_mappings;
+\dew | 0 | 0 | Table not found: pg_catalog.pg_foreign_data_wrapper;
+\df | 0 | 0 | 
+\df+ | 0 | ERR ERROR:  Unknown column: p.prolang | 
+\dfS | 3402 | 0 | 
+\dfa | 0 | 0 | 
+\dfaS | 161 | 0 | 
+\dfn | 0 | 0 | 
+\dfp | 0 | 0 | 
+\dft | 0 | 0 | 
+\dfw | 0 | 0 | 
+\dF | 30 | 0 | Table not found: pg_catalog.pg_ts_config;
+\dF+ | out:Text search configuration "pg_catalog.arabic"|Parser: "pg_ca | 0 | Table not found: pg_catalog.pg_ts_config;
+\dFd | 30 | 0 | Table not found: pg_catalog.pg_ts_dict;
+\dFp | 1 | 0 | Table not found: pg_catalog.pg_ts_parser;
+\dFt | 5 | 0 | Table not found: pg_catalog.pg_ts_template;
+\dg | out:                             List of roles| Role name |      | out:     List of roles| Role name | Attributes | | 
+\dg+ | out:                                    List of roles| Role name | out:            List of roles| Role name | Attributes | Descript | 
+\dgS | out:                                      List of roles|         | out:     List of roles| Role name | Attributes | | 
+\dl | 0 | 0 | Table not found: pg_catalog.pg_largeobject_metadata;
+\dL | 1 | ERR ERROR:  Unknown column: l.lanplcallfoid | 
+\dLS | 4 | ERR ERROR:  Unknown column: l.lanowner | 
+\dn | 2 | 2 | 
+\dn+ | 2 | 2 | 
+\dnS | 5 | 3 | 
+\do | 0 | 0 | Table not found: pg_catalog.pg_operator;
+\doS | 799 | 0 | Table not found: pg_catalog.pg_operator;
+\dO | 0 | 0 | 
+\dOS | 1079 | 0 | 
+\dp | 1 | 2 | 
+\dpS | 145 | 2 | 
+\dP | 0 | 0 | 
+\dPi | 0 | 0 | 
+\dPt | 0 | 0 | 
+\drds | 0 | 0 | Table not found: pg_catalog.pg_db_role_setting;
+\drg | 0 | 0 | 
+\drgS | 3 | 0 | 
+\dRp | 0 | 0 | 
+\dRs | 0 | 0 | Table not found: pg_catalog.pg_subscription;
+\dT | 0 | 0 | 
+\dT+ | 0 | ERR ERROR:  Unknown column: t.typacl | 
+\dTS | 107 | 20 | 
+\du | out:                             List of roles| Role name |      | out:     List of roles| Role name | Attributes | | 
+\du+ | out:                                    List of roles| Role name | out:            List of roles| Role name | Attributes | Descript | 
+\duS | out:                                      List of roles|         | out:     List of roles| Role name | Attributes | | 
+\dx | 1 | 0 | Table not found: pg_catalog.pg_extension;
+\dx+ | 4 | 0 | Table not found: pg_catalog.pg_extension;
+\dX | 0 | 0 | 
+\dy | 0 | 0 | Table not found: pg_catalog.pg_event_trigger;
+\l | 6 | 2 | 
+\l+ | 6 | 2 | 
+\z | 1 | 2 | 
+\sf upper | ERR ERROR:  more than one function named "upper" | ERR ERROR:  Unsupported function: pg_catalog.pg_get_functiondef(0) | 
+\sf+ upper | ERR ERROR:  more than one function named "upper" | ERR ERROR:  Unsupported function: pg_catalog.pg_get_functiondef(0) | 
+\dconfig | 12 | ERR ERROR:  Unknown column: s.source | 
+\dconfig+ work_mem | 1 | 0 | Table not found: pg_catalog.pg_parameter_acl;
+\lo_list | 0 | 0 | Table not found: pg_catalog.pg_largeobject_metadata;

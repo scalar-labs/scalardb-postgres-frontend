@@ -1,0 +1,21 @@
+get_schema_names | ['information_schema', 'public', 'sales']|get_schema_names | ['public', 'sales']
+get_table_names | ['items']|get_table_names | ['items', 'orders']
+get_table_names(sales) | ['orders']|get_table_names(sales) | ['orders']
+has_table(items) | True|has_table(items) | True
+get_view_names | []|get_view_names | []
+get_materialized_view_names | []|get_materialized_view_names | []
+get_sequence_names | []|get_sequence_names | []
+get_enums | []|get_enums | []
+get_domains | []|get_domains | []
+get_columns(items) | [('id', 'INTEGER', False), ('name', 'VARCHAR(20)', True), ('price', 'NUMERIC(10, 2)', True), ('qty', 'SMALLINT', True), ('note', 'TEXT', True)]|get_columns(items) | ERR NoSuchTableError: items
+get_pk_constraint(items) | {'constrained_columns': ['id'], 'name': 'items_pkey', 'comment': None, 'dialect_options': {'postgresql_include': []}}|get_pk_constraint(items) | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indnkeyatts
+get_pk_constraint(orders) | {'constrained_columns': ['id', 'line'], 'name': 'orders_pkey', 'comment': None, 'dialect_options': {'postgresql_include': []}}|get_pk_constraint(orders) | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indnkeyatts
+get_foreign_keys(orders) | []|get_foreign_keys(orders) | []
+get_indexes(items) | [('items_name_idx', ['name'], False)]|get_indexes(items) | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indclass
+get_unique_constraints(items) | []|get_unique_constraints(items) | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indnkeyatts
+get_check_constraints(items) | []|get_check_constraints(items) | []
+get_table_comment(items) | {'text': None}|get_table_comment(items) | {'text': 'ScalarDB partition key (id)'}
+get_table_options(items) | ERR NotImplementedError: |get_table_options(items) | ERR NotImplementedError: 
+get_multi_columns | {(None, 'items'): 5}|get_multi_columns | {}
+get_multi_pk_constraint | {(None, 'items'): ['id']}|get_multi_pk_constraint | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indnkeyatts
+get_multi_indexes | {(None, 'items'): 1}|get_multi_indexes | ERR ProgrammingError: (psycopg.errors.UndefinedColumn) Unknown column: pg_index.indclass
