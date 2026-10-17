@@ -62,10 +62,42 @@ at the end of this section.
   The table comment says which they are, as `\dt+` and `obj_description(oid, 'pg_class')` show
   (`ScalarDB partition key (w_id, d_id), clustering key (o_id DESC)`). Table sizes are unknown
   and show empty.
-- **psql's describe commands answer from that catalog.** `\l`, `\dn`, `\dt`, `\d`, `\di`, `\du`,
-  `\dp` and the rest (with `+`) work; database and table sizes show empty, and ScalarDB has no
-  domains, collations, publications or tablespaces beyond PostgreSQL's two built-in ones, so those
-  lists come back empty.
+- **A catalog query answers the truth or fails.** psql's describe commands (`\l`, `\dn`, `\dt`,
+  `\d`, `\di`, `\du`, `\dp` and the rest, with `+`), the drivers' metadata and the ORMs'
+  reflection read `pg_catalog` and `information_schema` as the frontend builds them from ScalarDB's
+  metadata. A catalog relation the frontend does not have fails with `42P01`, as an unknown table
+  does, instead of answering no rows; so do the system views it lacks, such as
+  `pg_stat_activity`, `pg_locks` and `pg_operator`. These relations exist and are empty, because
+  nothing of their kind exists here:
+
+  | Catalog relations | Empty because |
+  |---|---|
+  | `pg_trigger`, `pg_event_trigger` | no triggers |
+  | `pg_rewrite`, `pg_views`, `pg_matviews` | no rules or views (the system views are not listed either) |
+  | `pg_policy`, `pg_policies` | no row-level security |
+  | `pg_inherits` | no table inheritance or partitions |
+  | `pg_enum`, `pg_range` | no enum or range types |
+  | `pg_attrdef` | no column defaults |
+  | `pg_sequence`, `pg_sequences` | no sequences |
+  | `pg_extension`, `pg_available_extensions` | no extensions |
+  | `pg_publication`, `pg_publication_rel`, `pg_publication_namespace`, `pg_subscription` | no replication |
+  | `pg_foreign_data_wrapper`, `pg_foreign_server`, `pg_foreign_table`, `pg_user_mappings` | no foreign data |
+  | `pg_ts_config`, `pg_ts_dict`, `pg_ts_parser`, `pg_ts_template` | no text search |
+  | `pg_stats`, `pg_statistic_ext` | no statistics are gathered |
+  | `pg_amop`, `pg_amproc` | the operator families' members are not exposed |
+  | `pg_conversion` | the server encoding is UTF8 only |
+  | `pg_auth_members` | no role memberships, unless ScalarDB Cluster's roles have them |
+  | `pg_default_acl`, `pg_parameter_acl`, `pg_db_role_setting`, `pg_shdescription`, `pg_prepared_xacts`, `pg_largeobject_metadata` | no such privileges, settings, comments, two-phase transactions or large objects |
+
+  Not complete yet: `pg_proc` lists no functions, `pg_depend` no dependencies, and `pg_collation`
+  only the ICU collation, when ScalarDB uses one; `pg_operator`, `pg_cast` and `pg_aggregate` are missing. Catalog
+  relations are not themselves listed in `pg_class`. Database and table sizes show empty.
+- **The search path decides what is visible.** As in PostgreSQL, `\dt`, `pg_table_is_visible` and
+  an unqualified name see only the namespaces on `search_path`. The default path shows the
+  connected namespace, as schema `public`; `SET search_path = public, sales` or `\dt sales.*`
+  shows another namespace's tables. `$user` stands for the connected namespace, not a namespace
+  named after the role. Because `public` names the connected namespace, a ScalarDB namespace
+  literally named `public` can be read only by connecting to it.
 - **JDBC metadata and DBeaver's PostgreSQL driver read the same catalog.** pgjdbc's
   `DatabaseMetaData` (tables, columns, primary keys, indexes, keywords, type info) and the queries
   DBeaver's PostgreSQL mode sends to connect and browse a table are tested against the frontend,
@@ -73,8 +105,7 @@ at the end of this section.
   pgAdmin and DataGrip have not been tried. A result set does not say which table its columns
   come from (`ResultSetMetaData.getTableName` is empty, as for a computed column); DBeaver finds
   the table from the query instead, but a tool that relies on the driver for it treats a result
-  grid as read-only. `pg_settings`
-  shows the server's defaults, not a session's `SET` values, which `SHOW` gives.
+  grid as read-only.
 - **Large sorts and aggregations run in the frontend's memory.** A query that sorts or groups a
   very large table without a key holds all its rows in the frontend.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**
@@ -162,7 +193,8 @@ at the end of this section.
   `NOTICE`: uniqueness is not enforced and the `WHERE` is not kept.
 - **Session settings.** `SET TIME ZONE` shapes how `timestamptz` values are read and printed, as in
   PostgreSQL; `search_path` decides where an unqualified table name is looked up; `SET LOCAL`
-  reverts at the end of the transaction and only warns outside one. `statement_timeout` and
+  reverts at the end of the transaction and only warns outside one, and `ROLLBACK` undoes a
+  transaction's `SET`s, though `ROLLBACK TO SAVEPOINT` does not. `statement_timeout` and
   a cancel request (psql's Ctrl-C, JDBC's `Statement.cancel()`) stop a statement with `57014`, as in
   PostgreSQL; `lock_timeout` is accepted but has nothing to time, since nothing waits for a lock.
 - **`SELECT ... FOR UPDATE` / `FOR SHARE` take no lock.** ScalarDB is optimistic: the statement

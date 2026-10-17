@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Catalog answers: the truth or an error
+
+A catalog query the frontend could not plan used to answer no rows, which a client cannot tell from "there
+is none": SQLAlchemy reflected tables without primary keys or indexes, for one. Now a catalog query answers
+what PostgreSQL 16 would answer for the same schema, or fails. The queries psql 14 and 18, pgjdbc,
+SQLAlchemy, asyncpg and Django send are kept as fixtures with PostgreSQL 16's answers, and the tests check
+each one. psql's `\d` of an index, `\dconfig` and `\df+`, SQLAlchemy's `get_columns`, `get_pk_constraint`
+and `get_indexes`, and `pg_get_keywords()` now answer as in PostgreSQL 16. `pg_tables`, `pg_user` and
+`pg_timezone_names` are new; `pg_settings` shows the session's values and their source, and `SHOW`,
+`SHOW ALL` and `current_setting` read the same settings. [LIMITATIONS.md](LIMITATIONS.md) lists the catalog
+relations that are empty, and why.
+
+Behaviour that changes:
+
+- A catalog relation the frontend does not have, such as `pg_stat_activity`, `pg_locks` or `pg_operator`,
+  fails with `42P01` instead of answering no rows, qualified or not.
+- `\dt`, `pg_table_is_visible` and SQLAlchemy's `get_table_names()` list only the tables on `search_path`,
+  as in PostgreSQL. By default that is the connected namespace (schema `public`); before, they listed every
+  namespace's tables. `SET search_path = public, sales` or `\dt sales.*` shows another namespace's tables.
+- Newly declared catalog names, such as `pg_tables`, `pg_user`, `pg_views` and `pg_stats`, come before an
+  unqualified user table of the same name, as in PostgreSQL; qualify the table (`public.pg_user`) to read it.
+- A statement that cannot be planned fails at Describe, not only at Execute; before, Describe answered that
+  it returns no rows.
+- `ROLLBACK` undoes the `SET`s made in the transaction, and a `SET` after `SET LOCAL` outlasts the
+  transaction, as in PostgreSQL. `SET`, `RESET` and `SET ... TO DEFAULT` of a setting PostgreSQL fixes, such
+  as `server_version`, fail with `55P02`.
+
 ### Text in ScalarDB's collation
 
 Text compared in the frontend (residual filters, `ORDER BY`, `GROUP BY`, `DISTINCT`, joins, set operations,

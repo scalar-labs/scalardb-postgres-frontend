@@ -307,7 +307,7 @@ and `pg_shdescription`.
   - The connected namespace still shows as `public` (`Catalog.schemaName`, 731-733).
   - `$user` keeps its current mapping to the connected namespace; mapping it to a namespace named after
     the role is out of scope (note in LIMITATIONS).
-- [ ] **Cases with their own tests:** (all but the `public` note, which waits for Phase 4, are in
+- [x] **Cases with their own tests:** (the `public` note is in LIMITATIONS.md; the rest are in
       `QueryParserTest.execute_SearchPath_ShouldDecideWhatIsVisible`, with a shadowed name, a path naming
       no schema, and `SET search_path = ''`)
   - search_path `sales` alone: the connected namespace's tables are not visible, and `current_schemas`
@@ -329,9 +329,9 @@ and `pg_shdescription`.
 - [ ] **Registry as a gate.** `Evaluator.scalar` checks the registry for the name, and arity, before it
       dispatches. An unlisted name gives the same `0A000 Unsupported function`. Every existing function
       test therefore checks that the registry is complete.
-- [ ] **Dead names.** Delete the ten names in `TEXT_FUNCTIONS` (`Evaluator.java:414-449`) that are never
-      dispatched (`INITCAP`, `MD5`, `SPLIT_PART`, `REPEAT`, `ASCII`, `TRANSLATE`, `QUOTE_LITERAL`,
-      `QUOTE_IDENT`, `REGEXP_REPLACE`, `REGEXP_MATCH`), and the cases in `functionOid` for undispatched
+- [ ] **Dead names.** Delete the eight names in `TEXT_FUNCTIONS` (`Evaluator.java:414-449`) that are never
+      dispatched (`INITCAP`, `MD5`, `SPLIT_PART`, `REPEAT`, `ASCII`, `TRANSLATE`, `REGEXP_REPLACE`,
+      `REGEXP_MATCH`; `QUOTE_LITERAL` and `QUOTE_IDENT` are implemented since Phase 1), and the cases in `functionOid` for undispatched
       functions (`TRUNC`, `EXP`, `LN`, `LOG`, `PI`, `RANDOM`, `TO_CHAR`, `CHR`). Implementing them is a
       separate todo.
 - [ ] **`BuiltinsTest`.** For each row, build a call from sample literals per argument type, execute it
@@ -392,17 +392,17 @@ and `pg_shdescription`.
 
 ### Phase 4: Documentation, with each merge
 
-- [ ] **`LIMITATIONS.md`.** Replace the paragraph "psql's describe commands answer from that catalog"
+- [x] **`LIMITATIONS.md`.** Replace the paragraph "psql's describe commands answer from that catalog"
       (around line 65) with a table generated from `EMPTY_BECAUSE` and the guard test's list: catalog
       relation | answers with | why.
-- [ ] **`compat/README.md`.** Rewrite the paragraph "A catalog query the engine cannot plan is answered
+- [x] **`compat/README.md`.** Rewrite the paragraph "A catalog query the engine cannot plan is answered
       with no rows ...", since that behaviour is gone. Update the SQLAlchemy row in its table.
-- [ ] **`RELEASE-NOTES.md`.** Add:
+- [x] **`RELEASE-NOTES.md`.** Add (for Phase 1; Phase 2 adds its own):
   - the 42P01 errors for catalog relations that are not emulated;
   - the `\dt` / `get_table_names()` visibility change, with the workaround;
   - the newly declared catalog names, which now shadow an unqualified user table of the same name
     (`pg_tables`, `pg_user`, `pg_stats`, ...), as in PostgreSQL;
-  - the logging property, if it is kept.
+  - the logging property, if it is kept. (It was not: it stayed on the audit branch.)
 - [ ] **`difftest/catalog`.** Committed, with a re-run of its results after each phase.
 
 ## Technical Considerations

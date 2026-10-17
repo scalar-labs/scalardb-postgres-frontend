@@ -24,7 +24,7 @@ gem install pg activerecord && ruby ruby/test_rb.rb
 
 | Stack | Raw driver | ORM |
 |---|---|---|
-| psycopg 3 / SQLAlchemy 2 | all steps | declarative ORM CRUD ok; `get_pk_constraint` and `get_indexes` return empty, `get_columns` raises NoSuchTableError: their catalog queries need `json_build_object`, `pg_sequence`, `pg_get_serial_sequence` and `pg_attribute` joins the engine does not plan |
+| psycopg 3 / SQLAlchemy 2 | all steps | declarative ORM CRUD and reflection (`get_table_names`, `get_columns`, `get_pk_constraint`, `get_indexes`, `get_foreign_keys`) ok; `create_all` plus insert plus select in one transaction reads rows it wrote (DB-CORE-10106) |
 | node-postgres / Sequelize 6 | all steps | `sync`, CRUD, `showIndex`, `describeTable` and `showAllTables` ok; the transaction step reads rows it wrote (DB-CORE-10106) |
 | pgx v5 | all steps, binary parameters and results | |
 | pg / ActiveRecord 7 | all steps | all steps, including `serial` primary keys and the primary-key lookup via `generate_subscripts` |
@@ -51,8 +51,10 @@ validate time zone names (2026-10-08) that spelling had to be accepted along wit
 (`SET TIME ZONE 9`) and POSIX (`'+05:30'`, west-positive) ones PostgreSQL takes, or the Node run
 never finished.
 
-A catalog query the engine cannot plan is answered with no rows but with its output columns
-described, as PostgreSQL would answer an empty result; before, the missing RowDescription made
-psycopg report no result at all (SQLAlchemy's ResourceClosedError). A Java Error inside a statement
+A catalog query the engine cannot plan fails with its error, as any other query does. For a while
+such a query was answered with no rows, which kept psycopg from reporting no result at all
+(SQLAlchemy's ResourceClosedError) but let SQLAlchemy's reflection read an empty answer as the
+truth; the queries the clients here send now plan, and their answers are checked against
+PostgreSQL 16's (`engine/src/test/resources/clients`, captured with `difftest/catalog`). A Java Error inside a statement
 (a stack overflow on deeply nested SQL, a missing class) is reported as SQLSTATE XX000 and the
 connection stays open; before, the connection thread died without a message.
