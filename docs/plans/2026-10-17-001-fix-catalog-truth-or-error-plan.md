@@ -1,9 +1,9 @@
 ---
 title: "fix: Catalog queries answer the truth or fail, never a made-up empty result"
 type: fix
-status: draft
+status: completed
 date: 2026-10-17
-origin: todos/057-pending-p2-catalog-answers-empty-instead-of-error.md
+origin: todos/057-complete-p2-catalog-answers-empty-instead-of-error.md
 ---
 
 # Catalog queries answer the truth or fail
@@ -123,7 +123,7 @@ Purpose: prove what removing the fallback breaks before removing it.
   - `difftest/catalog`'s psql 18 and psql 14 runs;
   - pgjdbc, DBeaver and SQLAlchemy;
   - [ ] the same psql run as a low-privilege user under `difftest/cluster-auth` (needs a Cluster node;
-    deferred to after Phase 1).
+    carried over to todo 062).
 
   Record every fallback hit in `difftest/catalog/results/fallback-hits.txt`. Every hit becomes either a
   Phase 1 item or an expected error in a fixture.
@@ -499,14 +499,15 @@ last run lists none.
 ## Acceptance Criteria
 
 ### Functional
-- [ ] No catalog read anywhere returns a made-up answer:
+- [x] No catalog read anywhere returns a made-up answer:
   - the catch-all and the table-function fallback are gone;
   - every relation name in PostgreSQL 16's `pg_catalog` and `information_schema` either fails with 42P01
     or is declared;
-  - every declared-empty table is in `EMPTY_BECAUSE` (guard test, `CatalogGuardTest`, with the name list
+  - every declared-empty table is in `EMPTY_BECAUSE` (guard test, done as
+    `ClientCatalogTest.catalogTables_ShouldBeEmptyOnlyWithAReason`, with the name list
     captured from PostgreSQL 16);
   - `count(*)` over a declared-empty table returns one row.
-- [ ] Named client flows pass, each as a test or fixture:
+- [x] Named client flows pass, each as a test or fixture:
   - SQLAlchemy `get_columns`, `get_pk_constraint`, `get_indexes`, `get_unique_constraints` and
     `get_multi_*` on `items` and `sales.orders`;
   - pgjdbc `getTypeInfo` reports `_interval` as ARRAY;
@@ -514,25 +515,27 @@ last run lists none.
     `\dconfig+ work_mem`, `\dAc`, `\dAf` and `\db+` run;
   - `\dfS`, `\doS`, `\dC` and `\da` list the registry, operators, casts and aggregates;
   - `current_setting('server_version_num')` returns 160000.
-- [ ] Visibility: `\dt` with the default path lists only the connected namespace's tables, and the
+- [x] Visibility: `\dt` with the default path lists only the connected namespace's tables, and the
       search_path cases above have tests.
 - [ ] The Phase 0 client matrix, re-run on the final branch with the opt-in logging on, shows zero
       unplanned catalog queries, or each one is listed as an expected error in a fixture.
       (2026-10-17, after Phases 1 and 2: the catch-all and its logging are gone, so an unplanned query
       fails. psql 18 and 14, pgjdbc, DBeaver's queries and SQLAlchemy re-run in
       `difftest/catalog/results/phase2`; the compat sweep and asyncpg unchanged; Django by its fixture
-      only; Prisma and the low-privilege run not yet.)
+      only. After Phase 3, re-run into `results/phase3`. The low-privilege run is todo 062; Prisma, out of
+      scope, is todo 063.)
 
 ### Quality gates
-- [ ] `./gradlew check` passes. `BuiltinsTest`, `OperatorsTest`, `CatalogGuardTest` and the client replay
-      test are new.
+- [x] `./gradlew check` passes. `BuiltinsTest`, `OperatorsTest`, `CatalogGuardTest` and the client replay
+      test are new. (`BuiltinsTest` runs the operators' and casts' calls too, and `ClientCatalogTest` holds
+      the guard and the replay.)
 - [x] `difftest/catalog` re-run results are committed (`results/phase2`, after Phases 1 and 2). The difftest baselines and fuzz runs are unchanged.
-- [ ] Code review before merge.
+- [x] Code review before merge (each phase reviewed, findings fixed).
 
 ## Dependencies & Risks
 
 - **Prisma is out of scope.** Its schema engine crashes after the connect probe, even with
-  `server_version_num` fixed. That gets a separate todo; Phase 1 includes only the settings fix.
+  `server_version_num` fixed. That gets a separate todo (063); Phase 1 includes only the settings fix.
 - **Unknown client queries.** Covered above. Mitigated by the matrix and the logging property.
 - **Registry upkeep.** Every new function now needs a registry row. The gate makes a missing row fail the
   tests at once, which is the intent.
@@ -541,7 +544,7 @@ last run lists none.
 
 ## Sources & References
 
-- Origin: `todos/057-pending-p2-catalog-answers-empty-instead-of-error.md`, section "Audit (2026-10-17)";
+- Origin: `todos/057-complete-p2-catalog-answers-empty-instead-of-error.md`, section "Audit (2026-10-17)";
   harness and results in `difftest/catalog/`.
 - Related todos: 024 (narrowed the fallback, now removed), 040 (type tables, complete), 011 (metadata
   cache).

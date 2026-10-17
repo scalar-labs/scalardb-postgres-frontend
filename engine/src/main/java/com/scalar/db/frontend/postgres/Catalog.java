@@ -904,7 +904,7 @@ final class Catalog {
       return column.equals("indkey") ? 22 : column.endsWith("name") ? 19 : 0;
     }
     long element = elementOid(oid);
-    return TYPE_NAMES.containsKey(element != 0 ? element : oid) ? oid : 25;
+    return TYPE_NAMES.containsKey(element != 0 ? Long.valueOf(element) : oid) ? oid : 25;
   }
 
   /**

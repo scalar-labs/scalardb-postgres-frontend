@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "057"
 tags: [catalog, psql, compatibility]
@@ -121,18 +121,18 @@ navigator, keys, indexes and DDL queries (no fallback hits).
 
 ## Recommended Action
 
-All three, in order: 1 decides the scope of 2 and 3.
+All three, in order: 1 decides the scope of 2 and 3. Done as `docs/plans/2026-10-17-001-fix-catalog-truth-or-error-plan.md`.
 
 ## Acceptance Criteria
 
-- [ ] `SELECT * FROM pg_catalog.pg_foo_bar` fails with `42P01`; unqualified, the message names `pg_foo_bar`,
+- [x] `SELECT * FROM pg_catalog.pg_foo_bar` fails with `42P01`; unqualified, the message names `pg_foo_bar`,
       not the user's namespace
-- [ ] No catalog read answers empty where the frontend has the objects: `\dfS`, `\doS`, `\dC` list what is
+- [x] No catalog read answers empty where the frontend has the objects: `\dfS`, `\doS`, `\dC` list what is
       implemented; `count(*)` over an empty catalog table returns one row
-- [ ] Every psql 18 meta-command either shows the truth (true-empty included) or errors; the audit's table
+- [x] Every psql 18 meta-command either shows the truth (true-empty included) or errors; the audit's table
       is recorded in LIMITATIONS.md
-- [ ] `\df+`, `\dT+`, `\dL` and `\dconfig` work
-- [ ] JDBC `DatabaseMetaData` (`getTables`, `getColumns`, `getFunctions`, `getProcedures`) and the difftest
+- [x] `\df+`, `\dT+`, `\dL` and `\dconfig` work
+- [x] JDBC `DatabaseMetaData` (`getTables`, `getColumns`, `getFunctions`, `getProcedures`) and the difftest
       `compat` runs still pass
 
 ## Work Log
@@ -142,3 +142,8 @@ All three, in order: 1 decides the scope of 2 and 3.
 - 2026-10-17: audit run (above; `difftest/catalog`). Worst harm is A's SQLAlchemy `get_columns`
   NoSuchTableError; B blocks SQLAlchemy keys and indexes and `\d <index>`. Priority stays P2, but A and B
   first. Next: `/ce:plan` with this audit as input.
+- 2026-10-18: done on branch fix-catalog-self, in three phases, each reviewed: unplannable catalog queries
+  fail instead of answering no rows; pg_proc, pg_operator, pg_cast and pg_aggregate list what is
+  implemented; the catalog lists its own relations, information_schema, collations and dependencies.
+  Results in `difftest/catalog/results/phase2` and `phase3`. The low-privilege Cluster run moved to todo
+  062, and Prisma to todo 063.
