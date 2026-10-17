@@ -1072,6 +1072,19 @@ public class QueryParserTest {
     assertThatThrownBy(
             () -> parser.parse("SELECT * FROM pg_catalog.pg_class EXCEPT ALL SELECT 'x'"))
         .isInstanceOf(IllegalArgumentException.class);
+    // an undeclared catalog table does not exist, as PostgreSQL words it
+    assertThatThrownBy(() -> parser.parse("SELECT * FROM pg_catalog.pg_nosuch"))
+        .hasMessage("relation \"pg_catalog.pg_nosuch\" does not exist")
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P01"));
+    assertThatThrownBy(() -> parser.parse("SELECT * FROM pg_nosuch"))
+        .hasMessage("relation \"pg_nosuch\" does not exist");
+    // generate_series is capped in the select list as in FROM
+    assertThatThrownBy(
+            () ->
+                parser.parse("SELECT generate_series(1, 9000000000000000000)").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("54000"));
   }
 
   @Test
@@ -1885,7 +1898,7 @@ public class QueryParserTest {
         .contains("other");
     parser.setSearchPath("nosuch");
     assertThatThrownBy(() -> parser.parse("SELECT id FROM t"))
-        .hasMessageContaining("Table not found");
+        .hasMessageContaining("does not exist");
     parser.setSearchPath("\"$user\", public");
   }
 

@@ -3335,6 +3335,9 @@ final class Evaluator {
           }
           for (long v = start; step > 0 ? v <= stop : v >= stop; v += step) {
             series.add(v);
+            if (series.size() > QueryParser.MAX_SERIES_ROWS) {
+              throw new PgException.Argument("54000", "generate_series produces too many rows");
+            }
           }
           return series;
         }

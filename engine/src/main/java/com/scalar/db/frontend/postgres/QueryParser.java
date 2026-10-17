@@ -253,6 +253,9 @@ public class QueryParser {
   /** Rows an UPDATE, DELETE or INSERT ... SELECT driven by a read may write, unless raised. */
   public static final int DEFAULT_MAX_ROWS_PER_WRITE = 10_000;
 
+  // the most rows generate_series makes, in FROM or in the select list
+  static final int MAX_SERIES_ROWS = DEFAULT_MAX_ROWS_PER_WRITE * 100;
+
   /** What one row of a read-driven write does: its mutation and the row it leaves behind. */
   static final class Effect {
     final Mutation mutation;
@@ -5319,8 +5322,9 @@ public class QueryParser {
           !nothing && (step > 0 ? v <= args.get(1) : v >= args.get(1));
           v += step) {
         rows.add(Collections.<String, Object>singletonMap(qualifier + "." + column, v));
-        if (rows.size() > DEFAULT_MAX_ROWS_PER_WRITE * 100) {
-          throw new IllegalArgumentException("generate_series produces too many rows: " + function);
+        if (rows.size() > MAX_SERIES_ROWS) {
+          throw new PgException.Argument(
+              "54000", "generate_series produces too many rows: " + function);
         }
       }
       LogicalPlan.Source source =
@@ -6624,12 +6628,14 @@ public class QueryParser {
         return new Target(namespace, name, columns);
       }
     }
+    // as PostgreSQL words it, with the name as written: relation "pg_catalog.pg_amop" does not
+    // exist
     throw new PgException.Argument(
         "42P01",
-        "Table not found: "
-            + (table.getSchemaName() == null ? String.join(", ", candidates) : candidates.get(0))
-            + "."
-            + name);
+        "relation \""
+            + (table.getSchemaName() == null ? "" : unquote(table.getSchemaName()) + ".")
+            + name
+            + "\" does not exist");
   }
 
   // ---- WHERE clause ----

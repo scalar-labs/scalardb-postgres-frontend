@@ -1,6 +1,7 @@
-"""Writes the column types of the catalog tables the frontend declares (Catalog.java's PG_CATALOG and
-INFORMATION_SCHEMA), as PostgreSQL 16 describes them: a domain's base type, as RowDescription
-reports it. The frontend describes a catalog column with this type when its own pg_type lists it.
+"""Writes the columns of the catalog tables the frontend declares (Catalog.java's PG_CATALOG,
+INFORMATION_SCHEMA and its empty(...) tables), in order, with their types as PostgreSQL 16 describes
+them: a domain's base type, as RowDescription reports it. The frontend describes a catalog column with
+this type when its own pg_type lists it, and an empty(...) table takes its columns from here.
 
     python catalog_types.py [NATIVE_PORT] > ../../engine/src/main/resources/com/scalar/db/frontend/postgres/catalog-types.txt
 """
@@ -15,8 +16,10 @@ CATALOG = pathlib.Path(__file__).resolve().parents[2] / "engine/src/main/java/co
 
 def main():
     port = sys.argv[1] if len(sys.argv) > 1 else "15416"
-    declared = re.findall(r'(PG_CATALOG|INFORMATION_SCHEMA)\.put\(\s*"([a-z_]+)"', CATALOG.read_text())
+    source = CATALOG.read_text()
+    declared = re.findall(r'(PG_CATALOG|INFORMATION_SCHEMA)\.put\(\s*"([a-z_]+)"', source)
     tables = [("pg_catalog" if s == "PG_CATALOG" else "information_schema", t) for s, t in declared]
+    tables += [("pg_catalog", t) for t in re.findall(r'\bempty\(\s*"([a-z_]+)"', source)]
     conn = psycopg.connect(f"host=127.0.0.1 port={port} dbname=postgres user=postgres")
     rows = conn.execute(
         "SELECT n.nspname, c.relname, a.attname,"

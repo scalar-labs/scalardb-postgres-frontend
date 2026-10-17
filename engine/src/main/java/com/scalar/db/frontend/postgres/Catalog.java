@@ -555,9 +555,86 @@ final class Catalog {
     return TYPE_NAMES.containsKey(element != 0 ? element : oid) ? oid : 25;
   }
 
+  /**
+   * Each catalog table that answers no rows by design, and why that is the truth here. A declared
+   * table that is not listed must answer rows; ClientCatalogTest checks both.
+   */
+  static final Map<String, String> EMPTY_BECAUSE = new LinkedHashMap<>();
+
+  /** Declared tables that answer no rows yet though they should, and what will fill them. */
+  static final Map<String, String> PENDING_ROWS = new LinkedHashMap<>();
+
+  static {
+    empty("pg_trigger", "no triggers");
+    empty("pg_rewrite", "no rules or views");
+    empty("pg_policy", "no row-level security policies");
+    empty("pg_policies", "no row-level security policies");
+    empty("pg_inherits", "no table inheritance or partitions");
+    empty("pg_enum", "no enum types");
+    empty("pg_range", "no range types");
+    empty("pg_attrdef", "no column defaults");
+    empty("pg_statistic_ext", "no extended statistics");
+    empty("pg_publication", "no publications");
+    empty("pg_publication_rel", "no publications");
+    empty("pg_publication_namespace", "no publications");
+    empty("pg_shdescription", "no comments on shared objects");
+    empty("pg_sequence", "no sequences");
+    empty("pg_sequences", "no sequences");
+    empty("pg_matviews", "no materialized views");
+    empty("pg_extension", "no extensions");
+    empty("pg_available_extensions", "no extensions");
+    empty("pg_event_trigger", "no event triggers");
+    empty("pg_default_acl", "no default privileges");
+    empty("pg_db_role_setting", "no per-role or per-database settings");
+    empty("pg_subscription", "no subscriptions");
+    empty("pg_largeobject_metadata", "no large objects");
+    empty("pg_foreign_data_wrapper", "no foreign data");
+    empty("pg_foreign_server", "no foreign data");
+    empty("pg_foreign_table", "no foreign data");
+    empty("pg_user_mappings", "no foreign data");
+    empty("pg_prepared_xacts", "no two-phase transactions");
+    empty("pg_ts_config", "no text search");
+    empty("pg_ts_dict", "no text search");
+    empty("pg_ts_parser", "no text search");
+    empty("pg_ts_template", "no text search");
+    empty("pg_conversion", "no encoding conversions: the server encoding is UTF8 only");
+    empty("pg_amop", "operator families have no members exposed");
+    empty("pg_amproc", "operator families have no members exposed");
+    empty("pg_parameter_acl", "no parameter privileges");
+    empty("pg_stats", "no statistics are gathered");
+    empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
+    PENDING_ROWS.put("pg_opclass", "the default btree operator classes (todo 057, Phase 1)");
+    PENDING_ROWS.put("pg_opfamily", "the default btree operator families (todo 057, Phase 1)");
+    PENDING_ROWS.put("pg_language", "the internal language (todo 057, Phase 1)");
+    PENDING_ROWS.put("pg_proc", "the built-in functions (todo 057, Phase 2)");
+    PENDING_ROWS.put(
+        "pg_depend", "dependencies, or a reason they are not kept (todo 057, Phase 3)");
+    PENDING_ROWS.put("pg_collation", "default, C and POSIX besides ICU's (todo 057, Phase 3)");
+  }
+
+  /** Declares a pg_catalog table that is empty here, with PostgreSQL 16's columns if new. */
+  private static void empty(String table, String reason) {
+    EMPTY_BECAUSE.put(table, reason);
+    PG_CATALOG.computeIfAbsent(
+        table,
+        t ->
+            Collections.unmodifiableList(
+                Objects.requireNonNull(
+                    CatalogTypes.COLUMNS.get("pg_catalog." + t), t + " in catalog-types.txt")));
+  }
+
+  /** Every declared catalog table, qualified: pg_catalog.pg_class, information_schema.tables. */
+  static List<String> declaredTables() {
+    List<String> out = new ArrayList<>();
+    PG_CATALOG.keySet().forEach(t -> out.add("pg_catalog." + t));
+    INFORMATION_SCHEMA.keySet().forEach(t -> out.add("information_schema." + t));
+    return out;
+  }
+
   /** PostgreSQL 16's type of each catalog column, from catalog-types.txt, read on first use. */
   private static final class CatalogTypes {
     static final Map<String, Long> TYPES = new HashMap<>();
+    static final Map<String, List<String>> COLUMNS = new HashMap<>(); // table -> its columns
 
     static {
       try (java.io.BufferedReader in =
@@ -568,8 +645,9 @@ final class Catalog {
                   java.nio.charset.StandardCharsets.UTF_8))) {
         for (String line = in.readLine(); line != null; line = in.readLine()) {
           if (!line.startsWith("#")) {
-            int last = line.lastIndexOf(' ');
-            TYPES.put(line.substring(0, last), Long.parseLong(line.substring(last + 1)));
+            String[] f = line.split(" ", -1); // table column oid
+            TYPES.put(f[0] + " " + f[1], Long.parseLong(f[2]));
+            COLUMNS.computeIfAbsent(f[0], k -> new ArrayList<>()).add(f[1]);
           }
         }
       } catch (java.io.IOException e) {

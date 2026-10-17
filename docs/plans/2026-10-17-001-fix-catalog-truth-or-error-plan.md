@@ -180,8 +180,9 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
   - An unknown table function fails with `0A000 Unsupported table function`.
 - [x] Rewrite `QueryParserTest.parse_CatalogQueryBeyondEngine_ShouldReturnNothing` (1054-1076) to expect
       the errors. Its two cases are `json_each` in FROM, and `EXCEPT ALL` with unequal columns.
-- [ ] **Unknown relations.** In `target()` (6442-6460), when a name is not found and either the schema is
-      `pg_catalog` or the name is unqualified, report PostgreSQL's 42P01 message.
+- [x] **Unknown relations.** In `target()` (6442-6460), when a name is not found and either the schema is
+      `pg_catalog` or the name is unqualified, report PostgreSQL's 42P01 message. (Done for every
+      relation: `relation "pg_catalog.pg_x" does not exist`, the name as written.)
   - `searchNamespaces()` (2992-3001) skips an explicit `pg_catalog` entry. Catalog names already resolve
     first (5025), as in PostgreSQL.
 - [ ] **Plan cache.** No cached or described plan can carry an old constant answer. Test it on one
@@ -211,7 +212,11 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
   `get_unique_constraints` and `get_multi_*` give PostgreSQL's answers for `items` and `sales.orders`.
 - [ ] Re-check each remaining Phase 0 hit against its fixture.
 
-**Tables declared because they are truly empty**, added to `Catalog.EMPTY_BECAUSE` with a reason each:
+**Tables declared because they are truly empty**, added to `Catalog.EMPTY_BECAUSE` with a reason each
+(done; `ClientCatalogTest.catalogTables_ShouldBeEmptyOnlyWithAReason` is the guard, a new table takes
+PostgreSQL 16's columns from `catalog-types.txt`, and `pg_auth_members` joined the list. Tables still to
+get rows are in `Catalog.PENDING_ROWS`: `pg_opclass`, `pg_opfamily`, `pg_language`, `pg_proc`,
+`pg_depend`, and `pg_collation`, which lists only ICU's collation):
 
 | Table | Reason |
 |---|---|
