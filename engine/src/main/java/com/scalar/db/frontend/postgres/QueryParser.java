@@ -2583,6 +2583,9 @@ public class QueryParser {
       throw new IllegalArgumentException("malformed array literal: \"" + text + "\"");
     }
     List<Object> out = new ArrayList<>();
+    if (s.substring(1, s.length() - 1).isBlank()) {
+      return out; // {} or { }
+    }
     StringBuilder cur = new StringBuilder();
     boolean quoted = false;
     boolean wasQuoted = false;

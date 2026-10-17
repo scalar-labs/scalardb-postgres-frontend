@@ -512,6 +512,17 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parseArrayText_ShouldAcceptWhatPostgresAccepts() {
+    assertThat(QueryParser.parseArrayText("{ }")).isEmpty();
+    assertThat(QueryParser.parseArrayText("{a , \"b c\",NULL}")).containsExactly("a", "b c", null);
+    // an empty element is malformed unless quoted, as in PostgreSQL
+    for (String malformed : new String[] {"{a,,b}", "{a,}", "{,a}", "{,}"}) {
+      assertThatThrownBy(() -> QueryParser.parseArrayText(malformed))
+          .hasMessageContaining("malformed array literal");
+    }
+  }
+
+  @Test
   public void parse_SelectWithoutFrom_ShouldReturnOneRow() throws Exception {
     QueryParser.Plan plan = parser.parse("SELECT 1 AS one, 'a' || 'b' AS ab, NOW() IS NOT NULL");
 
