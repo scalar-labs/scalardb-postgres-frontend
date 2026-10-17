@@ -2201,59 +2201,9 @@ public class QueryParser {
       plan.parameterOids = PARAMETER_OIDS.get();
       plan.useColumnMaps(columnMaps);
       return plan;
-    } catch (IllegalArgumentException e) {
-      // psql describes objects with catalog queries beyond this engine (UNION, table functions,
-      // arrays); for the tables involved the answer is always "nothing", so return that
-      // Only a read that the engine cannot plan; a misspelled column, or a DML statement whose text
-      // happens to mention pg_catalog, is reported as it would be anywhere else (todo 024)
-      String m = String.valueOf(e.getMessage());
-      String word = trimStatement(sql).split("\\s+", 2)[0].toUpperCase(Locale.ROOT);
-      if (sql.toLowerCase(Locale.ROOT).contains("pg_catalog.")
-          && (word.equals("SELECT") || word.equals("WITH") || word.startsWith("("))
-          && !m.startsWith("Unknown column")
-          && !m.startsWith("Ambiguous column")) {
-        return Plan.constant(catalogColumnNames(sql), Collections.emptyList(), "SELECT");
-      }
-      throw e;
     } finally {
       BOUND.remove();
       PARAMETER_OIDS.remove();
-    }
-  }
-
-  /**
-   * The output column names of a catalog query this engine cannot plan, so that the empty answer
-   * still describes its columns as PostgreSQL would: a driver that gets no RowDescription treats
-   * the statement as one that returns no result at all (SQLAlchemy's ResourceClosedError). Empty
-   * when they cannot be told, such as for {@code *} or SQL JSQLParser does not accept.
-   */
-  private List<String> catalogColumnNames(String sql) {
-    try {
-      Statement statement = parseStatement(sql);
-      Select select = statement instanceof Select ? (Select) statement : null;
-      while (select != null && !(select instanceof PlainSelect)) {
-        if (select instanceof SetOperationList) {
-          select = ((SetOperationList) select).getSelects().get(0);
-        } else if (select instanceof ParenthesedSelect) {
-          select = ((ParenthesedSelect) select).getSelect();
-        } else {
-          return Collections.emptyList();
-        }
-      }
-      if (select == null) {
-        return Collections.emptyList();
-      }
-      List<String> names = new ArrayList<>();
-      for (SelectItem<?> item : ((PlainSelect) select).getSelectItems()) {
-        Expression e = item.getExpression();
-        if (e instanceof AllColumns || e instanceof AllTableColumns) {
-          return Collections.emptyList();
-        }
-        names.add(item.getAlias() != null ? unquote(item.getAlias().getName()) : label(e));
-      }
-      return names;
-    } catch (RuntimeException e) {
-      return Collections.emptyList();
     }
   }
 
@@ -4164,13 +4114,19 @@ public class QueryParser {
     for (Join j : joinNodes) {
       fromItems.add(j.getRightItem());
     }
+    boolean fromCorrelated = false; // a FROM item reads the enclosing query's row
     for (FromItem item : fromItems) {
       // a LATERAL subquery sees the sources before it as an enclosing scope, like a correlated
       // subquery, and the join runs it once per row of those sources
       boolean lateral =
           item instanceof net.sf.jsqlparser.statement.select.LateralSubSelect
               || item instanceof net.sf.jsqlparser.statement.select.TableFunction;
-      LogicalPlan.Source s = source(item, lateral ? new Scope(plan.sources, outer) : outer);
+      Scope fromScope =
+          new Scope(lateral ? plan.sources : Collections.<LogicalPlan.Source>emptyList(), outer);
+      LogicalPlan.Source s = source(item, lateral || outer != null ? fromScope : null);
+      // it resolved past this query's own sources: this query is correlated too, so it runs per
+      // enclosing row with that row at hand
+      fromCorrelated |= fromScope.correlated;
       s.lateral = lateral && s.derived != null; // a table function over earlier sources
       plan.sources.add(s);
     }
@@ -4370,7 +4326,7 @@ public class QueryParser {
         }
       }
     }
-    plan.correlated = scope.correlated;
+    plan.correlated = scope.correlated || fromCorrelated;
     return plan;
   }
 
@@ -4386,6 +4342,7 @@ public class QueryParser {
     name = name.substring(name.lastIndexOf('.') + 1);
     return name.equals("unnest")
         || name.equals("generate_subscripts")
+        || name.equals("generate_series")
         || name.equals("_pg_expandarray")
         || JSON_TABLE_FUNCTIONS.contains(name);
   }
@@ -4758,6 +4715,8 @@ public class QueryParser {
         return (int) Catalog.elementOid(first);
       case "GENERATE_SUBSCRIPTS":
         return 23;
+      case "GENERATE_SERIES":
+        return first == 20 ? 20 : 23;
       case "CURRENT_SCHEMAS":
         return 1009;
       case "TO_REGTYPE":
@@ -5204,6 +5163,7 @@ public class QueryParser {
         return derived(values(Collections.singletonList(row)), item);
       }
       String name = function.getName().toLowerCase(Locale.ROOT);
+      name = name.startsWith("pg_catalog.") ? name.substring("pg_catalog.".length()) : name;
       if (name.equals("unnest")
           && function.getParameters() != null
           && function.getParameters().size() == 1
@@ -5251,21 +5211,57 @@ public class QueryParser {
         return source;
       }
       if (JSON_TABLE_FUNCTIONS.contains(name)
-          || (name.equals("unnest")
+          || ((name.equals("unnest") || name.equals("generate_series"))
               && function.getParameters() != null
               && !allConstant(function.getParameters()))) {
         // a table function over the sources before it (or a JSON array): a lateral subquery that
         // expands the function, one row per element
-        String column = name.equals("unnest") ? (alias != null ? alias : "unnest") : "value";
+        String column =
+            name.equals("unnest") || name.equals("generate_series")
+                ? (alias != null ? alias : name)
+                : "value";
+        List<String> columns = new ArrayList<>();
         if (item.getAlias() != null && item.getAlias().getAliasColumns() != null) {
-          column = unquote(item.getAlias().getAliasColumns().get(0).name);
+          for (Alias.AliasColumn c : item.getAlias().getAliasColumns()) {
+            columns.add(unquote(c.name));
+          }
+        }
+        String withClause =
+            ((net.sf.jsqlparser.statement.select.TableFunction) item).getWithClause();
+        boolean ordinality =
+            withClause != null && withClause.toUpperCase(Locale.ROOT).contains("ORDINALITY");
+        List<SelectItem<?>> items = new ArrayList<>();
+        if (name.equals("unnest")) {
+          // unnest(a, b, ...): one column per array, walked in step as the select list's
+          // set-returning functions are; WITH ORDINALITY adds the row number, from 1 whatever an
+          // array's lower bound, as _pg_expandarray's n
+          List<Expression> arrays = new ArrayList<>(function.getParameters());
+          for (int i = 0; i < arrays.size(); i++) {
+            Function unnest = new Function();
+            unnest.setName("unnest");
+            unnest.setParameters(new ExpressionList<>(arrays.get(i)));
+            String label =
+                i < columns.size() ? columns.get(i) : arrays.size() == 1 ? column : "unnest";
+            items.add(SelectItem.from(unnest, new Alias(label)));
+          }
+          if (ordinality) {
+            // ponytail: numbered along the first array; PostgreSQL numbers along the longest
+            Function expand = new Function();
+            expand.setName("_pg_expandarray");
+            expand.setParameters(new ExpressionList<>(arrays.get(0)));
+            String ordinal =
+                arrays.size() < columns.size() ? columns.get(arrays.size()) : "ordinality";
+            items.add(SelectItem.from(new RowGetExpression(expand, "n"), new Alias(ordinal)));
+          }
+        } else {
+          items.add(
+              SelectItem.from(function, new Alias(columns.isEmpty() ? column : columns.get(0))));
         }
         PlainSelect body = new PlainSelect();
-        body.setSelectItems(
-            Collections.<SelectItem<?>>singletonList(SelectItem.from(function, new Alias(column))));
+        body.setSelectItems(items);
         return derived(select(body, outer), item);
       }
-      if (name.equals("pg_get_keywords") || name.equals("pg_catalog.pg_get_keywords")) {
+      if (name.equals("pg_get_keywords")) {
         // what pgjdbc's getSQLKeywords() reads
         String qualifier = alias != null ? alias : "pg_get_keywords";
         List<String> columns = Arrays.asList("word", "catcode", "barelabel", "catdesc", "baredesc");
@@ -5282,30 +5278,29 @@ public class QueryParser {
         source.catalogRows = rows;
         return source;
       }
-      if (!name.endsWith("generate_series")) {
-        if (!name.startsWith("pg_catalog.")) {
-          throw new PgException.Argument("0A000", "Unsupported table function: " + function);
-        }
-        // psql's describe queries join pg_catalog functions such as unnest(); for the tables
-        // involved the answer is always "nothing", so the function yields no rows
-        String qualifier = alias != null ? alias : name.substring("pg_catalog.".length());
-        LogicalPlan.Source source =
-            new LogicalPlan.Source(qualifier, Collections.singletonList(qualifier), null, null);
-        source.catalogTable = "Function " + function.getName();
-        source.catalogRows = new ArrayList<>();
-        return source;
+      if (!name.equals("generate_series")) {
+        throw new PgException.Argument("0A000", "Unsupported table function: " + function);
       }
-      // generate_series(start, stop [, step]) over integer literals: a one-column source
+      // generate_series(start, stop [, step]) over integer values known while planning, such as
+      // pgjdbc's array_upper(current_schemas(false), 1): a one-column source
       List<Long> args = new ArrayList<>();
+      boolean nothing = false; // a NULL argument: no rows, as in PostgreSQL
       for (Expression e :
           function.getParameters() == null
               ? Collections.<Expression>emptyList()
               : function.getParameters()) {
-        if (!isLiteral(e) || literal(e) == null) {
-          throw new IllegalArgumentException(
-              "generate_series needs integer start, stop and step values: " + function);
+        embed(e);
+        Object v =
+            Evaluator.eval(
+                e,
+                Collections.<Map<String, Object>>emptyList(),
+                new Evaluator.Context(null, Collections.emptyMap(), catalog, BOUND.get()));
+        if (v == null) {
+          nothing = true;
+          args.add(0L);
+        } else {
+          args.add(new BigDecimal(Evaluator.text(v).trim()).longValueExact());
         }
-        args.add(new BigDecimal(literal(e)).longValueExact());
       }
       if (args.size() < 2 || args.size() > 3) {
         throw new IllegalArgumentException("generate_series takes 2 or 3 arguments: " + function);
@@ -5320,7 +5315,9 @@ public class QueryParser {
         column = unquote(item.getAlias().getAliasColumns().get(0).name);
       }
       List<Map<String, Object>> rows = new ArrayList<>();
-      for (long v = args.get(0); step > 0 ? v <= args.get(1) : v >= args.get(1); v += step) {
+      for (long v = args.get(0);
+          !nothing && (step > 0 ? v <= args.get(1) : v >= args.get(1));
+          v += step) {
         rows.add(Collections.<String, Object>singletonMap(qualifier + "." + column, v));
         if (rows.size() > DEFAULT_MAX_ROWS_PER_WRITE * 100) {
           throw new IllegalArgumentException("generate_series produces too many rows: " + function);
@@ -5400,7 +5397,17 @@ public class QueryParser {
     if (item.getAlias() == null) {
       throw new IllegalArgumentException("A subquery in FROM must have an alias: " + item);
     }
+    // a derived table's columns are its select list's labels, as in PostgreSQL: SELECT * over a
+    // join names its outputs i.id, j.id internally, and only a label two columns share keeps that
     List<String> columns = new ArrayList<>(derived.outputNames);
+    List<String> labels = derived.getColumnLabels();
+    if (labels.size() == columns.size()) {
+      for (int i = 0; i < columns.size(); i++) {
+        if (Collections.frequency(labels, labels.get(i)) == 1) {
+          columns.set(i, labels.get(i));
+        }
+      }
+    }
     if (item.getAlias().getAliasColumns() != null) {
       List<String> names = new ArrayList<>();
       for (Alias.AliasColumn column : item.getAlias().getAliasColumns()) {

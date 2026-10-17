@@ -1051,8 +1051,8 @@ public class QueryParserTest {
   }
 
   @Test
-  public void parse_CatalogQueryBeyondEngine_ShouldReturnNothing() throws Exception {
-    // a UNION over catalog tables now runs for real
+  public void parse_CatalogQueryBeyondEngine_ShouldFailLikeAnyOther() throws Exception {
+    // a UNION over catalog tables runs for real
     QueryParser.Plan union =
         parser.parse(
             "SELECT pubname FROM pg_catalog.pg_publication p WHERE p.puballtables "
@@ -1060,19 +1060,18 @@ public class QueryParserTest {
     assertThat(union.getOutputColumns()).containsExactly("pubname");
     assertThat(union.execute(transaction)).isEmpty();
 
-    // what the engine cannot plan at all still answers with no rows for catalog queries, with the
-    // output columns described so drivers see an empty result rather than no result
-    QueryParser.Plan plan =
-        parser.parse(
-            "SELECT relname, c.oid AS id, count(*) FROM pg_catalog.pg_class c, json_each('{}') j");
-    assertThat(plan.getOutputColumns()).containsExactly("relname", "id", "count");
-    assertThat(plan.execute(transaction)).isEmpty();
-    assertThat(plan.commandTag(0)).isEqualTo("SELECT 0");
-    assertThat(
-            parser
-                .parse("SELECT * FROM pg_catalog.pg_class EXCEPT ALL SELECT 'x'")
-                .getOutputColumns())
-        .isEmpty();
+    // what the engine cannot plan fails, as it would without pg_catalog in it: an empty answer
+    // would be made up (todo 057)
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "SELECT relname, c.oid AS id, count(*)"
+                        + " FROM pg_catalog.pg_class c, json_each('{}') j"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThatThrownBy(
+            () -> parser.parse("SELECT * FROM pg_catalog.pg_class EXCEPT ALL SELECT 'x'"))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -2951,6 +2950,38 @@ public class QueryParserTest {
         .containsExactly(map("indexname", "t_name_idx"), map("indexname", "t_pkey"));
     assertThatThrownBy(() -> parser.parse("SELECT 'nosuch'::regclass").execute(transaction))
         .hasMessageContaining("does not exist");
+  }
+
+  @Test
+  public void execute_TableFunctionsOverOtherColumns_ShouldRunAsPostgreSqlDoes() throws Exception {
+    // Django's inspectdb: unnest over two arrays WITH ORDINALITY, under SELECT * in a derived table
+    assertThat(
+            parser
+                .parse(
+                    "SELECT idx.key, idx.option, idx.arridx FROM (SELECT * FROM pg_index i,"
+                        + " unnest(i.indkey, i.indoption) WITH ORDINALITY koi(key, option, arridx)"
+                        + " WHERE i.indrelid = 't'::regclass AND i.indisprimary) idx"
+                        + " ORDER BY idx.arridx")
+                .execute(transaction))
+        .containsExactly(
+            map("key", 1L, "option", 0L, "arridx", 1L), map("key", 2L, "option", 0L, "arridx", 2L));
+    // psql \d+: a table function in a subquery over a column of the enclosing query
+    assertThat(
+            parser
+                .parse(
+                    "SELECT c.relname, (SELECT count(*) FROM generate_series(1, length(c.relname)) s)"
+                        + " AS n, array(SELECT x FROM pg_catalog.unnest(c.reloptions) x) AS o"
+                        + " FROM pg_catalog.pg_class c WHERE c.relname = 't'")
+                .execute(transaction))
+        .containsExactly(map("relname", "t", "n", 1L, "o", Collections.emptyList()));
+    // a FROM subquery reading the enclosing row makes its query correlated too
+    assertThat(
+            parser
+                .parse(
+                    "SELECT (SELECT y FROM (SELECT c.relname AS y) d) AS r"
+                        + " FROM pg_catalog.pg_class c WHERE c.relname = 't'")
+                .execute(transaction))
+        .containsExactly(map("r", "t"));
   }
 
   @Test

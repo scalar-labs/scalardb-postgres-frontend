@@ -3318,6 +3318,26 @@ final class Evaluator {
           }
           return records;
         }
+      case "GENERATE_SERIES":
+        {
+          // integer series in the select list, or over another FROM item's columns
+          List<Object> series = new ArrayList<>();
+          if (arg(args, 0) == null
+              || arg(args, 1) == null
+              || (args.size() > 2 && arg(args, 2) == null)) {
+            return series;
+          }
+          long start = num(args, 0).longValue();
+          long stop = num(args, 1).longValue();
+          long step = args.size() > 2 ? num(args, 2).longValue() : 1;
+          if (step == 0) {
+            throw new PgException.Argument("22023", "step size cannot equal zero");
+          }
+          for (long v = start; step > 0 ? v <= stop : v >= stop; v += step) {
+            series.add(v);
+          }
+          return series;
+        }
       case "GENERATE_SUBSCRIPTS":
         {
           List<Object> subscripts = new ArrayList<>();

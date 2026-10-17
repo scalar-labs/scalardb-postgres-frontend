@@ -161,19 +161,24 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
 - [x] `generate_subscripts` and `array_lower` follow an `int2vector`'s (or `oidvector`'s) lower bound of
       0. Acceptance: compat/ruby's primary-key, find/update and destroy steps (all 11 steps pass).
       `oidvector` takes the same `Evaluator.lowerBound` when it arrives with `pg_index.indclass`.
-- [ ] `unnest(...) WITH ORDINALITY` and a column list on its alias (`co(colid, arridx)`). Acceptance:
-      Django `inspectdb` keeps `primary_key=True`.
+- [x] `unnest(...) WITH ORDINALITY` and a column list on its alias (`co(colid, arridx)`). Acceptance:
+      Django `inspectdb` keeps `primary_key=True`. Django's constraints and indexes queries give
+      PostgreSQL 16's rows. That also took `unnest(a, b)` over several arrays, a derived table's
+      columns named by their labels (`SELECT *` over a join inside one failed with `Unknown column`
+      before this branch), and a query marked correlated when one of its FROM items reads the
+      enclosing row (`array(SELECT ... FROM unnest(tc.reloptions))` in psql's `\d+`).
 - [x] Re-run asyncpg after the `reg*` fix, and look at its `jsonb` value (the binary version byte reached
       the client as text) and its `uuid` value (arrived as text). Both were casts described as text;
       fixed above.
 
 **Removing the fallbacks** (`QueryParser.java`):
-- [ ] Delete the catch-all at 2190-2209, and `catalogColumnNames` (2218-2246), which becomes dead code.
-- [ ] Delete the table-function fallback at 5142-5153.
+- [x] Delete the catch-all at 2190-2209, and `catalogColumnNames` (2218-2246), which becomes dead code.
+- [x] Delete the table-function fallback at 5142-5153. `generate_series` over another FROM item's
+      columns (psql's publication query) now runs, as a select-list set-returning function.
   - `pg_catalog.unnest` must keep working: strip the `pg_catalog.` prefix in the real `unnest` paths
     (5064 and 5113).
   - An unknown table function fails with `0A000 Unsupported table function`.
-- [ ] Rewrite `QueryParserTest.parse_CatalogQueryBeyondEngine_ShouldReturnNothing` (1054-1076) to expect
+- [x] Rewrite `QueryParserTest.parse_CatalogQueryBeyondEngine_ShouldReturnNothing` (1054-1076) to expect
       the errors. Its two cases are `json_each` in FROM, and `EXCEPT ALL` with unequal columns.
 - [ ] **Unknown relations.** In `target()` (6442-6460), when a name is not found and either the schema is
       `pg_catalog` or the name is unqualified, report PostgreSQL's 42P01 message.
@@ -185,7 +190,8 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
       transaction is left behind when none was open (`QueryProcessor.java:54-71, 906-912`).
 
 **Making the audited client queries plannable:**
-- [ ] **pgjdbc `TypeInfoCache`.**
+- [x] **pgjdbc `TypeInfoCache`.** (`generate_series` arguments known while planning are evaluated with
+      the catalog; subscripting and `USING` already worked.)
   - `generate_series` should accept constant non-literal arguments, evaluated through `Evaluator.eval`
     with a context that carries the catalog. Today `literalContext()` (2559) passes `catalog = null`, so
     `current_schemas` would return null.
