@@ -209,6 +209,10 @@ final class Catalog {
     CATALOG_OIDS.put("pg_rewrite", 2618L);
     CATALOG_OIDS.put("pg_trigger", 2620L);
     CATALOG_OIDS.put("pg_database", 1262L);
+    CATALOG_OIDS.put("pg_proc", 1255L);
+    CATALOG_OIDS.put("pg_operator", 2617L);
+    CATALOG_OIDS.put("pg_aggregate", 2600L);
+    CATALOG_OIDS.put("pg_cast", 2605L);
   }
 
   private static final Map<String, List<String>> PG_CATALOG = new LinkedHashMap<>();
@@ -480,31 +484,7 @@ final class Catalog {
     PG_CATALOG.put("pg_rewrite", cols("oid", "rulename", "ev_class", "ev_enabled"));
     PG_CATALOG.put(
         "pg_trigger", cols("oid", "tgname", "tgrelid", "tgenabled", "tgisinternal", "tgfoid"));
-    // empty: ScalarDB has no functions, dependencies, policies or shared comments
-    PG_CATALOG.put(
-        "pg_proc",
-        cols(
-            "oid",
-            "proname",
-            "pronamespace",
-            "prokind",
-            "prorettype",
-            "proretset",
-            "proargtypes",
-            "proargnames",
-            "proargmodes",
-            "proallargtypes",
-            // what psql and pgjdbc read; the rows come with the function registry (Phase 2)
-            "pronargs",
-            "prolang",
-            "prosrc",
-            "prosecdef",
-            "provolatile",
-            "proacl",
-            "proisstrict",
-            "proparallel",
-            "proleakproof",
-            "proowner"));
+    // empty: ScalarDB has no dependencies, policies or shared comments
     PG_CATALOG.put(
         "pg_language",
         cols(
@@ -621,7 +601,22 @@ final class Catalog {
     type(2205, "regclass", "regclass");
     type(2206, "regtype", "regtype");
     type(4089, "regnamespace", "regnamespace");
+    type(2202, "regprocedure", "regprocedure");
+    type(194, "pg_node_tree", "pg_node_tree"); // pg_get_expr's argument
+    // the pseudo-types that pg_proc's polymorphic functions take and return
+    type(2276, "any", "\"any\"");
+    type(2277, "anyarray", "anyarray");
+    type(2283, "anyelement", "anyelement");
+    type(2776, "anynonarray", "anynonarray");
+    type(5077, "anycompatible", "anycompatible");
+    type(5078, "anycompatiblearray", "anycompatiblearray");
+    type(2279, "trigger", "trigger"); // what psql's \\df tells trigger functions apart by
+    type(3838, "event_trigger", "event_trigger");
   }
+
+  private static final java.util.Set<Long> PSEUDO_TYPES =
+      new java.util.HashSet<>(
+          Arrays.asList(2276L, 2277L, 2283L, 2776L, 5077L, 5078L, 2279L, 3838L));
 
   /** pg_get_keywords(): PostgreSQL's SQL keywords, from keywords.txt, read on first use. */
   static List<Map<String, Object>> keywords() {
@@ -782,7 +777,10 @@ final class Catalog {
     }
   }
 
-  /** A regclass, regtype or regnamespace value for an OID; an unknown OID prints as the number. */
+  /**
+   * A reg* value for an OID: regclass, regtype, regnamespace, regproc or regprocedure; an unknown
+   * OID prints as the number.
+   */
   Reg reg(String type, long oid) {
     try {
       return regOf(type, oid);
@@ -798,25 +796,35 @@ final class Catalog {
     String name = null;
     switch (type) {
       case "regtype":
-        name = TYPE_NAMES.get(oid);
+        name = TYPE_NAMES.containsKey(oid) || elementOid(oid) != 0 ? typeName(oid) : null;
         break;
       case "regnamespace":
         name = namespaceName(oid);
         break;
+      case "regproc":
+      case "regprocedure":
+        Builtins.Function f = Builtins.function(oid);
+        name =
+            f == null
+                ? null
+                : type.equals("regproc")
+                    // qualified when the name alone is ambiguous, as PostgreSQL prints it
+                    ? (Builtins.overloads(f.name).size() > 1 ? "pg_catalog." : "") + f.name
+                    : f.name + "(" + f.row.get("pg_get_function_identity_arguments") + ")";
+        break;
       case "regclass":
-        for (Map<String, Object> c : rows("pg_catalog", "pg_class", "c")) {
-          if (Objects.equals(c.get("c.oid"), oid)) {
-            Object namespace = c.get("c.relnamespace");
-            String schema = namespace instanceof Long ? namespaceName((Long) namespace) : null;
-            String relation = (String) c.get("c.relname");
-            // qualified when its bare name finds another, quoted as an identifier, as PostgreSQL
-            name =
-                Boolean.TRUE.equals(visible(oid))
-                    ? Evaluator.quoteIdent(String.valueOf(relation))
-                    : Evaluator.quoteIdent(String.valueOf(schema))
-                        + "."
-                        + Evaluator.quoteIdent(String.valueOf(relation));
-          }
+        Map<String, Object> c = rowOf("pg_class", oid);
+        if (c != null) {
+          Object namespace = c.get("x.relnamespace");
+          String schema = namespace instanceof Long ? namespaceName((Long) namespace) : null;
+          String relation = (String) c.get("x.relname");
+          // qualified when its bare name finds another, quoted as an identifier, as PostgreSQL
+          name =
+              Boolean.TRUE.equals(visible(oid))
+                  ? Evaluator.quoteIdent(String.valueOf(relation))
+                  : Evaluator.quoteIdent(String.valueOf(schema))
+                      + "."
+                      + Evaluator.quoteIdent(String.valueOf(relation));
         }
         if (name == null) {
           for (Map.Entry<String, Long> e : CATALOG_OIDS.entrySet()) {
@@ -830,20 +838,70 @@ final class Catalog {
     return new Reg(oid, name == null ? String.valueOf(oid) : name);
   }
 
-  @Nullable private String namespaceName(long oid) throws ExecutionException {
-    for (Map<String, Object> n : rows("pg_catalog", "pg_namespace", "n")) {
-      if (Objects.equals(n.get("n.oid"), oid)) {
-        return (String) n.get("n.nspname");
+  /** A pg_catalog table's row of this OID, or null. */
+  @Nullable Map<String, Object> rowOf(String table, long oid) {
+    try {
+      for (Map<String, Object> r : rows("pg_catalog", table, "x")) {
+        if (Objects.equals(r.get("x.oid"), oid)) {
+          return r;
+        }
       }
+      return null;
+    } catch (ExecutionException e) {
+      throw new IllegalStateException(e);
     }
-    return null;
+  }
+
+  /**
+   * Whether pg_type or pg_am names this function as a type's I/O function or an access method's.
+   */
+  boolean ioFunction(String name) {
+    try {
+      for (Map<String, Object> r : rows("pg_catalog", "pg_type", "x")) {
+        for (String c : new String[] {"typinput", "typoutput", "typreceive", "typsend"}) {
+          if (name.equals(r.get("x." + c))) {
+            return true;
+          }
+        }
+      }
+      for (Map<String, Object> r : rows("pg_catalog", "pg_am", "x")) {
+        if (name.equals(r.get("x.amhandler"))) {
+          return true;
+        }
+      }
+      return false;
+    } catch (ExecutionException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  /** pg_get_userbyid: the role's name, or PostgreSQL's placeholder for an unknown OID. */
+  String roleName(long oid) {
+    Map<String, Object> role = rowOf("pg_roles", oid);
+    return role != null
+        ? String.valueOf(role.get("x.rolname"))
+        : oid == OWNER_OID ? OWNER : "unknown (OID=" + oid + ")"; // the tables' owner
+  }
+
+  /** pg_relation_is_publishable: a user table is, an index or a catalog is not; null if none. */
+  @Nullable Boolean publishable(long oid) {
+    Map<String, Object> relation = rowOf("pg_class", oid);
+    return relation != null
+        ? (Boolean) "r".equals(relation.get("x.relkind"))
+        : CATALOG_OIDS.containsValue(oid) ? Boolean.FALSE : null;
+  }
+
+  @Nullable private String namespaceName(long oid) {
+    Map<String, Object> n = rowOf("pg_namespace", oid);
+    return n == null ? null : (String) n.get("x.nspname");
   }
 
   /** The type OID of a catalog column that is not inferred from its value: name, int2vector. */
   static long catalogColumnOid(String table, String column) {
     Long oid = CatalogTypes.TYPES.get(table + " " + column);
-    if (oid == null || oid == 24) {
-      // ponytail: regproc columns hold function names until pg_proc has OIDs (todo 057, Phase 2)
+    if (oid == null
+        || oid == 24 && !BUILTIN_ROWS.containsKey(table.replaceFirst("^pg_catalog\\.", ""))) {
+      // ponytail: pg_type's and pg_am's regproc columns hold names, of functions pg_proc lacks
       return column.equals("indkey") ? 22 : column.endsWith("name") ? 19 : 0;
     }
     long element = elementOid(oid);
@@ -858,6 +916,9 @@ final class Catalog {
 
   /** Declared tables that answer no rows yet though they should, and what will fill them. */
   static final Map<String, String> PENDING_ROWS = new LinkedHashMap<>();
+
+  // the tables whose rows are Builtins', in PostgreSQL 16's text
+  private static final Map<String, List<Map<String, String>>> BUILTIN_ROWS = new LinkedHashMap<>();
 
   static {
     empty("pg_trigger", "no triggers");
@@ -899,7 +960,11 @@ final class Catalog {
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
     empty("pg_views", "no views; the system views come with the system tables (todo 057, Phase 3)");
-    PENDING_ROWS.put("pg_proc", "the built-in functions (todo 057, Phase 2)");
+    // what the frontend implements, as PostgreSQL 16 lists it (Builtins)
+    builtin("pg_proc", Builtins.PROCS);
+    builtin("pg_aggregate", Builtins.AGGREGATES);
+    builtin("pg_operator", Builtins.OPERATORS);
+    builtin("pg_cast", Builtins.CASTS);
     PENDING_ROWS.put(
         "pg_depend", "dependencies, or a reason they are not kept (todo 057, Phase 3)");
     PENDING_ROWS.put("pg_collation", "default, C and POSIX besides ICU's (todo 057, Phase 3)");
@@ -908,12 +973,66 @@ final class Catalog {
   /** Declares a pg_catalog table that is empty here, with PostgreSQL 16's columns if new. */
   private static void empty(String table, String reason) {
     EMPTY_BECAUSE.put(table, reason);
+    declare(table);
+  }
+
+  /** Declares a pg_catalog table with PostgreSQL 16's columns, if not declared already. */
+  private static void declare(String table) {
     PG_CATALOG.computeIfAbsent(
         table,
         t ->
             Collections.unmodifiableList(
                 Objects.requireNonNull(
                     CatalogTypes.COLUMNS.get("pg_catalog." + t), t + " in catalog-types.txt")));
+  }
+
+  /** Declares a pg_catalog table of PostgreSQL 16's columns whose rows are Builtins'. */
+  private static void builtin(String table, List<Map<String, String>> rows) {
+    declare(table);
+    BUILTIN_ROWS.put(table, rows);
+  }
+
+  /** A catalog column's value from PostgreSQL's text for it. */
+  @Nullable private static Object catalogValue(String table, String column, @Nullable String text) {
+    if (text == null) {
+      return null;
+    }
+    int type = CatalogTypes.TYPES.getOrDefault(table + " " + column, 25L).intValue();
+    switch (type) {
+      case 16:
+        return text.equals("t");
+      case 20:
+      case 21:
+      case 23:
+      case 26:
+        return Long.parseLong(text);
+      case 700:
+        return Double.parseDouble(text);
+      case 24: // written as its OID and name: 852 int48eq
+        int space = text.indexOf(' ');
+        return space < 0
+            ? new Reg(0, "-")
+            : new Reg(Long.parseLong(text.substring(0, space)), text.substring(space + 1));
+      case 30:
+        List<Object> oids = new ArrayList<>();
+        for (String o : text.isEmpty() ? new String[0] : text.split(" ")) {
+          oids.add(Long.parseLong(o));
+        }
+        return new OidVector(oids);
+      case 1028: // oid[]
+      case 1009: // text[]
+      case 1002: // "char"[]
+        // {a,b} or {"",x}: catalog arrays hold no commas or quotes inside an element
+        List<Object> elements = new ArrayList<>();
+        String inside = text.substring(1, text.length() - 1);
+        for (String e : inside.isEmpty() ? new String[0] : inside.split(",", -1)) {
+          String element = e.replaceAll("^\"(.*)\"$", "$1");
+          elements.add(type == 1028 ? (Object) Long.parseLong(element) : element);
+        }
+        return elements;
+      default:
+        return text;
+    }
   }
 
   /** Every declared catalog table, qualified: pg_catalog.pg_class, information_schema.tables. */
@@ -978,7 +1097,8 @@ final class Catalog {
       {24, 1008},
       {2205, 2210},
       {2206, 2211},
-      {4089, 4090}
+      {4089, 4090},
+      {2202, 2207}
     };
     for (long[] p : pairs) {
       ARRAY_OIDS.put(p[0], p[1]);
@@ -1039,6 +1159,7 @@ final class Catalog {
       case 2205:
       case 2206:
       case 4089:
+      case 2202:
         return 4;
       case 20:
       case 701:
@@ -1052,7 +1173,8 @@ final class Catalog {
       case 19:
         return 64;
       default:
-        return -1;
+        // the pseudo-types but the array ones are four bytes wide
+        return PSEUDO_TYPES.contains(oid) && oid != 2277 && oid != 5078 ? 4 : -1;
     }
   }
 
@@ -1081,8 +1203,10 @@ final class Catalog {
         return "T";
       case 22:
         return "A";
+      case 194:
+        return "Z";
       default:
-        return "N";
+        return PSEUDO_TYPES.contains(oid) ? "P" : "N";
     }
   }
 
@@ -1168,7 +1292,8 @@ final class Catalog {
   /** The SQL type name for a type OID, as {@code format_type} returns it. */
   static String typeName(long oid) {
     String name = TYPE_NAMES.get(oid);
-    return name == null ? "unknown" : name;
+    long element = elementOid(oid);
+    return name != null ? name : element != 0 ? typeName(element) + "[]" : "unknown";
   }
 
   /**
@@ -1179,8 +1304,8 @@ final class Catalog {
    */
   static String typeName(long oid, @Nullable Long typmod) {
     long element = elementOid(oid);
-    if (element != 0 && typmod != null && typmod >= 0) {
-      return typeName(element, typmod) + "[]"; // character varying(20)[]
+    if (element != 0 && (typmod != null && typmod >= 0 || !TYPE_NAMES.containsKey(oid))) {
+      return typeName(element, typmod) + "[]"; // integer[], character varying(20)[]
     }
     String name = TYPE_NAMES.get(oid);
     if (name == null) {
@@ -1413,6 +1538,14 @@ final class Catalog {
   static long typeOid(String name) {
     String n = name.trim().toLowerCase(Locale.ROOT);
     n = n.startsWith("pg_catalog.") ? n.substring("pg_catalog.".length()) : n;
+    if (n.endsWith("[]") || n.startsWith("_")) {
+      // integer[], or the array type's own name, _int4
+      long element = typeOid(n.endsWith("[]") ? n.substring(0, n.length() - 2) : n.substring(1));
+      if (ARRAY_OIDS.containsKey(element)) {
+        return ARRAY_OIDS.get(element);
+      }
+      throw new PgException.Argument("42704", "type \"" + name + "\" does not exist");
+    }
     if (n.equals("char")) {
       return 1042; // char is character(1); the one-byte type is spelled "char"
     }
@@ -1574,10 +1707,36 @@ final class Catalog {
       role(t, OWNER_OID, OWNER, true, true);
     }
     timezoneNames(t);
+    for (Map.Entry<String, List<Map<String, String>>> b : BUILTIN_ROWS.entrySet()) {
+      String table = "pg_catalog." + b.getKey();
+      List<String> columns = Objects.requireNonNull(PG_CATALOG.get(b.getKey()));
+      for (Map<String, String> r : b.getValue()) {
+        Object[] values = new Object[columns.size()];
+        for (int i = 0; i < values.length; i++) {
+          values[i] = catalogValue(table, columns.get(i), r.get(columns.get(i)));
+        }
+        row(t, table, values);
+        if (r.get("description") != null) { // pg_proc's and pg_operator's, which psql shows
+          row(
+              t,
+              "pg_catalog.pg_description",
+              Long.parseLong(Builtins.field(r, "oid")),
+              CATALOG_OIDS.get(b.getKey()),
+              0L,
+              r.get("description"));
+          descriptions.put(b.getKey() + " " + Builtins.field(r, "oid"), r.get("description"));
+        }
+      }
+    }
     for (Map.Entry<Long, String> type : INTERNAL_TYPE_NAMES.entrySet()) {
       long oid = type.getKey();
       String name = type.getValue();
       long arrayOid = ARRAY_OIDS.getOrDefault(oid, 0L);
+      boolean pseudo = PSEUDO_TYPES.contains(oid);
+      // pg_node_tree and the pseudo-types name their I/O functions with an underscore
+      String io = pseudo || oid == 194 ? name + "_" : name;
+      // the polymorphic array types are aligned as any array may need
+      boolean anyArray = oid == 2277 || oid == 5078;
       row(
           t,
           "pg_catalog.pg_type",
@@ -1588,8 +1747,8 @@ final class Catalog {
           // typelem: int2vector and oidvector are subscripted as int2 and oid arrays
           oid == 22 ? 21L : oid == 30 ? 26L : 0L,
           ",",
-          name + "in",
-          "b",
+          io + "in",
+          pseudo ? "p" : "b",
           0L,
           arrayOid,
           typeLength(oid),
@@ -1600,13 +1759,13 @@ final class Catalog {
           OWNER_OID,
           null,
           typeLength(oid) > 0,
-          typeAlign(typeLength(oid)),
+          anyArray ? "d" : typeAlign(typeLength(oid)),
           typeLength(oid) > 0 ? "p" : "x",
           0L,
           false,
-          name + "out",
-          name + "recv",
-          name + "send",
+          io + "out",
+          pseudo && !anyArray ? "-" : io + "recv",
+          pseudo && !anyArray ? "-" : io + "send",
           "-",
           "-",
           "-",

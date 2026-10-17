@@ -1821,10 +1821,22 @@ public class PostgresServer implements AutoCloseable {
 
   /** A one-dimensional array in binary format: the mirror of {@link #arrayText(ByteBuffer)}. */
   private static byte[] arrayBinary(int elementOid, List<?> elements, int lowerBound) {
+    // a multi-dimensional array goes out as its dimensions and its elements in row-major order
+    List<Integer> dimensions = new ArrayList<>();
+    dimensions.add(elements.size());
+    List<?> flat = elements;
+    while (!flat.isEmpty()
+        && flat.get(0) instanceof List
+        && !(flat.get(0) instanceof Evaluator.Row)) {
+      dimensions.add(((List<?>) flat.get(0)).size());
+      List<Object> next = new ArrayList<>();
+      flat.forEach(row -> next.addAll((List<?>) row));
+      flat = next;
+    }
     List<byte[]> encoded = new ArrayList<>();
-    int size = 20;
+    int size = 12 + 8 * dimensions.size();
     boolean nulls = false;
-    for (Object e : elements) {
+    for (Object e : flat) {
       if (e == null) {
         encoded.add(null);
         nulls = true;
@@ -1845,7 +1857,10 @@ public class PostgresServer implements AutoCloseable {
       size += 4 + bytes.length;
     }
     ByteBuffer b = ByteBuffer.allocate(size);
-    b.putInt(1).putInt(nulls ? 1 : 0).putInt(elementOid).putInt(elements.size()).putInt(lowerBound);
+    b.putInt(dimensions.size()).putInt(nulls ? 1 : 0).putInt(elementOid);
+    for (int d : dimensions) {
+      b.putInt(d).putInt(lowerBound);
+    }
     for (byte[] bytes : encoded) {
       if (bytes == null) {
         b.putInt(-1);

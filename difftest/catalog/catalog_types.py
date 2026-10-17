@@ -1,5 +1,5 @@
 """Writes the columns of the catalog tables the frontend declares (Catalog.java's PG_CATALOG,
-INFORMATION_SCHEMA and its empty(...) tables), in order, with their types as PostgreSQL 16 describes
+INFORMATION_SCHEMA and its empty(...) and builtin(...) tables), in order, with their types as PostgreSQL 16 describes
 them: a domain's base type, as RowDescription reports it. The frontend describes a catalog column with
 this type when its own pg_type lists it, and an empty(...) table takes its columns from here.
 
@@ -19,7 +19,7 @@ def main():
     source = CATALOG.read_text()
     declared = re.findall(r'(PG_CATALOG|INFORMATION_SCHEMA)\.put\(\s*"([a-z_]+)"', source)
     tables = [("pg_catalog" if s == "PG_CATALOG" else "information_schema", t) for s, t in declared]
-    tables += [("pg_catalog", t) for t in re.findall(r'\bempty\(\s*"([a-z_]+)"', source)]
+    tables += [("pg_catalog", t) for t in re.findall(r'\b(?:empty|builtin)\(\s*"([a-z_]+)"', source)]
     conn = psycopg.connect(f"host=127.0.0.1 port={port} dbname=postgres user=postgres")
     rows = conn.execute(
         "SELECT n.nspname, c.relname, a.attname,"

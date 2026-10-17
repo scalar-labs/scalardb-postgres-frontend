@@ -4396,14 +4396,12 @@ public class QueryParser {
     }
     String name = ((Function) e).getName().toLowerCase(Locale.ROOT);
     name = name.substring(name.lastIndexOf('.') + 1);
-    return name.equals("unnest")
-        || name.equals("generate_subscripts")
-        || name.equals("generate_series")
-        || name.equals("_pg_expandarray")
-        || JSON_TABLE_FUNCTIONS.contains(name);
+    // pg_proc's proretset, and information_schema's _pg_expandarray
+    return name.equals("_pg_expandarray")
+        || Builtins.overloads(name).stream().anyMatch(f -> "t".equals(f.row.get("proretset")));
   }
 
-  /** Set-returning JSON functions, in the select list or as a table function in FROM. */
+  /** Set-returning JSON functions, as a table function in FROM. */
   private static final Set<String> JSON_TABLE_FUNCTIONS =
       new HashSet<>(
           Arrays.asList(
@@ -4549,10 +4547,12 @@ public class QueryParser {
       return (int) Catalog.arrayOid(element);
     }
     if (e instanceof net.sf.jsqlparser.expression.JsonExpression) {
-      return Evaluator.lastJsonOperator((net.sf.jsqlparser.expression.JsonExpression) e)
-              .endsWith(">>")
+      net.sf.jsqlparser.expression.JsonExpression j =
+          (net.sf.jsqlparser.expression.JsonExpression) e;
+      // -> and #> keep json or jsonb, ->> and #>> give text
+      return Evaluator.lastJsonOperator(j).endsWith(">>")
           ? 25
-          : 3802;
+          : inferOid(j.getExpression(), sources) == 114 ? 114 : 3802;
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.relational.JsonOperator) {
       return 16;
@@ -4633,7 +4633,11 @@ public class QueryParser {
         case "regnamespace":
           return 4089;
         default:
-          return 25;
+          try {
+            return (int) Catalog.typeOid(t); // bpchar, varchar, name, regproc, ...
+          } catch (PgException.Argument unknown) {
+            return 25;
+          }
       }
     }
     if (e instanceof net.sf.jsqlparser.expression.CaseExpression) {
@@ -4647,6 +4651,22 @@ public class QueryParser {
         branches.add(otherwise);
       }
       return unifiedOid(branches, sources);
+    }
+    if (e instanceof net.sf.jsqlparser.expression.BinaryExpression) {
+      net.sf.jsqlparser.expression.BinaryExpression b =
+          (net.sf.jsqlparser.expression.BinaryExpression) e;
+      // a quoted literal is of unknown type, and an unknown operand takes the other's, as in
+      // PostgreSQL: date_col - '2024-01-01' is date - date
+      int l = unknownType(b.getLeftExpression(), sources);
+      int r = unknownType(b.getRightExpression(), sources);
+      long result =
+          l == 0 && r == 0
+              ? 0
+              : Builtins.operatorOid(
+                  b.getStringExpression().trim(), l == 0 ? r : l, r == 0 ? l : r);
+      if (result != 0) {
+        return (int) result; // the operator PostgreSQL would choose (Builtins)
+      }
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
       return 25;
@@ -4664,236 +4684,62 @@ public class QueryParser {
         || e instanceof net.sf.jsqlparser.expression.operators.relational.RegExpMatchOperator) {
       return 16;
     }
-    if (e instanceof net.sf.jsqlparser.expression.BinaryExpression) {
-      net.sf.jsqlparser.expression.BinaryExpression b =
-          (net.sf.jsqlparser.expression.BinaryExpression) e;
-      int l = inferOid(b.getLeftExpression(), sources);
-      int r = inferOid(b.getRightExpression(), sources);
-      boolean lTemporal = l == 1082 || l == 1083 || l == 1114 || l == 1184;
-      boolean rTemporal = r == 1082 || r == 1083 || r == 1114 || r == 1184;
-      if (l == 1186 && r == 1186) {
-        return 1186;
-      }
-      if ((lTemporal && r == 1186) || (l == 1186 && rTemporal)) {
-        int t = lTemporal ? l : r;
-        return t == 1082 ? 1114 : t; // date + interval is a timestamp
-      }
-      if (lTemporal && rTemporal) {
-        return l == 1082 && r == 1082 ? 23 : 1186; // date - date is days; else an interval
-      }
-      if (l == 1082 && (r == 23 || r == 20 || r == 21)
-          || r == 1082 && (l == 23 || l == 20 || l == 21)) {
-        return 1082;
-      }
-      if (l == 1186 || r == 1186) {
-        return 1186;
-      }
-      if (l == 701 || r == 701 || l == 700 || r == 700) {
-        return 701;
-      }
-      if (l == 1700 || r == 1700) {
-        return 1700;
-      }
-      if (l == 20 || r == 20) {
-        return 20;
-      }
-      return l == 0 || r == 0 ? 0 : 23;
-    }
     if (e instanceof net.sf.jsqlparser.expression.AnalyticExpression) {
       net.sf.jsqlparser.expression.AnalyticExpression a =
           (net.sf.jsqlparser.expression.AnalyticExpression) e;
       String name = a.getName().toUpperCase(Locale.ROOT);
-      name = name.substring(name.lastIndexOf('.') + 1);
-      switch (name) {
-        case "ROW_NUMBER":
-        case "RANK":
-        case "DENSE_RANK":
-          return 20;
-        case "NTILE":
-          return 23;
-        case "PERCENT_RANK":
-        case "CUME_DIST":
-          return 701;
-        default:
-          return a.getExpression() == null
-              ? (name.equals("COUNT") ? 20 : 0)
-              : functionOid(name, Collections.singletonList(a.getExpression()), sources);
+      // the call's arguments: rank(), lag(x, offset, default), nth_value(x, n)
+      List<Expression> args = new ArrayList<>();
+      for (Expression x : Arrays.asList(a.getExpression(), a.getOffset(), a.getDefaultValue())) {
+        if (x != null) {
+          args.add(x);
+        }
       }
+      return functionOid(name.substring(name.lastIndexOf('.') + 1), args, sources);
     }
     if (e instanceof Function) {
       Function f = (Function) e;
       String name = f.getName().toUpperCase(Locale.ROOT);
       name = name.substring(name.lastIndexOf('.') + 1);
-      List<Expression> args =
-          f.getParameters() == null
-              ? Collections.<Expression>emptyList()
-              : new ArrayList<Expression>(f.getParameters());
+      List<Expression> args = new ArrayList<>();
+      if (f.getParameters() != null) {
+        args.addAll(f.getParameters());
+      } else if (f.getNamedParameters() != null) {
+        for (Object p : f.getNamedParameters().getExpressions()) {
+          args.add((Expression) p); // substring(s FROM n FOR m)
+        }
+      }
       return functionOid(name, args, sources);
     }
     return 0;
   }
 
+  /** An operand's type; 0 for a quoted literal, unknown until an operator or call takes it. */
+  private static int unknownType(Expression e, List<LogicalPlan.Source> sources) {
+    return unwrap(e) instanceof StringValue ? 0 : inferOid(e, sources);
+  }
+
+  /** A call's result type: PostgreSQL's for the signature it matches (Builtins), or 0. */
   private static int functionOid(
       String name, List<Expression> args, List<LogicalPlan.Source> sources) {
-    int first = args.isEmpty() ? 0 : inferOid(args.get(0), sources);
     switch (name) {
-      case "COUNT":
-        return 20;
-      case "JSON_BUILD_OBJECT":
-      case "JSON_BUILD_ARRAY":
-      case "TO_JSON":
-      case "JSON_AGG":
-      case "JSON_OBJECT_AGG":
-      case "JSON_EXTRACT_PATH":
-      case "JSON_ARRAY_ELEMENTS":
-        return 114;
-      case "JSONB_BUILD_OBJECT":
-      case "JSONB_BUILD_ARRAY":
-      case "TO_JSONB":
-      case "JSONB_AGG":
-      case "JSONB_OBJECT_AGG":
-      case "JSONB_EXTRACT_PATH":
-      case "JSONB_ARRAY_ELEMENTS":
-        return 3802;
-      case "JSON_TYPEOF":
-      case "JSONB_TYPEOF":
-      case "JSON_EXTRACT_PATH_TEXT":
-      case "JSONB_EXTRACT_PATH_TEXT":
-      case "JSON_ARRAY_ELEMENTS_TEXT":
-      case "JSONB_ARRAY_ELEMENTS_TEXT":
-        return 25;
-      case "JSON_ARRAY_LENGTH":
-      case "JSONB_ARRAY_LENGTH":
-        return 23;
-      case "ARRAY_AGG":
-        return (int) Catalog.arrayOid(first);
-      case "UNNEST":
-        return (int) Catalog.elementOid(first);
-      case "GENERATE_SUBSCRIPTS":
-        return 23;
-      case "GENERATE_SERIES":
-        return first == 20 ? 20 : 23;
-      case "CURRENT_SCHEMAS":
-        return 1009;
-      case "TO_REGTYPE":
-        return 2206;
-      case "TO_REGCLASS":
-        return 2205;
-      case "SUM":
-        return first == 23 || first == 21 ? 20 : first == 20 ? 1700 : first == 0 ? 0 : first;
-      case "AVG":
-        return first == 701 || first == 700 ? 701 : 1700;
+      // SQL syntax, not functions pg_proc lists (Evaluator.SYNTAX)
       case "COALESCE":
       case "NULLIF":
       case "GREATEST":
       case "LEAST":
         return unifiedOid(args, sources);
-      case "MIN":
-      case "MAX":
-      case "ABS":
-      case "ROUND":
-      case "FLOOR":
-      case "CEIL":
-      case "CEILING":
-      case "TRUNC":
-      case "MOD":
-      case "SIGN":
-      case "FIRST_VALUE":
-      case "LAST_VALUE":
-      case "NTH_VALUE":
-      case "LAG":
-      case "LEAD":
-      case "DATE_TRUNC":
-        for (Expression a : args) {
-          int oid = inferOid(a, sources);
-          if (oid != 0 && !(a instanceof NullValue)) {
-            return oid;
-          }
-        }
-        return 0;
-      case "BOOL_AND":
-      case "BOOL_OR":
-      case "EVERY":
-      case "STARTS_WITH":
-        return 16;
-      case "LENGTH":
-      case "CHAR_LENGTH":
-      case "CHARACTER_LENGTH":
-      case "OCTET_LENGTH":
       case "POSITION":
-      case "STRPOS":
-      case "ASCII":
-      case "CARDINALITY":
-      case "ARRAY_LENGTH":
-      case "ARRAY_UPPER":
-      case "ARRAY_LOWER":
         return 23;
-      case "POWER":
-      case "POW":
-      case "SQRT":
-      case "RANDOM":
-      case "EXP":
-      case "LN":
-      case "LOG":
-      case "PI":
-        return 701;
-      case "NOW":
-      case "CURRENT_TIMESTAMP":
-      case "TRANSACTION_TIMESTAMP":
-      case "STATEMENT_TIMESTAMP":
-        return 1184;
-      case "CURRENT_DATE":
-        return 1082;
-      case "EXTRACT":
-      case "DATE_PART":
-        return 1700;
-      case "AGE":
-        return 1186;
-      case "TO_CHAR":
-      case "UPPER":
-      case "LOWER":
-      case "CONCAT":
-      case "CONCAT_WS":
-      case "FORMAT":
-      case "QUOTE_IDENT":
-      case "QUOTE_LITERAL":
-      case "SUBSTRING":
-      case "SUBSTR":
-      case "TRIM":
-      case "LTRIM":
-      case "RTRIM":
-      case "BTRIM":
-      case "REPLACE":
-      case "LEFT":
-      case "RIGHT":
-      case "REVERSE":
-      case "STRING_AGG":
-      case "INITCAP":
-      case "LPAD":
-      case "RPAD":
-      case "REPEAT":
-      case "TRANSLATE":
-      case "MD5":
-      case "CHR":
-      case "FORMAT_TYPE":
-      case "PG_GET_USERBYID":
-      case "PG_ENCODING_TO_CHAR":
-      case "PG_GET_INDEXDEF":
-      case "PG_GET_CONSTRAINTDEF":
-      case "PG_GET_EXPR":
-      case "OBJ_DESCRIPTION":
-      case "COL_DESCRIPTION":
-      case "ARRAY_TO_STRING":
-      case "CURRENT_SCHEMA":
       case "CURRENT_USER":
-      case "VERSION":
-      case "CURRENT_SETTING":
-      case "SET_CONFIG":
-        return 25;
-      case "PG_BACKEND_PID":
-        return 23;
+      case "SESSION_USER":
+        return 19;
       default:
-        return 0;
+        long[] types = new long[args.size()];
+        for (int i = 0; i < types.length; i++) {
+          types[i] = unknownType(args.get(i), sources);
+        }
+        return (int) Builtins.resultOid(name, types);
     }
   }
 

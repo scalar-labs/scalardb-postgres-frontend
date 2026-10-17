@@ -445,7 +445,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [daS]
 -- postgres16: 157 8e8b98a0afc0
--- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
+-- expect: 55  # only the aggregates the frontend implements
 SELECT n.nspname as "Schema",
   p.proname AS "Name",
   pg_catalog.format_type(p.prorettype, NULL) AS "Result data type",
@@ -629,7 +629,7 @@ ORDER BY 1, 2;
 -----
 -- [dC]
 -- postgres16: 229 7e7a21ca0da2
--- expect: ERROR 42P01  # pg_cast is not declared yet (todo 057, Phase 2)
+-- expect: 98  # only the casts the frontend implements
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -657,7 +657,7 @@ ORDER BY 1, 2;
 -----
 -- [dC+]
 -- postgres16: 229 7cf149ff5137
--- expect: ERROR 42P01  # pg_cast is not declared yet (todo 057, Phase 2)
+-- expect: 98  # only the casts the frontend implements
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -1164,7 +1164,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
--- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
+-- expect: 242  # only the functions the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1205,7 +1205,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfaS]
 -- postgres16: 157 957a27792435
--- expect: 0  # pg_proc has no rows yet (todo 057, Phase 2)
+-- expect: 55  # only the aggregates the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1459,7 +1459,7 @@ ORDER BY 1;
 -----
 -- [do]
 -- postgres16: 0 e3b0c44298fc
--- expect: ERROR 42P01  # pg_operator is not declared yet (todo 057, Phase 2)
+-- expect: same
 SELECT n.nspname as "Schema",
   o.oprname AS "Name",
   CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type",
@@ -1476,7 +1476,7 @@ ORDER BY 1, 2, 3, 4;
 -----
 -- [doS]
 -- postgres16: 799 92dbd6588d14
--- expect: ERROR 42P01  # pg_operator is not declared yet (todo 057, Phase 2)
+-- expect: 378  # only the operators the frontend implements
 SELECT n.nspname as "Schema",
   o.oprname AS "Name",
   CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type",
@@ -1797,7 +1797,7 @@ ORDER BY 1, 2;
 -----
 -- [dTS]
 -- postgres16: 107 bbc1a3f89193
--- expect: 28  # only the types the frontend implements (todo 057, Phase 2)
+-- expect: 38  # only the types the frontend implements
 SELECT n.nspname as "Schema",
   pg_catalog.format_type(t.oid, NULL) AS "Name",
   pg_catalog.obj_description(t.oid, 'pg_type') as "Description"
@@ -1980,7 +1980,7 @@ SELECT 'now'::pg_catalog.regproc::pg_catalog.oid
 -----
 -- [sf now]
 -- postgres16: 1 b582d3167c70
--- expect: ERROR 0A000  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
+-- expect: same
 SELECT pg_catalog.pg_get_functiondef(0)
 -----
 -- [sf+ now]
@@ -1990,7 +1990,7 @@ SELECT 'now'::pg_catalog.regproc::pg_catalog.oid
 -----
 -- [sf+ now]
 -- postgres16: 1 b582d3167c70
--- expect: ERROR 0A000  # functions are named, not numbered, until pg_proc has rows (todo 057, Phase 2)
+-- expect: same
 SELECT pg_catalog.pg_get_functiondef(0)
 -----
 -- [dconfig]

@@ -87,7 +87,7 @@ import net.sf.jsqlparser.statement.select.Select;
  * Boolean.TRUE} passes a filter.
  */
 final class Evaluator {
-  private static final List<String> AGGREGATES =
+  static final List<String> AGGREGATES =
       Arrays.asList(
           "JSON_AGG",
           "JSONB_AGG",
@@ -412,7 +412,7 @@ final class Evaluator {
   private static final Set<String> SUBSTRING_SEARCHES =
       new java.util.HashSet<>(Arrays.asList("REPLACE", "STARTS_WITH", "POSITION", "STRPOS"));
 
-  private static final Set<String> TEXT_FUNCTIONS =
+  static final Set<String> TEXT_FUNCTIONS =
       new java.util.HashSet<>(
           Arrays.asList(
               "LENGTH",
@@ -421,7 +421,6 @@ final class Evaluator {
               "OCTET_LENGTH",
               "UPPER",
               "LOWER",
-              "INITCAP",
               "SUBSTRING",
               "SUBSTR",
               "LEFT",
@@ -436,18 +435,11 @@ final class Evaluator {
               "LPAD",
               "RPAD",
               "REVERSE",
-              "MD5",
-              "SPLIT_PART",
-              "REPEAT",
               "CONCAT",
               "CONCAT_WS",
-              "ASCII",
-              "TRANSLATE",
               "STARTS_WITH",
               "QUOTE_LITERAL",
-              "QUOTE_IDENT",
-              "REGEXP_REPLACE",
-              "REGEXP_MATCH"));
+              "QUOTE_IDENT"));
 
   /** quote_ident: quoted unless a lower-case name that is not a reserved keyword. */
   static String quoteIdent(String name) {
@@ -669,8 +661,8 @@ final class Evaluator {
     /** The setting's current value; null for a name the session does not know. */
     @Nullable String get(String name);
 
-    /** As SET [LOCAL] name = value. */
-    void set(String name, String value, boolean local);
+    /** As SET [LOCAL] name = value; the value as set, which a SET LOCAL outside a block is not. */
+    String set(String name, String value, boolean local);
 
     /** pg_settings.source: session after SET, client from the startup message, or default. */
     String source(String name);
@@ -966,7 +958,8 @@ final class Evaluator {
       for (Expression item : ((net.sf.jsqlparser.expression.ArrayConstructor) e).getExpressions()) {
         out.add(eval(item, group, ctx));
       }
-      return out;
+      return rectangular(
+          out, "multidimensional arrays must have array expressions with matching dimensions");
     }
     if (e instanceof IntervalExpression) {
       IntervalExpression iv = (IntervalExpression) e;
@@ -1063,7 +1056,22 @@ final class Evaluator {
       Object v = evalText(cast.getLeftExpression(), group, ctx); // '007'::text is 007
       String t = type.toLowerCase(Locale.ROOT);
       t = t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
-      boolean reg = t.equals("regclass") || t.equals("regtype") || t.equals("regnamespace");
+      String procName =
+          v instanceof String ? ((String) v).trim().replaceFirst("^pg_catalog\\.", "") : "";
+      if (t.equals("regproc")
+          && Builtins.overloads(procName).isEmpty()
+          && ctx.catalog != null
+          && ctx.catalog.ioFunction(procName)) {
+        // ponytail: pg_type's I/O function columns hold names of functions pg_proc does not list,
+        // which such a name compares with (pgjdbc's 'pg_catalog.array_in')
+        return procName;
+      }
+      boolean reg =
+          t.equals("regclass")
+              || t.equals("regtype")
+              || t.equals("regnamespace")
+              || t.equals("regproc")
+              || t.equals("regprocedure");
       if (reg && v != null && ctx.catalog != null) {
         // an OID, or an object's name as ORMs write 'table'::regclass, that prints as the name
         Object o = v instanceof Catalog.Reg ? (Object) ((Catalog.Reg) v).oid : v;
@@ -1079,13 +1087,11 @@ final class Evaluator {
                   ? ctx.catalog.relationOid(name)
                   : t.equals("regnamespace")
                       ? ctx.catalog.namespaceOid(name)
-                      : Catalog.typeOid(name);
+                      : t.startsWith("regproc")
+                          ? Builtins.procOid(name, t.equals("regprocedure"))
+                          : Catalog.typeOid(name);
         }
         return ctx.catalog.reg(t, oid);
-      }
-      if (t.equals("regproc") && v instanceof String && ((String) v).startsWith("pg_catalog.")) {
-        // ponytail: a function's name stands for it until pg_proc has OIDs (todo 057, Phase 2)
-        return ((String) v).substring("pg_catalog.".length());
       }
       return cast(type, v);
     }
@@ -1378,6 +1384,13 @@ final class Evaluator {
       }
       if (l instanceof Json.Value || r instanceof Json.Value) {
         return new Json.Value(Json.concat(Json.of(l).node, Json.of(r).node), true, null);
+      }
+      if (isBytea(l) && isBytea(r)) {
+        byte[] a = bytes(l);
+        byte[] b = bytes(r);
+        byte[] both = Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, both, a.length, b.length);
+        return both;
       }
       return text(l) + text(r);
     }
@@ -2103,6 +2116,10 @@ final class Evaluator {
           continue;
         }
         String s = text(item);
+        if (item instanceof List && !(item instanceof Row)) {
+          sb.append(s); // a row of a multi-dimensional array: {{1,2},{3,4}}
+          continue;
+        }
         boolean quote =
             s.isEmpty()
                 || s.equalsIgnoreCase("NULL")
@@ -2132,14 +2149,8 @@ final class Evaluator {
       java.time.ZonedDateTime z = ((Instant) v).atZone(zone());
       return timestampText(z.toLocalDateTime()) + offsetText(z.getOffset());
     }
-    if (v instanceof ByteBuffer) {
-      ByteBuffer b = ((ByteBuffer) v).duplicate();
-      byte[] bytes = new byte[b.remaining()];
-      b.get(bytes);
-      return "\\x" + hex(bytes);
-    }
-    if (v instanceof byte[]) {
-      return "\\x" + hex((byte[]) v);
+    if (isBytea(v)) {
+      return "\\x" + hex(bytes(v));
     }
     if (v instanceof Double) {
       return floatText((Double) v, 15);
@@ -2148,6 +2159,44 @@ final class Evaluator {
       return floatText((Float) v, 6);
     }
     return String.valueOf(v);
+  }
+
+  /**
+   * An array whose rows, if it has any, are arrays of one length all the way down, as PostgreSQL's
+   * multi-dimensional arrays are; 2202E otherwise.
+   */
+  private static List<Object> rectangular(List<Object> array, String message) {
+    boolean nested = array.stream().anyMatch(v -> v instanceof List && !(v instanceof Row));
+    if (nested) {
+      int length = -1;
+      for (Object row : array) {
+        if (!(row instanceof List) || row instanceof Row) {
+          throw new PgException.Argument("2202E", message);
+        }
+        @SuppressWarnings("unchecked")
+        List<Object> inner = rectangular((List<Object>) row, message);
+        if (length >= 0 && inner.size() != length) {
+          throw new PgException.Argument("2202E", message);
+        }
+        length = inner.size();
+      }
+    }
+    return array;
+  }
+
+  private static boolean isBytea(@Nullable Object v) {
+    return v instanceof ByteBuffer || v instanceof byte[];
+  }
+
+  /** A bytea value's bytes. */
+  private static byte[] bytes(Object v) {
+    if (v instanceof byte[]) {
+      return (byte[]) v;
+    }
+    ByteBuffer b = ((ByteBuffer) v).duplicate();
+    byte[] bytes = new byte[b.remaining()];
+    b.get(bytes);
+    return bytes;
   }
 
   /** PostgreSQL's timestamp text: the date and time, and the fraction without trailing zeros. */
@@ -2816,7 +2865,7 @@ final class Evaluator {
     return n instanceof Double ? "double precision" : "numeric";
   }
 
-  private static final java.util.Set<String> NUMERIC_FUNCTIONS =
+  static final java.util.Set<String> NUMERIC_FUNCTIONS =
       new java.util.HashSet<>(
           Arrays.asList(
               "ABS", "ROUND", "FLOOR", "CEIL", "CEILING", "MOD", "POWER", "POW", "SQRT", "SIGN"));
@@ -2935,6 +2984,14 @@ final class Evaluator {
       if (t.contains("float") || t.contains("double") || t.equals("real")) {
         return v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
       }
+      if (t.equals("\"char\"") && v instanceof Number) {
+        // an integer to "char" is the byte of that code; past ASCII it is not text in UTF8
+        long code = ((Number) v).longValue();
+        if (code < 0 || code > 127) {
+          throw new PgException.Argument("0A000", "Unsupported cast: " + code + " to \"char\"");
+        }
+        return code == 0 ? "" : String.valueOf((char) code);
+      }
       if (t.contains("char") || t.equals("text") || t.equals("string")) {
         java.util.regex.Matcher length = TYPE_LENGTH.matcher(t);
         // char(n) and varchar(n) casts truncate; a bare char or character is char(1)
@@ -3049,6 +3106,18 @@ final class Evaluator {
       }
       return values;
     }
+    if (name.equals("PG_TYPEOF")
+        && f.getParameters() != null
+        && f.getParameters().size() == 1
+        && !(QueryParser.unwrap(f.getParameters().get(0)) instanceof StringValue)
+        && ctx.catalog != null) {
+      // the argument's declared type, as planning infers it; a quoted literal's is unknown, which
+      // the frontend does not name, so it falls through to fail as unsupported
+      int oid = QueryParser.inferOid(f.getParameters().get(0), ctx.sources);
+      if (oid != 0) {
+        return ctx.catalog.reg("regtype", oid);
+      }
+    }
     if (name.equals("COALESCE") && f.getParameters() != null) {
       // stops at the first non-null argument: coalesce(1, 1/0) is 1, as in PostgreSQL
       for (Expression p : f.getParameters()) {
@@ -3085,6 +3154,16 @@ final class Evaluator {
       if (name.equals("POSITION")) {
         Collections.reverse(args); // the same arguments as strpos(s, sub)
       }
+    }
+    if (GATED && !SYNTAX.contains(name) && !Builtins.accepts(name, args.size())) {
+      // only what pg_proc lists runs (Builtins)
+      throw new PgException.Argument("0A000", "Unsupported function: " + f);
+    }
+    if ((textual || name.equals("STRING_AGG"))
+        && !name.endsWith("LENGTH")
+        && args.stream().anyMatch(Evaluator::isBytea)) {
+      // the text functions but length would read bytea as its text; their bytea forms are not here
+      throw new PgException.Argument("0A000", "Unsupported function: " + f + " on bytea");
     }
     typeLiteralArguments(name, f.getParameters(), args);
     Object catalogResult = catalogFunction(name, args, ctx);
@@ -3170,8 +3249,7 @@ final class Evaluator {
           if (settings == null || arg(args, 1) == null) {
             throw new PgException.Argument("22023", "set_config needs a session and a value");
           }
-          settings.set(str(args, 0), str(args, 1), isTrue(arg(args, 2)));
-          return settings.get(str(args, 0));
+          return settings.set(str(args, 0), str(args, 1), isTrue(arg(args, 2)));
         }
       case "STATEMENT_TIMESTAMP":
         {
@@ -3414,6 +3492,24 @@ final class Evaluator {
               || (args.size() > 2 && arg(args, 2) == null)) {
             return series;
           }
+          if (args.stream().anyMatch(a -> a instanceof BigDecimal)) {
+            // generate_series(numeric, numeric[, numeric]): a numeric series
+            BigDecimal start = decimal(text(args.get(0)));
+            BigDecimal stop = decimal(text(args.get(1)));
+            BigDecimal step = args.size() > 2 ? decimal(text(args.get(2))) : BigDecimal.ONE;
+            if (step.signum() == 0) {
+              throw new PgException.Argument("22023", "step size cannot equal zero");
+            }
+            for (BigDecimal v = start;
+                step.signum() > 0 ? v.compareTo(stop) <= 0 : v.compareTo(stop) >= 0;
+                v = v.add(step)) {
+              series.add(v);
+              if (series.size() > QueryParser.MAX_SERIES_ROWS) {
+                throw new PgException.Argument("54000", "generate_series produces too many rows");
+              }
+            }
+            return series;
+          }
           long start = num(args, 0).longValue();
           long stop = num(args, 1).longValue();
           long step = args.size() > 2 ? num(args, 2).longValue() : 1;
@@ -3465,6 +3561,10 @@ final class Evaluator {
           return Interval.age(from, to);
         }
       case "DATE_TRUNC":
+        if (args.size() > 2) {
+          // date_trunc(field, timestamptz, zone) truncates in that zone, which is not done here
+          throw new PgException.Argument("0A000", "Unsupported function: " + f);
+        }
         return dateTrunc(str(args, 0), arg(args, 1));
       default:
         throw new PgException.Argument("0A000", "Unsupported function: " + f);
@@ -3472,6 +3572,84 @@ final class Evaluator {
   }
 
   private static final Object NOT_A_CATALOG_FUNCTION = new Object();
+
+  /** pg_size_pretty, as PostgreSQL 16's dbsize.c: bytes below 10 kB, then halves rounded away. */
+  static String sizePretty(long size) {
+    String[] units = {"bytes", "kB", "MB", "GB", "TB", "PB"};
+    for (int i = 0; ; i++) {
+      long limit = i == 0 ? 10 * 1024 : 20 * 1024 - 1;
+      if (i == units.length - 1 || Math.abs(size) < limit) {
+        return (i == 0 ? size : (size + (size < 0 ? -1 : 1)) / 2) + " " + units[i];
+      }
+      size /= 1L << (i == 0 ? 9 : 10); // the next unit keeps one more bit, for the rounding
+    }
+  }
+
+  // PostgreSQL's encodings by number, as pg_encoding_to_char names them
+  private static final List<String> ENCODINGS =
+      Arrays.asList(
+          "SQL_ASCII",
+          "EUC_JP",
+          "EUC_CN",
+          "EUC_KR",
+          "EUC_TW",
+          "EUC_JIS_2004",
+          "UTF8",
+          "MULE_INTERNAL",
+          "LATIN1",
+          "LATIN2",
+          "LATIN3",
+          "LATIN4",
+          "LATIN5",
+          "LATIN6",
+          "LATIN7",
+          "LATIN8",
+          "LATIN9",
+          "LATIN10",
+          "WIN1256",
+          "WIN1258",
+          "WIN866",
+          "WIN874",
+          "KOI8R",
+          "WIN1251",
+          "WIN1252",
+          "ISO_8859_5",
+          "ISO_8859_6",
+          "ISO_8859_7",
+          "ISO_8859_8",
+          "WIN1250",
+          "WIN1253",
+          "WIN1254",
+          "WIN1255",
+          "WIN1257",
+          "KOI8U",
+          "SJIS",
+          "BIG5",
+          "GBK",
+          "UHC",
+          "GB18030",
+          "JOHAB",
+          "SHIFT_JIS_2004");
+
+  // off only for difftest/catalog/builtins.py, which finds what runs to write Builtins' list
+  private static final boolean GATED = !Boolean.getBoolean("scalardb.frontend.builtins.ungated");
+
+  // calls that are SQL syntax rather than functions pg_proc lists, and _pg_expandarray, which is
+  // information_schema's
+  static final Set<String> SYNTAX =
+      new java.util.HashSet<>(
+          Arrays.asList(
+              "COALESCE",
+              "NULLIF",
+              "GREATEST",
+              "LEAST",
+              "POSITION",
+              "TRIM",
+              "CURRENT_TIME",
+              "CURRENT_TIMESTAMP",
+              "LOCALTIME",
+              "LOCALTIMESTAMP",
+              "_PG_EXPANDARRAY"));
 
   /** A composite value, such as a row of _pg_expandarray(); its text is PostgreSQL's (a,b). */
   static final class Record extends LinkedHashMap<String, Object> {
@@ -3503,15 +3681,25 @@ final class Evaluator {
     try {
       switch (name) {
         case "PG_GET_USERBYID":
-          return Catalog.OWNER;
+          return ctx.catalog == null || arg(args, 0) == null
+              ? null
+              : ctx.catalog.roleName(num(args, 0).longValue());
         case "PG_ENCODING_TO_CHAR":
-          return "UTF8";
+          {
+            if (arg(args, 0) == null) {
+              return null;
+            }
+            long id = num(args, 0).longValue();
+            return id >= 0 && id < ENCODINGS.size() ? ENCODINGS.get((int) id) : "";
+          }
         case "PG_TABLE_IS_VISIBLE":
           return ctx.catalog == null || !(arg(args, 0) instanceof Number)
               ? null
               : ctx.catalog.visible(num(args, 0).longValue());
         case "PG_RELATION_IS_PUBLISHABLE":
-          return true;
+          return ctx.catalog == null || arg(args, 0) == null
+              ? null
+              : ctx.catalog.publishable(num(args, 0).longValue());
         case "ARRAY_LENGTH":
         case "ARRAY_UPPER":
         case "ARRAY_LOWER":
@@ -3587,17 +3775,12 @@ final class Evaluator {
               : ctx.catalog.description(
                   num(args, 0).longValue(), args.size() > 1 ? text(args.get(1)) : "pg_class");
         case "PG_SIZE_PRETTY":
-          if (arg(args, 0) != null) {
-            return NOT_A_CATALOG_FUNCTION; // only the unknown sizes below reach it, from psql's
-            // \dt+
-          }
-          return null;
+          return arg(args, 0) == null ? null : sizePretty(num(args, 0).longValue());
         case "PG_TABLE_SIZE": // ScalarDB does not tell how much storage a table takes
         case "PG_RELATION_SIZE":
         case "PG_TOTAL_RELATION_SIZE":
         case "PG_INDEXES_SIZE":
         case "PG_GET_EXPR":
-        case "PG_PARTITION_ANCESTORS":
         case "COL_DESCRIPTION":
         case "SHOBJ_DESCRIPTION":
         case "PG_DATABASE_SIZE":
@@ -3606,14 +3789,45 @@ final class Evaluator {
           return null;
         case "PG_STAT_GET_NUMSCANS": // DBeaver's index list; ScalarDB keeps no statistics
           return 0L; // PostgreSQL's answer for a relation with no statistics entry
+        case "PG_FUNCTION_IS_VISIBLE": // every function is in pg_catalog: visible, if it exists
+          return arg(args, 0) == null || Builtins.function(num(args, 0).longValue()) == null
+              ? null
+              : true;
+        case "PG_GET_FUNCTION_ARGUMENTS":
+        case "PG_GET_FUNCTION_IDENTITY_ARGUMENTS":
+        case "PG_GET_FUNCTION_RESULT":
+        case "PG_GET_FUNCTIONDEF":
+          {
+            Builtins.Function fn =
+                arg(args, 0) == null ? null : Builtins.function(num(args, 0).longValue());
+            if (fn != null
+                && name.equals("PG_GET_FUNCTIONDEF")
+                && "a".equals(fn.row.get("prokind"))) {
+              throw new PgException.Argument(
+                  "42809", "\"" + fn.name + "\" is an aggregate function");
+            }
+            return fn == null ? null : fn.row.get(name.toLowerCase(Locale.ROOT));
+          }
+        case "PG_PARTITION_ANCESTORS": // ScalarDB tables are not partitions: no rows
+          return Collections.emptyList();
         case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
+          return true;
         case "PG_TYPE_IS_VISIBLE":
+        case "PG_OPERATOR_IS_VISIBLE":
         case "PG_OPCLASS_IS_VISIBLE":
         case "PG_OPFAMILY_IS_VISIBLE":
         case "PG_COLLATION_IS_VISIBLE":
-          return true;
+          {
+            // all of them are in pg_catalog, so visible; null for no such object, as PostgreSQL
+            String table = "pg_" + name.substring(3, name.indexOf("_IS_")).toLowerCase(Locale.ROOT);
+            return ctx.catalog == null || arg(args, 0) == null
+                ? null
+                : ctx.catalog.rowOf(table, num(args, 0).longValue()) == null ? null : true;
+          }
         case "PG_CHAR_TO_ENCODING":
-          return "UTF8".equalsIgnoreCase(String.valueOf(arg(args, 0))) ? 6L : -1L;
+          return arg(args, 0) == null
+              ? null
+              : (Object) (long) ENCODINGS.indexOf(text(args.get(0)).toUpperCase(Locale.ROOT));
         case "GETDATABASEENCODING":
           return "UTF8";
         case "PG_TABLESPACE_LOCATION": // the built-in tablespaces have none
@@ -3741,7 +3955,21 @@ final class Evaluator {
         pairs.add(key);
         pairs.add(eval(params.get(1), Collections.singletonList(row), ctx));
       }
-      return new Json.Value(Json.buildObject(pairs), name.startsWith("JSONB"), null);
+      com.fasterxml.jackson.databind.node.ObjectNode object = Json.buildObject(pairs);
+      if (name.startsWith("JSONB")) {
+        return new Json.Value(object, true, null);
+      }
+      // json_object_agg writes { "k" : v, ... }, spaced as PostgreSQL does
+      StringJoiner members = new StringJoiner(", ", "{ ", " }");
+      object
+          .fields()
+          .forEachRemaining(
+              m ->
+                  members.add(
+                      Json.text(new com.fasterxml.jackson.databind.node.TextNode(m.getKey()), false)
+                          + " : "
+                          + Json.text(m.getValue(), false)));
+      return new Json.Value(object, false, members.toString());
     }
     List<Object> values = new ArrayList<>();
     for (Map<String, Object> row : group) {
@@ -3845,7 +4073,10 @@ final class Evaluator {
           return and;
         }
       case "ARRAY_AGG":
-        return values.isEmpty() ? null : new ArrayList<>(values);
+        return values.isEmpty()
+            ? null
+            : rectangular(
+                new ArrayList<>(values), "cannot accumulate arrays of different dimensionality");
       case "JSON_AGG":
       case "JSONB_AGG":
         return values.isEmpty()

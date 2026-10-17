@@ -320,54 +320,86 @@ and `pg_shdescription`.
 
 ### Phase 2: List what the frontend implements (group C)
 
-- [ ] **Function registry**, `Builtins.java`: one row per overload with `name`, `argtypes` (OIDs),
+**Done (2026-10-17), and how it differs from the items below.** The lists are not written by hand.
+`difftest/catalog/builtins.py` takes the candidates from PostgreSQL 16's `pg_proc` (names the frontend's
+source mentions), `pg_operator` and `pg_cast`, calls each with sample values on PostgreSQL 16 and on the
+frontend (started with `-Dscalardb.frontend.builtins.ungated=true`), and keeps the rows the frontend runs:
+242 function signatures (55 of them aggregates), 378 operators, 98 casts. The rows are PostgreSQL's, OIDs
+included, in `builtins.txt`, `aggregates.txt`, `operators.txt` and `casts.txt`; `builtins-calls.txt` keeps
+the call that proved each. The script lists every call whose type or text differs from PostgreSQL's; the
+last run lists none.
+- A call's described type now comes from the signature it matches (`Builtins.resultOid`,
+  `Builtins.operatorOid`), not from `functionOid`'s hand-written cases, which are gone. Types that changed
+  for clients: `current_database()`, `current_schema()`, `current_user`, `pg_get_userbyid()` and
+  `getdatabaseencoding()` are `name`; `date_part()` is `double precision`; `date_trunc()` is the
+  timestamp type of its argument; `clock_timestamp()` is `timestamptz`; `gen_random_uuid()` is `uuid`;
+  the size functions are `bigint`; `current_schemas()` is `name[]`; `smallint` and `real` arithmetic
+  keep their types; `json -> x` stays `json`; `x::varchar`, `x::bpchar` and `x::name` keep theirs.
+- Wrong answers the script found, fixed: `array_agg` of arrays and multi-dimensional arrays in text and
+  binary; numeric `generate_series`; `json_object_agg`'s spacing; bytea `||`; `pg_size_pretty`;
+  `set_config(..., true)` outside a block; `pg_encoding_to_char`, `pg_char_to_encoding`;
+  `pg_get_userbyid` for an unknown role; `pg_*_is_visible`, `pg_relation_is_publishable` and
+  `pg_partition_ancestors`, which answered true or a NULL row for objects that do not exist; integer to
+  `"char"`. Refused with `0A000` instead: the text functions on bytea, `date_trunc` with a time zone.
+  Left: `json` extraction re-spaces its text (todo 060).
+- `pg_cast.castfunc` and `pg_operator.oprcode` keep PostgreSQL's OIDs, of functions such as `int4(bigint)`
+  and `int4pl` that `pg_proc` does not list, since they cannot be called here; psql's `\dC` shows no
+  function name for those casts. `castmethod` is PostgreSQL's, not `'f'`.
+- `pg_typeof(x)` types x while running, from the plan's FROM items as planning does; it fails for a
+  quoted literal, which PostgreSQL calls `unknown`.
+- Overload ties go to PostgreSQL's preferred types (`ceil(int)` is `ceil(float8)`), and a quoted literal
+  is of unknown type, which takes the other operand's (`date_col - '2024-01-01'` is `date - date`). The
+  `anycompatible` family's result takes the first argument's type, not the common one (todo 061).
+- `pg_description` has the functions' and operators' descriptions, as `\df`, `\do` and `\da` show.
+
+- [x] **Function registry**, `Builtins.java`: one row per overload with `name`, `argtypes` (OIDs),
       `rettype`, `kind` (`f`/`a`/`w`), `retset` and `strict`.
   - Covers the about 90 scalar functions dispatched in `Evaluator.scalar` (from 2924), the table
     functions in `QueryParser.source`, `Evaluator.AGGREGATES` (89-103) and `Windows.RANKING`
     (`Windows.java:28`).
   - Types come from `Catalog.typeOid(String)`, so a misspelled type name fails when the class loads.
-- [ ] **Registry as a gate.** `Evaluator.scalar` checks the registry for the name, and arity, before it
+- [x] **Registry as a gate.** `Evaluator.scalar` checks the registry for the name, and arity, before it
       dispatches. An unlisted name gives the same `0A000 Unsupported function`. Every existing function
       test therefore checks that the registry is complete.
-- [ ] **Dead names.** Delete the eight names in `TEXT_FUNCTIONS` (`Evaluator.java:414-449`) that are never
+- [x] **Dead names.** Delete the eight names in `TEXT_FUNCTIONS` (`Evaluator.java:414-449`) that are never
       dispatched (`INITCAP`, `MD5`, `SPLIT_PART`, `REPEAT`, `ASCII`, `TRANSLATE`, `REGEXP_REPLACE`,
       `REGEXP_MATCH`; `QUOTE_LITERAL` and `QUOTE_IDENT` are implemented since Phase 1), and the cases in `functionOid` for undispatched
       functions (`TRUNC`, `EXP`, `LN`, `LOG`, `PI`, `RANDOM`, `TO_CHAR`, `CHR`). Implementing them is a
       separate todo.
-- [ ] **`BuiltinsTest`.** For each row, build a call from sample literals per argument type, execute it
+- [x] **`BuiltinsTest`.** For each row, build a call from sample literals per argument type, execute it
       (the pattern of `QueryParserTest.java:525`), and assert that it runs and reports `rettype` (through
       `inferOid`, `QueryParser.java:4214`).
   - Also assert that `AGGREGATES`, `Windows.RANKING`, `TEXT_FUNCTIONS` and `NUMERIC_FUNCTIONS` are
     subsets of the registry.
-- [ ] **`pg_typeof(x)`.** It fails with `0A000 Unsupported function` today, which is honest, and no
+- [x] **`pg_typeof(x)`.** It fails with `0A000 Unsupported function` today, which is honest, and no
       captured client sends it. It must answer the argument's declared type as a `regtype`, which only
       the planner knows (a Java `Long` may be `int4` or `int8`), so it takes `inferOid` at plan time
       rather than a runtime case in `Evaluator`; do it with the registry, or sooner if a client sends it.
-- [ ] **`pg_proc` rows** from the registry:
+- [x] **`pg_proc` rows** from the registry:
   - namespace `pg_catalog`, `prolang` 12, `prosrc` = the name, OIDs taken from PostgreSQL 16 for the same
     signature, so that clients caching OIDs agree.
   - Pseudo-types that rows reference (`anyelement`, `anyarray`, `"any"`, `record`, `void`, `oid`,
     `regclass`, `regtype`, `regproc`, `unknown`, `cstring`) are added to the type table with
     `typtype 'p'` (the emitter hard-codes `b` at `Catalog.java:916`). So `\dTS` shows them, as in
     PostgreSQL.
-- [ ] **`pg_aggregate`**: rows from the `a` rows (`aggfnoid`, `aggkind 'n'`, `aggnumdirectargs` 0,
+- [x] **`pg_aggregate`**: rows from the `a` rows (`aggfnoid`, `aggkind 'n'`, `aggnumdirectargs` 0,
       `aggtranstype`, ...), the columns psql's `\da` reads.
-- [ ] **`pg_operator`**: an explicit table of the operators `Evaluator.eval` implements: comparison,
+- [x] **`pg_operator`**: an explicit table of the operators `Evaluator.eval` implements: comparison,
       arithmetic including the date, time and interval forms, `||`, `LIKE`/`~` and their negations, and
       the jsonb operators. Each row has left and right types, result type and kind.
   - `OperatorsTest` executes every row, as `BuiltinsTest` does.
-- [ ] **`pg_cast`**: the pairs `Evaluator.cast` (2750-2890) supports between the supported types. It
+- [x] **`pg_cast`**: the pairs `Evaluator.cast` (2750-2890) supports between the supported types. It
       decides by target type only, so the table is a model of that, checked by executing each pair with a
       sample value.
   - `castmethod 'f'` with `castfunc` 0, since no function is exposed per cast. `castcontext` follows
       PostgreSQL's for the same pair.
-- [ ] **New catalog functions:**
+- [x] **New catalog functions:**
   - `pg_get_function_result`, `pg_get_function_arguments` and `pg_get_function_identity_arguments`;
   - `pg_function_is_visible` and `pg_operator_is_visible`;
   - `regproc` and `regprocedure` casts, which today return the string unchanged, a made-up answer;
   - `pg_get_functiondef`, which returns PostgreSQL's `LANGUAGE internal` form. Running it back fails
     cleanly with `Unsupported statement`, since `CREATE FUNCTION` is not supported.
-- [ ] **JDBC acceptance.** `getFunctions`, `getFunctionColumns` and `getProcedureColumns` list the
+- [x] **JDBC acceptance.** `getFunctions`, `getFunctionColumns` and `getProcedureColumns` list the
       registry.
 
 ### Phase 3 (optional, a separate merge): the catalog lists itself

@@ -1,0 +1,719 @@
+# what proved each row of builtins.txt, operators.txt (o) and casts.txt (c): id, result type, call
+1394	700	SELECT abs(1.5::float4)
+1395	701	SELECT abs(1.5::float8)
+1396	20	SELECT abs(2::int8)
+1397	23	SELECT abs(2::int4)
+1398	21	SELECT abs(2::int2)
+1705	1700	SELECT abs(1.5::numeric)
+1199	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz, '2024-02-29 12:34:56+00'::timestamptz)
+1386	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz)
+2058	1186	SELECT age('2024-02-29 12:34:56'::timestamp, '2024-02-29 12:34:56'::timestamp)
+2059	1186	SELECT age('2024-02-29 12:34:56'::timestamp)
+2335	1007	SELECT array_agg(2::int4)
+4053	1007	SELECT array_agg(ARRAY[1,2]::int4[])
+2176	23	SELECT array_length(ARRAY[1,2]::int4[], 1::int4)
+2091	23	SELECT array_lower(ARRAY[1,2]::int4[], 1::int4)
+384	25	SELECT array_to_string(ARRAY[1,2]::int4[], 'a'::text, 'a'::text)
+395	25	SELECT array_to_string(ARRAY[1,2]::int4[], 'a'::text)
+2092	23	SELECT array_upper(ARRAY[1,2]::int4[], 1::int4)
+2100	1700	SELECT avg(2::int8)
+2101	1700	SELECT avg(2::int4)
+2102	1700	SELECT avg(2::int2)
+2103	1700	SELECT avg(1.5::numeric)
+2104	701	SELECT avg(1.5::float4)
+2105	701	SELECT avg(1.5::float8)
+2517	16	SELECT bool_and(true)
+2518	16	SELECT bool_or(true)
+884	25	SELECT btrim('a'::text, 'a'::text)
+885	25	SELECT btrim('a'::text)
+3179	23	SELECT cardinality(ARRAY[1,2]::int4[])
+1711	1700	SELECT ceil(1.5::numeric)
+2308	701	SELECT ceil(1.5::float8)
+2167	1700	SELECT ceiling(1.5::numeric)
+2320	701	SELECT ceiling(1.5::float8)
+1372	23	SELECT char_length('a'::bpchar)
+1381	23	SELECT char_length('a'::text)
+1367	23	SELECT character_length('a'::bpchar)
+1369	23	SELECT character_length('a'::text)
+2649	1184	SELECT clock_timestamp()
+1216	25	SELECT col_description(1259::oid, 2::int4)
+3058	25	SELECT concat(2::int4)
+3059	25	SELECT concat_ws('a'::text, 2::int4)
+2147	20	SELECT count(2::int4)
+2803	20	SELECT count(*)
+3104	701	SELECT cume_dist() OVER ()
+861	19	SELECT current_database()
+1402	19	SELECT current_schema()
+1403	1003	SELECT current_schemas(true)
+2077	25	SELECT current_setting('search_path'::text)
+3294	25	SELECT current_setting('a'::text, true)
+1171	701	SELECT date_part('day'::text, '2024-02-29 12:34:56+00'::timestamptz)
+1172	701	SELECT date_part('day'::text, '1 day 02:03:04'::interval)
+1384	701	SELECT date_part('day'::text, '2024-02-29'::date)
+2021	701	SELECT date_part('day'::text, '2024-02-29 12:34:56'::timestamp)
+1217	1184	SELECT date_trunc('day'::text, '2024-02-29 12:34:56+00'::timestamptz)
+2020	1114	SELECT date_trunc('day'::text, '2024-02-29 12:34:56'::timestamp)
+3102	20	SELECT dense_rank() OVER ()
+2519	16	SELECT every(true)
+3112	23	SELECT first_value(2::int4) OVER ()
+1712	1700	SELECT floor(1.5::numeric)
+2309	701	SELECT floor(1.5::float8)
+3539	25	SELECT format('a'::text, 2::int4)
+3540	25	SELECT format('a'::text)
+1081	25	SELECT format_type(1259::oid, 2::int4)
+3432	2950	SELECT gen_random_uuid()
+1066	23	SELECT generate_series(2::int4, 2::int4, 2::int4)
+1067	23	SELECT generate_series(2::int4, 2::int4)
+1068	20	SELECT generate_series(2::int8, 2::int8, 2::int8)
+1069	20	SELECT generate_series(2::int8, 2::int8)
+3259	1700	SELECT generate_series(1.5::numeric, 1.5::numeric, 1.5::numeric)
+3260	1700	SELECT generate_series(1.5::numeric, 1.5::numeric)
+1191	23	SELECT generate_subscripts(ARRAY[1,2]::int4[], 1::int4, true)
+1192	23	SELECT generate_subscripts(ARRAY[1,2]::int4[], 1::int4)
+1039	19	SELECT getdatabaseencoding()
+2253	16	SELECT has_database_privilege(1259::oid, 1259::oid, 'CONNECT'::text)
+2255	16	SELECT has_database_privilege(1259::oid, 'CONNECT'::text)
+3175	114	SELECT json_agg(2::int4)
+3955	114	SELECT json_array_elements('[1,2]'::json)
+3969	25	SELECT json_array_elements_text('[1,2]'::json)
+3956	23	SELECT json_array_length('[1,2]'::json)
+3198	114	SELECT json_build_array(2::int4)
+3199	114	SELECT json_build_array()
+3200	114	SELECT json_build_object(2::int4, 2::int4)
+3201	114	SELECT json_build_object()
+3951	114	SELECT json_extract_path('{"a":[1,2]}'::json, 'day'::text)
+3953	25	SELECT json_extract_path_text('{"a":[1,2]}'::json, 'day'::text)
+3197	114	SELECT json_object_agg(2::int4, 2::int4)
+3968	25	SELECT json_typeof('{"a":[1,2]}'::json)
+3267	3802	SELECT jsonb_agg(2::int4)
+3219	3802	SELECT jsonb_array_elements('[1,2]'::jsonb)
+3465	25	SELECT jsonb_array_elements_text('[1,2]'::jsonb)
+3207	23	SELECT jsonb_array_length('[1,2]'::jsonb)
+3271	3802	SELECT jsonb_build_array(2::int4)
+3272	3802	SELECT jsonb_build_array()
+3273	3802	SELECT jsonb_build_object(2::int4, 2::int4)
+3274	3802	SELECT jsonb_build_object()
+3217	3802	SELECT jsonb_extract_path('{"a":[1,2]}'::jsonb, 'a'::text)
+3940	25	SELECT jsonb_extract_path_text('{"a":[1,2]}'::jsonb, 'a'::text)
+3270	3802	SELECT jsonb_object_agg(2::int4, 2::int4)
+3210	25	SELECT jsonb_typeof('{"a":[1,2]}'::jsonb)
+3106	23	SELECT lag(2::int4) OVER ()
+3107	23	SELECT lag(2::int4, 2::int4) OVER ()
+3108	23	SELECT lag(2::int4, 2::int4, 2::int4) OVER ()
+3113	23	SELECT last_value(2::int4) OVER ()
+3109	23	SELECT lead(2::int4) OVER ()
+3110	23	SELECT lead(2::int4, 2::int4) OVER ()
+3111	23	SELECT lead(2::int4, 2::int4, 2::int4) OVER ()
+3060	25	SELECT left('a'::text, 2::int4)
+1317	23	SELECT length('a'::text)
+1318	23	SELECT length('a'::bpchar)
+1713	23	SELECT length('\x0102'::bytea, 'UTF8')
+2010	23	SELECT length('\x0102'::bytea)
+870	25	SELECT lower('a'::text)
+873	25	SELECT lpad('a'::text, 2::int4, 'a'::text)
+879	25	SELECT lpad('a'::text, 2::int4)
+875	25	SELECT ltrim('a'::text, 'a'::text)
+881	25	SELECT ltrim('a'::text)
+2050	1007	SELECT max(ARRAY[1,2]::int4[])
+2115	20	SELECT max(2::int8)
+2116	23	SELECT max(2::int4)
+2117	21	SELECT max(2::int2)
+2118	26	SELECT max(1259::oid)
+2119	700	SELECT max(1.5::float4)
+2120	701	SELECT max(1.5::float8)
+2122	1082	SELECT max('2024-02-29'::date)
+2123	1083	SELECT max('12:34:56'::time)
+2126	1114	SELECT max('2024-02-29 12:34:56'::timestamp)
+2127	1184	SELECT max('2024-02-29 12:34:56+00'::timestamptz)
+2128	1186	SELECT max('1 day 02:03:04'::interval)
+2129	25	SELECT max('a'::text)
+2130	1700	SELECT max(1.5::numeric)
+2244	1042	SELECT max('a'::bpchar)
+2051	1007	SELECT min(ARRAY[1,2]::int4[])
+2131	20	SELECT min(2::int8)
+2132	23	SELECT min(2::int4)
+2133	21	SELECT min(2::int2)
+2134	26	SELECT min(1259::oid)
+2135	700	SELECT min(1.5::float4)
+2136	701	SELECT min(1.5::float8)
+2138	1082	SELECT min('2024-02-29'::date)
+2139	1083	SELECT min('12:34:56'::time)
+2142	1114	SELECT min('2024-02-29 12:34:56'::timestamp)
+2143	1184	SELECT min('2024-02-29 12:34:56+00'::timestamptz)
+2144	1186	SELECT min('1 day 02:03:04'::interval)
+2145	25	SELECT min('a'::text)
+2146	1700	SELECT min(1.5::numeric)
+2245	1042	SELECT min('a'::bpchar)
+940	21	SELECT mod(2::int2, 2::int2)
+941	23	SELECT mod(2::int4, 2::int4)
+947	20	SELECT mod(2::int8, 2::int8)
+1728	1700	SELECT mod(1.5::numeric, 1.5::numeric)
+1299	1184	SELECT now()
+3114	23	SELECT nth_value(2::int4, 2::int4) OVER ()
+3105	23	SELECT ntile(2::int4) OVER ()
+1215	25	SELECT obj_description(1259::oid, 'pg_class')
+1348	25	SELECT obj_description(1259::oid)
+720	23	SELECT octet_length('\x0102'::bytea)
+1374	23	SELECT octet_length('a'::text)
+1375	23	SELECT octet_length('a'::bpchar)
+3103	701	SELECT percent_rank() OVER ()
+2026	23	SELECT pg_backend_pid()
+1264	23	SELECT pg_char_to_encoding('pg_class')
+3815	16	SELECT pg_collation_is_visible(1259::oid)
+2168	20	SELECT pg_database_size('audit')
+2324	20	SELECT pg_database_size(1259::oid)
+1597	19	SELECT pg_encoding_to_char(2::int4)
+2081	16	SELECT pg_function_is_visible(1259::oid)
+1387	25	SELECT pg_get_constraintdef(1259::oid)
+2508	25	SELECT pg_get_constraintdef(1259::oid, true)
+1716	25	SELECT pg_get_expr(NULL::pg_node_tree, 1259::oid)
+2509	25	SELECT pg_get_expr(NULL::pg_node_tree, 1259::oid, true)
+2162	25	SELECT pg_get_function_arguments(1259::oid)
+2232	25	SELECT pg_get_function_identity_arguments(1259::oid)
+2165	25	SELECT pg_get_function_result(1259::oid)
+2098	25	SELECT pg_get_functiondef(1259::oid)
+1643	25	SELECT pg_get_indexdef(1259::oid)
+2507	25	SELECT pg_get_indexdef(1259::oid, 2::int4, true)
+3352	25	SELECT pg_get_partkeydef(1259::oid)
+1642	19	SELECT pg_get_userbyid(1259::oid)
+2998	20	SELECT pg_indexes_size('pg_class'::regclass)
+2083	16	SELECT pg_opclass_is_visible(1259::oid)
+2082	16	SELECT pg_operator_is_visible(1259::oid)
+3829	16	SELECT pg_opfamily_is_visible(1259::oid)
+3425	2205	SELECT pg_partition_ancestors('pg_class'::regclass)
+6121	16	SELECT pg_relation_is_publishable('pg_class'::regclass)
+2325	20	SELECT pg_relation_size('pg_class'::regclass)
+2288	25	SELECT pg_size_pretty(2::int8)
+3166	25	SELECT pg_size_pretty(1.5::numeric)
+1928	20	SELECT pg_stat_get_numscans(1259::oid)
+2079	16	SELECT pg_table_is_visible(1259::oid)
+2997	20	SELECT pg_table_size('pg_class'::regclass)
+3778	25	SELECT pg_tablespace_location(1663::oid)
+2322	20	SELECT pg_tablespace_size(1259::oid)
+2286	20	SELECT pg_total_relation_size('pg_class'::regclass)
+2080	16	SELECT pg_type_is_visible(1259::oid)
+1619	2206	SELECT pg_typeof(2::int4)
+1346	701	SELECT pow(1.5::float8, 1.5::float8)
+1738	1700	SELECT pow(1.5::numeric, 1.5::numeric)
+1368	701	SELECT power(1.5::float8, 1.5::float8)
+2169	1700	SELECT power(1.5::numeric, 1.5::numeric)
+1282	25	SELECT quote_ident('a'::text)
+1283	25	SELECT quote_literal('a'::text)
+1285	25	SELECT quote_literal(2::int4)
+3101	20	SELECT rank() OVER ()
+2087	25	SELECT replace('a'::text, 'a'::text, 'a'::text)
+3062	25	SELECT reverse('a'::text)
+3061	25	SELECT right('a'::text, 2::int4)
+1342	701	SELECT round(1.5::float8)
+1707	1700	SELECT round(1.5::numeric, 2::int4)
+1708	1700	SELECT round(1.5::numeric)
+3100	20	SELECT row_number() OVER ()
+874	25	SELECT rpad('a'::text, 2::int4, 'a'::text)
+880	25	SELECT rpad('a'::text, 2::int4)
+876	25	SELECT rtrim('a'::text, 'a'::text)
+882	25	SELECT rtrim('a'::text)
+2078	25	SELECT set_config('search_path'::text, 'a'::text, true)
+1993	25	SELECT shobj_description(1259::oid, 'pg_class')
+1706	1700	SELECT sign(1.5::numeric)
+2310	701	SELECT sign(1.5::float8)
+1344	701	SELECT sqrt(1.5::float8)
+1730	1700	SELECT sqrt(1.5::numeric)
+3696	16	SELECT starts_with('a'::text, 'a'::text)
+2648	1184	SELECT statement_timestamp()
+3538	25	SELECT string_agg('a'::text, 'a'::text)
+3545	17	SELECT string_agg('\x0102'::bytea, '\x0102'::bytea)
+868	23	SELECT strpos('a'::text, 'a'::text)
+877	25	SELECT substr('a'::text, 2::int4, 2::int4)
+883	25	SELECT substr('a'::text, 2::int4)
+936	25	SELECT substring('a'::text, 2::int4, 2::int4)
+937	25	SELECT substring('a'::text, 2::int4)
+2107	1700	SELECT sum(2::int8)
+2108	20	SELECT sum(2::int4)
+2109	20	SELECT sum(2::int2)
+2110	700	SELECT sum(1.5::float4)
+2111	701	SELECT sum(1.5::float8)
+2114	1700	SELECT sum(1.5::numeric)
+3176	114	SELECT to_json(2::int4)
+3787	3802	SELECT to_jsonb(2::int4)
+3495	2205	SELECT to_regclass('a'::text)
+3493	2206	SELECT to_regtype('a'::text)
+2647	1184	SELECT transaction_timestamp()
+2331	23	SELECT unnest(ARRAY[1,2]::int4[])
+871	25	SELECT upper('a'::text)
+89	25	SELECT version()
+o15	16	SELECT 2::int4 OPERATOR(pg_catalog.=) 2::int8
+o36	16	SELECT 2::int4 OPERATOR(pg_catalog.<>) 2::int8
+o37	16	SELECT 2::int4 OPERATOR(pg_catalog.<) 2::int8
+o58	16	SELECT true OPERATOR(pg_catalog.<) true
+o59	16	SELECT true OPERATOR(pg_catalog.>) true
+o76	16	SELECT 2::int4 OPERATOR(pg_catalog.>) 2::int8
+o80	16	SELECT 2::int4 OPERATOR(pg_catalog.<=) 2::int8
+o82	16	SELECT 2::int4 OPERATOR(pg_catalog.>=) 2::int8
+o85	16	SELECT true OPERATOR(pg_catalog.<>) true
+o91	16	SELECT true OPERATOR(pg_catalog.=) true
+o92	16	SELECT 'a'::"char" OPERATOR(pg_catalog.=) 'a'::"char"
+o93	16	SELECT 'pg_class' OPERATOR(pg_catalog.=) 'pg_class'
+o94	16	SELECT 2::int2 OPERATOR(pg_catalog.=) 2::int2
+o95	16	SELECT 2::int2 OPERATOR(pg_catalog.<) 2::int2
+o96	16	SELECT 2::int4 OPERATOR(pg_catalog.=) 2::int4
+o97	16	SELECT 2::int4 OPERATOR(pg_catalog.<) 2::int4
+o98	16	SELECT 'a'::text OPERATOR(pg_catalog.=) 'a'::text
+o254	16	SELECT 'pg_class' OPERATOR(pg_catalog.=) 'a'::text
+o255	16	SELECT 'pg_class' OPERATOR(pg_catalog.<) 'a'::text
+o256	16	SELECT 'pg_class' OPERATOR(pg_catalog.<=) 'a'::text
+o257	16	SELECT 'pg_class' OPERATOR(pg_catalog.>=) 'a'::text
+o258	16	SELECT 'pg_class' OPERATOR(pg_catalog.>) 'a'::text
+o259	16	SELECT 'pg_class' OPERATOR(pg_catalog.<>) 'a'::text
+o260	16	SELECT 'a'::text OPERATOR(pg_catalog.=) 'pg_class'
+o261	16	SELECT 'a'::text OPERATOR(pg_catalog.<) 'pg_class'
+o262	16	SELECT 'a'::text OPERATOR(pg_catalog.<=) 'pg_class'
+o263	16	SELECT 'a'::text OPERATOR(pg_catalog.>=) 'pg_class'
+o264	16	SELECT 'a'::text OPERATOR(pg_catalog.>) 'pg_class'
+o265	16	SELECT 'a'::text OPERATOR(pg_catalog.<>) 'pg_class'
+o349	1007	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.||) 2::int4
+o374	1007	SELECT 2::int4 OPERATOR(pg_catalog.||) ARRAY[1,2]::int4[]
+o375	1007	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.||) ARRAY[1,2]::int4[]
+o410	16	SELECT 2::int8 OPERATOR(pg_catalog.=) 2::int8
+o411	16	SELECT 2::int8 OPERATOR(pg_catalog.<>) 2::int8
+o412	16	SELECT 2::int8 OPERATOR(pg_catalog.<) 2::int8
+o413	16	SELECT 2::int8 OPERATOR(pg_catalog.>) 2::int8
+o414	16	SELECT 2::int8 OPERATOR(pg_catalog.<=) 2::int8
+o415	16	SELECT 2::int8 OPERATOR(pg_catalog.>=) 2::int8
+o416	16	SELECT 2::int8 OPERATOR(pg_catalog.=) 2::int4
+o417	16	SELECT 2::int8 OPERATOR(pg_catalog.<>) 2::int4
+o418	16	SELECT 2::int8 OPERATOR(pg_catalog.<) 2::int4
+o419	16	SELECT 2::int8 OPERATOR(pg_catalog.>) 2::int4
+o420	16	SELECT 2::int8 OPERATOR(pg_catalog.<=) 2::int4
+o430	16	SELECT 2::int8 OPERATOR(pg_catalog.>=) 2::int4
+o439	20	SELECT 2::int8 OPERATOR(pg_catalog.%) 2::int8
+o484	20	SELECT  OPERATOR(pg_catalog.-) 2::int8
+o514	23	SELECT 2::int4 OPERATOR(pg_catalog.*) 2::int4
+o518	16	SELECT 2::int4 OPERATOR(pg_catalog.<>) 2::int4
+o519	16	SELECT 2::int2 OPERATOR(pg_catalog.<>) 2::int2
+o520	16	SELECT 2::int2 OPERATOR(pg_catalog.>) 2::int2
+o521	16	SELECT 2::int4 OPERATOR(pg_catalog.>) 2::int4
+o522	16	SELECT 2::int2 OPERATOR(pg_catalog.<=) 2::int2
+o523	16	SELECT 2::int4 OPERATOR(pg_catalog.<=) 2::int4
+o524	16	SELECT 2::int2 OPERATOR(pg_catalog.>=) 2::int2
+o525	16	SELECT 2::int4 OPERATOR(pg_catalog.>=) 2::int4
+o526	21	SELECT 2::int2 OPERATOR(pg_catalog.*) 2::int2
+o527	21	SELECT 2::int2 OPERATOR(pg_catalog./) 2::int2
+o528	23	SELECT 2::int4 OPERATOR(pg_catalog./) 2::int4
+o529	21	SELECT 2::int2 OPERATOR(pg_catalog.%) 2::int2
+o530	23	SELECT 2::int4 OPERATOR(pg_catalog.%) 2::int4
+o531	16	SELECT 'a'::text OPERATOR(pg_catalog.<>) 'a'::text
+o532	16	SELECT 2::int2 OPERATOR(pg_catalog.=) 2::int4
+o533	16	SELECT 2::int4 OPERATOR(pg_catalog.=) 2::int2
+o534	16	SELECT 2::int2 OPERATOR(pg_catalog.<) 2::int4
+o535	16	SELECT 2::int4 OPERATOR(pg_catalog.<) 2::int2
+o536	16	SELECT 2::int2 OPERATOR(pg_catalog.>) 2::int4
+o537	16	SELECT 2::int4 OPERATOR(pg_catalog.>) 2::int2
+o538	16	SELECT 2::int2 OPERATOR(pg_catalog.<>) 2::int4
+o539	16	SELECT 2::int4 OPERATOR(pg_catalog.<>) 2::int2
+o540	16	SELECT 2::int2 OPERATOR(pg_catalog.<=) 2::int4
+o541	16	SELECT 2::int4 OPERATOR(pg_catalog.<=) 2::int2
+o542	16	SELECT 2::int2 OPERATOR(pg_catalog.>=) 2::int4
+o543	16	SELECT 2::int4 OPERATOR(pg_catalog.>=) 2::int2
+o544	23	SELECT 2::int2 OPERATOR(pg_catalog.*) 2::int4
+o545	23	SELECT 2::int4 OPERATOR(pg_catalog.*) 2::int2
+o546	23	SELECT 2::int2 OPERATOR(pg_catalog./) 2::int4
+o547	23	SELECT 2::int4 OPERATOR(pg_catalog./) 2::int2
+o550	21	SELECT 2::int2 OPERATOR(pg_catalog.+) 2::int2
+o551	23	SELECT 2::int4 OPERATOR(pg_catalog.+) 2::int4
+o552	23	SELECT 2::int2 OPERATOR(pg_catalog.+) 2::int4
+o553	23	SELECT 2::int4 OPERATOR(pg_catalog.+) 2::int2
+o554	21	SELECT 2::int2 OPERATOR(pg_catalog.-) 2::int2
+o555	23	SELECT 2::int4 OPERATOR(pg_catalog.-) 2::int4
+o556	23	SELECT 2::int2 OPERATOR(pg_catalog.-) 2::int4
+o557	23	SELECT 2::int4 OPERATOR(pg_catalog.-) 2::int2
+o558	23	SELECT  OPERATOR(pg_catalog.-) 2::int4
+o559	21	SELECT  OPERATOR(pg_catalog.-) 2::int2
+o584	700	SELECT  OPERATOR(pg_catalog.-) 1.5::float4
+o585	701	SELECT  OPERATOR(pg_catalog.-) 1.5::float8
+o586	700	SELECT 1.5::float4 OPERATOR(pg_catalog.+) 1.5::float4
+o587	700	SELECT 1.5::float4 OPERATOR(pg_catalog.-) 1.5::float4
+o588	700	SELECT 1.5::float4 OPERATOR(pg_catalog./) 1.5::float4
+o589	700	SELECT 1.5::float4 OPERATOR(pg_catalog.*) 1.5::float4
+o591	701	SELECT 1.5::float8 OPERATOR(pg_catalog.+) 1.5::float8
+o592	701	SELECT 1.5::float8 OPERATOR(pg_catalog.-) 1.5::float8
+o593	701	SELECT 1.5::float8 OPERATOR(pg_catalog./) 1.5::float8
+o594	701	SELECT 1.5::float8 OPERATOR(pg_catalog.*) 1.5::float8
+o607	16	SELECT 1259::oid OPERATOR(pg_catalog.=) 1259::oid
+o608	16	SELECT 1259::oid OPERATOR(pg_catalog.<>) 1259::oid
+o609	16	SELECT 1259::oid OPERATOR(pg_catalog.<) 1259::oid
+o610	16	SELECT 1259::oid OPERATOR(pg_catalog.>) 1259::oid
+o611	16	SELECT 1259::oid OPERATOR(pg_catalog.<=) 1259::oid
+o612	16	SELECT 1259::oid OPERATOR(pg_catalog.>=) 1259::oid
+o620	16	SELECT 1.5::float4 OPERATOR(pg_catalog.=) 1.5::float4
+o621	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<>) 1.5::float4
+o622	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<) 1.5::float4
+o623	16	SELECT 1.5::float4 OPERATOR(pg_catalog.>) 1.5::float4
+o624	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<=) 1.5::float4
+o625	16	SELECT 1.5::float4 OPERATOR(pg_catalog.>=) 1.5::float4
+o630	16	SELECT 'a'::"char" OPERATOR(pg_catalog.<>) 'a'::"char"
+o631	16	SELECT 'a'::"char" OPERATOR(pg_catalog.<) 'a'::"char"
+o632	16	SELECT 'a'::"char" OPERATOR(pg_catalog.<=) 'a'::"char"
+o633	16	SELECT 'a'::"char" OPERATOR(pg_catalog.>) 'a'::"char"
+o634	16	SELECT 'a'::"char" OPERATOR(pg_catalog.>=) 'a'::"char"
+o639	16	SELECT 'pg_class' OPERATOR(pg_catalog.~) 'a'::text
+o640	16	SELECT 'pg_class' OPERATOR(pg_catalog.!~) 'a'::text
+o641	16	SELECT 'a'::text OPERATOR(pg_catalog.~) 'a'::text
+o642	16	SELECT 'a'::text OPERATOR(pg_catalog.!~) 'a'::text
+o643	16	SELECT 'pg_class' OPERATOR(pg_catalog.<>) 'pg_class'
+o654	25	SELECT 'a'::text OPERATOR(pg_catalog.||) 'a'::text
+o660	16	SELECT 'pg_class' OPERATOR(pg_catalog.<) 'pg_class'
+o661	16	SELECT 'pg_class' OPERATOR(pg_catalog.<=) 'pg_class'
+o662	16	SELECT 'pg_class' OPERATOR(pg_catalog.>) 'pg_class'
+o663	16	SELECT 'pg_class' OPERATOR(pg_catalog.>=) 'pg_class'
+o664	16	SELECT 'a'::text OPERATOR(pg_catalog.<) 'a'::text
+o665	16	SELECT 'a'::text OPERATOR(pg_catalog.<=) 'a'::text
+o666	16	SELECT 'a'::text OPERATOR(pg_catalog.>) 'a'::text
+o667	16	SELECT 'a'::text OPERATOR(pg_catalog.>=) 'a'::text
+o670	16	SELECT 1.5::float8 OPERATOR(pg_catalog.=) 1.5::float8
+o671	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<>) 1.5::float8
+o672	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<) 1.5::float8
+o673	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<=) 1.5::float8
+o674	16	SELECT 1.5::float8 OPERATOR(pg_catalog.>) 1.5::float8
+o675	16	SELECT 1.5::float8 OPERATOR(pg_catalog.>=) 1.5::float8
+o684	20	SELECT 2::int8 OPERATOR(pg_catalog.+) 2::int8
+o685	20	SELECT 2::int8 OPERATOR(pg_catalog.-) 2::int8
+o686	20	SELECT 2::int8 OPERATOR(pg_catalog.*) 2::int8
+o687	20	SELECT 2::int8 OPERATOR(pg_catalog./) 2::int8
+o688	20	SELECT 2::int8 OPERATOR(pg_catalog.+) 2::int4
+o689	20	SELECT 2::int8 OPERATOR(pg_catalog.-) 2::int4
+o690	20	SELECT 2::int8 OPERATOR(pg_catalog.*) 2::int4
+o691	20	SELECT 2::int8 OPERATOR(pg_catalog./) 2::int4
+o692	20	SELECT 2::int4 OPERATOR(pg_catalog.+) 2::int8
+o693	20	SELECT 2::int4 OPERATOR(pg_catalog.-) 2::int8
+o694	20	SELECT 2::int4 OPERATOR(pg_catalog.*) 2::int8
+o695	20	SELECT 2::int4 OPERATOR(pg_catalog./) 2::int8
+o818	20	SELECT 2::int8 OPERATOR(pg_catalog.+) 2::int2
+o819	20	SELECT 2::int8 OPERATOR(pg_catalog.-) 2::int2
+o820	20	SELECT 2::int8 OPERATOR(pg_catalog.*) 2::int2
+o821	20	SELECT 2::int8 OPERATOR(pg_catalog./) 2::int2
+o822	20	SELECT 2::int2 OPERATOR(pg_catalog.+) 2::int8
+o823	20	SELECT 2::int2 OPERATOR(pg_catalog.-) 2::int8
+o824	20	SELECT 2::int2 OPERATOR(pg_catalog.*) 2::int8
+o825	20	SELECT 2::int2 OPERATOR(pg_catalog./) 2::int8
+o965	701	SELECT 1.5::float8 OPERATOR(pg_catalog.^) 1.5::float8
+o1038	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.^) 1.5::numeric
+o1054	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.=) 'a'::bpchar
+o1055	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.~) 'a'::text
+o1056	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.!~) 'a'::text
+o1057	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.<>) 'a'::bpchar
+o1058	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.<) 'a'::bpchar
+o1059	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.<=) 'a'::bpchar
+o1060	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.>) 'a'::bpchar
+o1061	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.>=) 'a'::bpchar
+o1070	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.=) ARRAY[1,2]::int4[]
+o1071	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.<>) ARRAY[1,2]::int4[]
+o1072	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.<) ARRAY[1,2]::int4[]
+o1073	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.>) ARRAY[1,2]::int4[]
+o1074	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.<=) ARRAY[1,2]::int4[]
+o1075	16	SELECT ARRAY[1,2]::int4[] OPERATOR(pg_catalog.>=) ARRAY[1,2]::int4[]
+o1076	1114	SELECT '2024-02-29'::date OPERATOR(pg_catalog.+) '1 day 02:03:04'::interval
+o1077	1114	SELECT '2024-02-29'::date OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o1093	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.=) '2024-02-29'::date
+o1094	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<>) '2024-02-29'::date
+o1095	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<) '2024-02-29'::date
+o1096	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<=) '2024-02-29'::date
+o1097	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>) '2024-02-29'::date
+o1098	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>=) '2024-02-29'::date
+o1099	23	SELECT '2024-02-29'::date OPERATOR(pg_catalog.-) '2024-02-29'::date
+o1100	1082	SELECT '2024-02-29'::date OPERATOR(pg_catalog.+) 2::int4
+o1101	1082	SELECT '2024-02-29'::date OPERATOR(pg_catalog.-) 2::int4
+o1108	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.=) '12:34:56'::time
+o1109	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.<>) '12:34:56'::time
+o1110	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.<) '12:34:56'::time
+o1111	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.<=) '12:34:56'::time
+o1112	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.>) '12:34:56'::time
+o1113	16	SELECT '12:34:56'::time OPERATOR(pg_catalog.>=) '12:34:56'::time
+o1116	701	SELECT 1.5::float4 OPERATOR(pg_catalog.+) 1.5::float8
+o1117	701	SELECT 1.5::float4 OPERATOR(pg_catalog.-) 1.5::float8
+o1118	701	SELECT 1.5::float4 OPERATOR(pg_catalog./) 1.5::float8
+o1119	701	SELECT 1.5::float4 OPERATOR(pg_catalog.*) 1.5::float8
+o1120	16	SELECT 1.5::float4 OPERATOR(pg_catalog.=) 1.5::float8
+o1121	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<>) 1.5::float8
+o1122	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<) 1.5::float8
+o1123	16	SELECT 1.5::float4 OPERATOR(pg_catalog.>) 1.5::float8
+o1124	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<=) 1.5::float8
+o1125	16	SELECT 1.5::float4 OPERATOR(pg_catalog.>=) 1.5::float8
+o1126	701	SELECT 1.5::float8 OPERATOR(pg_catalog.+) 1.5::float4
+o1127	701	SELECT 1.5::float8 OPERATOR(pg_catalog.-) 1.5::float4
+o1128	701	SELECT 1.5::float8 OPERATOR(pg_catalog./) 1.5::float4
+o1129	701	SELECT 1.5::float8 OPERATOR(pg_catalog.*) 1.5::float4
+o1130	16	SELECT 1.5::float8 OPERATOR(pg_catalog.=) 1.5::float4
+o1131	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<>) 1.5::float4
+o1132	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<) 1.5::float4
+o1133	16	SELECT 1.5::float8 OPERATOR(pg_catalog.>) 1.5::float4
+o1134	16	SELECT 1.5::float8 OPERATOR(pg_catalog.<=) 1.5::float4
+o1135	16	SELECT 1.5::float8 OPERATOR(pg_catalog.>=) 1.5::float4
+o1226	16	SELECT 'pg_class' OPERATOR(pg_catalog.~*) 'a'::text
+o1227	16	SELECT 'pg_class' OPERATOR(pg_catalog.!~*) 'a'::text
+o1228	16	SELECT 'a'::text OPERATOR(pg_catalog.~*) 'a'::text
+o1229	16	SELECT 'a'::text OPERATOR(pg_catalog.!~*) 'a'::text
+o1234	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.~*) 'a'::text
+o1235	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.!~*) 'a'::text
+o1320	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.=) '2024-02-29 12:34:56+00'::timestamptz
+o1321	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56+00'::timestamptz
+o1322	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<) '2024-02-29 12:34:56+00'::timestamptz
+o1323	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56+00'::timestamptz
+o1324	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>) '2024-02-29 12:34:56+00'::timestamptz
+o1325	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56+00'::timestamptz
+o1327	1184	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.+) '1 day 02:03:04'::interval
+o1328	1186	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.-) '2024-02-29 12:34:56+00'::timestamptz
+o1329	1184	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o1330	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.=) '1 day 02:03:04'::interval
+o1331	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.<>) '1 day 02:03:04'::interval
+o1332	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.<) '1 day 02:03:04'::interval
+o1333	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.<=) '1 day 02:03:04'::interval
+o1334	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.>) '1 day 02:03:04'::interval
+o1335	16	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.>=) '1 day 02:03:04'::interval
+o1336	1186	SELECT  OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o1337	1186	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.+) '1 day 02:03:04'::interval
+o1338	1186	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o1399	1186	SELECT '12:34:56'::time OPERATOR(pg_catalog.-) '12:34:56'::time
+o1583	1186	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.*) 1.5::float8
+o1584	1186	SELECT 1.5::float8 OPERATOR(pg_catalog.*) '1 day 02:03:04'::interval
+o1585	1186	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog./) 1.5::float8
+o1694	16	SELECT true OPERATOR(pg_catalog.<=) true
+o1695	16	SELECT true OPERATOR(pg_catalog.>=) true
+o1751	1700	SELECT  OPERATOR(pg_catalog.-) 1.5::numeric
+o1752	16	SELECT 1.5::numeric OPERATOR(pg_catalog.=) 1.5::numeric
+o1753	16	SELECT 1.5::numeric OPERATOR(pg_catalog.<>) 1.5::numeric
+o1754	16	SELECT 1.5::numeric OPERATOR(pg_catalog.<) 1.5::numeric
+o1755	16	SELECT 1.5::numeric OPERATOR(pg_catalog.<=) 1.5::numeric
+o1756	16	SELECT 1.5::numeric OPERATOR(pg_catalog.>) 1.5::numeric
+o1757	16	SELECT 1.5::numeric OPERATOR(pg_catalog.>=) 1.5::numeric
+o1758	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.+) 1.5::numeric
+o1759	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.-) 1.5::numeric
+o1760	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.*) 1.5::numeric
+o1761	1700	SELECT 1.5::numeric OPERATOR(pg_catalog./) 1.5::numeric
+o1762	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.%) 1.5::numeric
+o1800	1083	SELECT '12:34:56'::time OPERATOR(pg_catalog.+) '1 day 02:03:04'::interval
+o1801	1083	SELECT '12:34:56'::time OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o1849	1083	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.+) '12:34:56'::time
+o1862	16	SELECT 2::int2 OPERATOR(pg_catalog.=) 2::int8
+o1863	16	SELECT 2::int2 OPERATOR(pg_catalog.<>) 2::int8
+o1864	16	SELECT 2::int2 OPERATOR(pg_catalog.<) 2::int8
+o1865	16	SELECT 2::int2 OPERATOR(pg_catalog.>) 2::int8
+o1866	16	SELECT 2::int2 OPERATOR(pg_catalog.<=) 2::int8
+o1867	16	SELECT 2::int2 OPERATOR(pg_catalog.>=) 2::int8
+o1868	16	SELECT 2::int8 OPERATOR(pg_catalog.=) 2::int2
+o1869	16	SELECT 2::int8 OPERATOR(pg_catalog.<>) 2::int2
+o1870	16	SELECT 2::int8 OPERATOR(pg_catalog.<) 2::int2
+o1871	16	SELECT 2::int8 OPERATOR(pg_catalog.>) 2::int2
+o1872	16	SELECT 2::int8 OPERATOR(pg_catalog.<=) 2::int2
+o1873	16	SELECT 2::int8 OPERATOR(pg_catalog.>=) 2::int2
+o1874	21	SELECT 2::int2 OPERATOR(pg_catalog.&) 2::int2
+o1875	21	SELECT 2::int2 OPERATOR(pg_catalog.|) 2::int2
+o1876	21	SELECT 2::int2 OPERATOR(pg_catalog.#) 2::int2
+o1877	21	SELECT  OPERATOR(pg_catalog.~) 2::int2
+o1878	21	SELECT 2::int2 OPERATOR(pg_catalog.<<) 2::int4
+o1879	21	SELECT 2::int2 OPERATOR(pg_catalog.>>) 2::int4
+o1880	23	SELECT 2::int4 OPERATOR(pg_catalog.&) 2::int4
+o1881	23	SELECT 2::int4 OPERATOR(pg_catalog.|) 2::int4
+o1882	23	SELECT 2::int4 OPERATOR(pg_catalog.#) 2::int4
+o1883	23	SELECT  OPERATOR(pg_catalog.~) 2::int4
+o1884	23	SELECT 2::int4 OPERATOR(pg_catalog.<<) 2::int4
+o1885	23	SELECT 2::int4 OPERATOR(pg_catalog.>>) 2::int4
+o1886	20	SELECT 2::int8 OPERATOR(pg_catalog.&) 2::int8
+o1887	20	SELECT 2::int8 OPERATOR(pg_catalog.|) 2::int8
+o1888	20	SELECT 2::int8 OPERATOR(pg_catalog.#) 2::int8
+o1889	20	SELECT  OPERATOR(pg_catalog.~) 2::int8
+o1890	20	SELECT 2::int8 OPERATOR(pg_catalog.<<) 2::int4
+o1891	20	SELECT 2::int8 OPERATOR(pg_catalog.>>) 2::int4
+o1916	20	SELECT  OPERATOR(pg_catalog.+) 2::int8
+o1917	21	SELECT  OPERATOR(pg_catalog.+) 2::int2
+o1918	23	SELECT  OPERATOR(pg_catalog.+) 2::int4
+o1919	700	SELECT  OPERATOR(pg_catalog.+) 1.5::float4
+o1920	701	SELECT  OPERATOR(pg_catalog.+) 1.5::float8
+o1921	1700	SELECT  OPERATOR(pg_catalog.+) 1.5::numeric
+o1955	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.=) '\x0102'::bytea
+o1956	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.<>) '\x0102'::bytea
+o1957	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.<) '\x0102'::bytea
+o1958	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.<=) '\x0102'::bytea
+o1959	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.>) '\x0102'::bytea
+o1960	16	SELECT '\x0102'::bytea OPERATOR(pg_catalog.>=) '\x0102'::bytea
+o2018	17	SELECT '\x0102'::bytea OPERATOR(pg_catalog.||) '\x0102'::bytea
+o2060	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.=) '2024-02-29 12:34:56'::timestamp
+o2061	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56'::timestamp
+o2062	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<) '2024-02-29 12:34:56'::timestamp
+o2063	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56'::timestamp
+o2064	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>) '2024-02-29 12:34:56'::timestamp
+o2065	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56'::timestamp
+o2066	1114	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.+) '1 day 02:03:04'::interval
+o2067	1186	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.-) '2024-02-29 12:34:56'::timestamp
+o2068	1114	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.-) '1 day 02:03:04'::interval
+o2345	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<) '2024-02-29 12:34:56'::timestamp
+o2346	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56'::timestamp
+o2347	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.=) '2024-02-29 12:34:56'::timestamp
+o2348	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56'::timestamp
+o2349	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>) '2024-02-29 12:34:56'::timestamp
+o2350	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56'::timestamp
+o2358	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<) '2024-02-29 12:34:56+00'::timestamptz
+o2359	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56+00'::timestamptz
+o2360	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.=) '2024-02-29 12:34:56+00'::timestamptz
+o2361	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56+00'::timestamptz
+o2362	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.>) '2024-02-29 12:34:56+00'::timestamptz
+o2363	16	SELECT '2024-02-29'::date OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56+00'::timestamptz
+o2371	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<) '2024-02-29'::date
+o2372	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<=) '2024-02-29'::date
+o2373	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.=) '2024-02-29'::date
+o2374	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>=) '2024-02-29'::date
+o2375	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>) '2024-02-29'::date
+o2376	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<>) '2024-02-29'::date
+o2384	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<) '2024-02-29'::date
+o2385	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<=) '2024-02-29'::date
+o2386	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.=) '2024-02-29'::date
+o2387	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>=) '2024-02-29'::date
+o2388	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>) '2024-02-29'::date
+o2389	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<>) '2024-02-29'::date
+o2534	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<) '2024-02-29 12:34:56+00'::timestamptz
+o2535	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56+00'::timestamptz
+o2536	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.=) '2024-02-29 12:34:56+00'::timestamptz
+o2537	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56+00'::timestamptz
+o2538	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.>) '2024-02-29 12:34:56+00'::timestamptz
+o2539	16	SELECT '2024-02-29 12:34:56'::timestamp OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56+00'::timestamptz
+o2540	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<) '2024-02-29 12:34:56'::timestamp
+o2541	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<=) '2024-02-29 12:34:56'::timestamp
+o2542	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.=) '2024-02-29 12:34:56'::timestamp
+o2543	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>=) '2024-02-29 12:34:56'::timestamp
+o2544	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.>) '2024-02-29 12:34:56'::timestamp
+o2545	16	SELECT '2024-02-29 12:34:56+00'::timestamptz OPERATOR(pg_catalog.<>) '2024-02-29 12:34:56'::timestamp
+o2551	1114	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.+) '2024-02-29'::date
+o2553	1114	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.+) '2024-02-29 12:34:56'::timestamp
+o2554	1184	SELECT '1 day 02:03:04'::interval OPERATOR(pg_catalog.+) '2024-02-29 12:34:56+00'::timestamptz
+o2555	1082	SELECT 2::int4 OPERATOR(pg_catalog.+) '2024-02-29'::date
+o2779	25	SELECT 'a'::text OPERATOR(pg_catalog.||) 2::int4
+o2780	25	SELECT 2::int4 OPERATOR(pg_catalog.||) 'a'::text
+o2972	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.=) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o2973	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.<>) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o2974	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.<) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o2975	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.>) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o2976	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.<=) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o2977	16	SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid OPERATOR(pg_catalog.>=) 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid
+o3206	25	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.#>>) ARRAY['a','b']::text[]
+o3211	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->) 'a'::text
+o3212	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->) 2::int4
+o3213	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.#>) ARRAY['a','b']::text[]
+o3240	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.=) '{"a":[1,2]}'::jsonb
+o3241	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.<>) '{"a":[1,2]}'::jsonb
+o3242	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.<) '{"a":[1,2]}'::jsonb
+o3243	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.>) '{"a":[1,2]}'::jsonb
+o3244	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.<=) '{"a":[1,2]}'::jsonb
+o3245	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.>=) '{"a":[1,2]}'::jsonb
+o3246	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.@>) '{"a":[1,2]}'::jsonb
+o3247	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.?) 'a'::text
+o3248	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.?|) ARRAY['a','b']::text[]
+o3249	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.?&) ARRAY['a','b']::text[]
+o3250	16	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.<@) '{"a":[1,2]}'::jsonb
+o3284	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.||) '{"a":[1,2]}'::jsonb
+o3285	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.-) 'a'::text
+o3286	3802	SELECT '[1,2]'::jsonb OPERATOR(pg_catalog.-) 2::int4
+o3477	25	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->>) 'a'::text
+o3481	25	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->>) 2::int4
+o3962	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->) 'day'::text
+o3963	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->>) 'day'::text
+o3964	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->) 2::int4
+o3965	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->>) 2::int4
+o3966	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.#>) ARRAY['a','b']::text[]
+o3967	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.#>>) ARRAY['a','b']::text[]
+c10000	21	SELECT 2::int8::smallint
+c10001	23	SELECT 2::int8::integer
+c10002	700	SELECT 2::int8::real
+c10003	701	SELECT 2::int8::double precision
+c10004	1700	SELECT 2::int8::numeric
+c10005	20	SELECT 2::int2::bigint
+c10006	23	SELECT 2::int2::integer
+c10007	700	SELECT 2::int2::real
+c10008	701	SELECT 2::int2::double precision
+c10009	1700	SELECT 2::int2::numeric
+c10010	20	SELECT 2::int4::bigint
+c10011	21	SELECT 2::int4::smallint
+c10012	700	SELECT 2::int4::real
+c10013	701	SELECT 2::int4::double precision
+c10014	1700	SELECT 2::int4::numeric
+c10015	20	SELECT 1.5::float4::bigint
+c10016	21	SELECT 1.5::float4::smallint
+c10017	23	SELECT 1.5::float4::integer
+c10018	701	SELECT 1.5::float4::double precision
+c10019	1700	SELECT 1.5::float4::numeric
+c10020	20	SELECT 1.5::float8::bigint
+c10021	21	SELECT 1.5::float8::smallint
+c10022	23	SELECT 1.5::float8::integer
+c10023	700	SELECT 1.5::float8::real
+c10024	1700	SELECT 1.5::float8::numeric
+c10025	20	SELECT 1.5::numeric::bigint
+c10026	21	SELECT 1.5::numeric::smallint
+c10027	23	SELECT 1.5::numeric::integer
+c10028	700	SELECT 1.5::numeric::real
+c10029	701	SELECT 1.5::numeric::double precision
+c10034	16	SELECT 2::int4::boolean
+c10037	26	SELECT 2::int8::oid
+c10038	26	SELECT 2::int2::oid
+c10039	26	SELECT 2::int4::oid
+c10040	20	SELECT 1259::oid::bigint
+c10041	23	SELECT 1259::oid::integer
+c10042	24	SELECT 1259::oid::regproc
+c10044	24	SELECT 2::int8::regproc
+c10045	24	SELECT 2::int2::regproc
+c10046	24	SELECT 2::int4::regproc
+c10051	2202	SELECT 1259::oid::regprocedure
+c10053	2202	SELECT 2::int8::regprocedure
+c10054	2202	SELECT 2::int2::regprocedure
+c10055	2202	SELECT 2::int4::regprocedure
+c10074	2205	SELECT 1259::oid::regclass
+c10075	26	SELECT 'pg_class'::regclass::oid
+c10076	2205	SELECT 2::int8::regclass
+c10077	2205	SELECT 2::int2::regclass
+c10078	2205	SELECT 2::int4::regclass
+c10079	20	SELECT 'pg_class'::regclass::bigint
+c10080	23	SELECT 'pg_class'::regclass::integer
+c10088	2206	SELECT 1259::oid::regtype
+c10089	26	SELECT 'int4'::regtype::oid
+c10090	2206	SELECT 2::int8::regtype
+c10091	2206	SELECT 2::int2::regtype
+c10092	2206	SELECT 2::int4::regtype
+c10093	20	SELECT 'int4'::regtype::bigint
+c10094	23	SELECT 'int4'::regtype::integer
+c10109	2205	SELECT 'pg_class'::text::regclass
+c10118	4089	SELECT 1259::oid::regnamespace
+c10120	4089	SELECT 2::int8::regnamespace
+c10121	4089	SELECT 2::int2::regnamespace
+c10122	4089	SELECT 2::int4::regnamespace
+c10125	1042	SELECT 'a'::text::character
+c10126	1043	SELECT 'a'::text::character varying
+c10127	25	SELECT 'a'::bpchar::text
+c10128	1043	SELECT 'a'::bpchar::character varying
+c10129	25	SELECT 'a'::varchar::text
+c10130	1042	SELECT 'a'::varchar::character
+c10131	25	SELECT 'a'::"char"::text
+c10132	1042	SELECT 'a'::"char"::character
+c10133	1043	SELECT 'a'::"char"::character varying
+c10134	25	SELECT 'pg_class'::text
+c10135	1042	SELECT 'pg_class'::character
+c10136	1043	SELECT 'pg_class'::character varying
+c10137	18	SELECT 'a'::text::"char"
+c10138	18	SELECT 'a'::bpchar::"char"
+c10139	18	SELECT 'a'::varchar::"char"
+c10144	18	SELECT 2::int4::"char"
+c10145	25	SELECT NULL::pg_node_tree::text
+c10152	1114	SELECT '2024-02-29'::date::timestamp without time zone
+c10153	1184	SELECT '2024-02-29'::date::timestamp with time zone
+c10154	1186	SELECT '12:34:56'::time::interval
+c10156	1082	SELECT '2024-02-29 12:34:56'::timestamp::date
+c10158	1184	SELECT '2024-02-29 12:34:56'::timestamp::timestamp with time zone
+c10159	1082	SELECT '2024-02-29 12:34:56+00'::timestamptz::date
+c10161	1114	SELECT '2024-02-29 12:34:56+00'::timestamptz::timestamp without time zone
+c10191	25	SELECT true::text
+c10196	1043	SELECT true::character varying
+c10201	1042	SELECT true::character
+c10204	1042	SELECT 'a'::bpchar::character
+c10205	1043	SELECT 'a'::varchar::character varying
+c10207	1114	SELECT '2024-02-29 12:34:56'::timestamp::timestamp without time zone
+c10208	1184	SELECT '2024-02-29 12:34:56+00'::timestamptz::timestamp with time zone
+c10209	1186	SELECT '1 day 02:03:04'::interval::interval
+c10213	1700	SELECT 1.5::numeric::numeric
+c10214	3802	SELECT '{"a":[1,2]}'::json::jsonb
+c10215	114	SELECT '[1,2]'::jsonb::json

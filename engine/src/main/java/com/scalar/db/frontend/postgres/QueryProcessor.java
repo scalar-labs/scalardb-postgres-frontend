@@ -1143,14 +1143,19 @@ public class QueryProcessor {
         }
 
         @Override
-        public void set(String name, String value, boolean local) {
+        public String set(String name, String value, boolean local) {
           if (!SETTING_NAME.matcher(name).matches()) {
             throw new PgException.Argument(
                 "42704", "unrecognized configuration parameter \"" + name + "\"");
           }
-          // outside a transaction a local set_config is not kept, as SET LOCAL is not
+          // outside a transaction a local set_config is not kept, as SET LOCAL is not, but it
+          // still answers the value it would have set, as PostgreSQL does
           setting(
               "SET " + (local ? "LOCAL " : "") + name + " TO '" + value.replace("'", "''") + "'");
+          String key = settingKey(name);
+          return local && !inTransaction()
+              ? checkedValue(key, name, value)
+              : current(key == null ? name : key);
         }
 
         @Override

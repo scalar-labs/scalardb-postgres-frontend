@@ -1,0 +1,57 @@
+# from PostgreSQL 16 by difftest/catalog/builtins.py; tab separated, \N is NULL
+aggfnoid	aggkind	aggnumdirectargs	aggtransfn	aggfinalfn	aggcombinefn	aggserialfn	aggdeserialfn	aggmtransfn	aggminvtransfn	aggmfinalfn	aggfinalextra	aggmfinalextra	aggfinalmodify	aggmfinalmodify	aggsortop	aggtranstype	aggtransspace	aggmtranstype	aggmtransspace	agginitval	aggminitval
+2050 pg_catalog.max	n	0	515 array_larger	0	515 array_larger	0	0	0	0	0	f	f	r	r	1073	2277	0	0	0	\N	\N
+2051 pg_catalog.min	n	0	516 array_smaller	0	516 array_smaller	0	0	0	0	0	f	f	r	r	1072	2277	0	0	0	\N	\N
+2100 pg_catalog.avg	n	0	2746 int8_avg_accum	3389 numeric_poly_avg	2785 int8_avg_combine	2786 int8_avg_serialize	2787 int8_avg_deserialize	2746 int8_avg_accum	3387 int8_avg_accum_inv	3389 numeric_poly_avg	f	f	r	r	0	2281	48	2281	48	\N	\N
+2101 pg_catalog.avg	n	0	1963 int4_avg_accum	1964 int8_avg	3324 int4_avg_combine	0	0	1963 int4_avg_accum	3571 int4_avg_accum_inv	1964 int8_avg	f	f	r	r	0	1016	0	1016	0	{0,0}	{0,0}
+2102 pg_catalog.avg	n	0	1962 int2_avg_accum	1964 int8_avg	3324 int4_avg_combine	0	0	1962 int2_avg_accum	3570 int2_avg_accum_inv	1964 int8_avg	f	f	r	r	0	1016	0	1016	0	{0,0}	{0,0}
+2103 pg_catalog.avg	n	0	2858 numeric_avg_accum	1837 numeric_avg	3337 numeric_avg_combine	2740 numeric_avg_serialize	2741 numeric_avg_deserialize	2858 numeric_avg_accum	3548 numeric_accum_inv	1837 numeric_avg	f	f	r	r	0	2281	128	2281	128	\N	\N
+2104 pg_catalog.avg	n	0	208 float4_accum	1830 float8_avg	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2105 pg_catalog.avg	n	0	222 float8_accum	1830 float8_avg	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2107 pg_catalog.sum	n	0	2746 int8_avg_accum	3388 numeric_poly_sum	2785 int8_avg_combine	2786 int8_avg_serialize	2787 int8_avg_deserialize	2746 int8_avg_accum	3387 int8_avg_accum_inv	3388 numeric_poly_sum	f	f	r	r	0	2281	48	2281	48	\N	\N
+2108 pg_catalog.sum	n	0	1841 int4_sum	0	463 int8pl	0	0	1963 int4_avg_accum	3571 int4_avg_accum_inv	3572 int2int4_sum	f	f	r	r	0	20	0	1016	0	\N	{0,0}
+2109 pg_catalog.sum	n	0	1840 int2_sum	0	463 int8pl	0	0	1962 int2_avg_accum	3570 int2_avg_accum_inv	3572 int2int4_sum	f	f	r	r	0	20	0	1016	0	\N	{0,0}
+2110 pg_catalog.sum	n	0	204 float4pl	0	204 float4pl	0	0	0	0	0	f	f	r	r	0	700	0	0	0	\N	\N
+2111 pg_catalog.sum	n	0	218 float8pl	0	218 float8pl	0	0	0	0	0	f	f	r	r	0	701	0	0	0	\N	\N
+2114 pg_catalog.sum	n	0	2858 numeric_avg_accum	3178 numeric_sum	3337 numeric_avg_combine	2740 numeric_avg_serialize	2741 numeric_avg_deserialize	2858 numeric_avg_accum	3548 numeric_accum_inv	3178 numeric_sum	f	f	r	r	0	2281	128	2281	128	\N	\N
+2115 pg_catalog.max	n	0	1236 int8larger	0	1236 int8larger	0	0	0	0	0	f	f	r	r	413	20	0	0	0	\N	\N
+2116 pg_catalog.max	n	0	768 int4larger	0	768 int4larger	0	0	0	0	0	f	f	r	r	521	23	0	0	0	\N	\N
+2117 pg_catalog.max	n	0	770 int2larger	0	770 int2larger	0	0	0	0	0	f	f	r	r	520	21	0	0	0	\N	\N
+2118 pg_catalog.max	n	0	1965 oidlarger	0	1965 oidlarger	0	0	0	0	0	f	f	r	r	610	26	0	0	0	\N	\N
+2119 pg_catalog.max	n	0	209 float4larger	0	209 float4larger	0	0	0	0	0	f	f	r	r	623	700	0	0	0	\N	\N
+2120 pg_catalog.max	n	0	223 float8larger	0	223 float8larger	0	0	0	0	0	f	f	r	r	674	701	0	0	0	\N	\N
+2122 pg_catalog.max	n	0	1138 date_larger	0	1138 date_larger	0	0	0	0	0	f	f	r	r	1097	1082	0	0	0	\N	\N
+2123 pg_catalog.max	n	0	1377 time_larger	0	1377 time_larger	0	0	0	0	0	f	f	r	r	1112	1083	0	0	0	\N	\N
+2126 pg_catalog.max	n	0	2036 timestamp_larger	0	2036 timestamp_larger	0	0	0	0	0	f	f	r	r	2064	1114	0	0	0	\N	\N
+2127 pg_catalog.max	n	0	1196 timestamptz_larger	0	1196 timestamptz_larger	0	0	0	0	0	f	f	r	r	1324	1184	0	0	0	\N	\N
+2128 pg_catalog.max	n	0	1198 interval_larger	0	1198 interval_larger	0	0	0	0	0	f	f	r	r	1334	1186	0	0	0	\N	\N
+2129 pg_catalog.max	n	0	458 text_larger	0	458 text_larger	0	0	0	0	0	f	f	r	r	666	25	0	0	0	\N	\N
+2130 pg_catalog.max	n	0	1767 numeric_larger	0	1767 numeric_larger	0	0	0	0	0	f	f	r	r	1756	1700	0	0	0	\N	\N
+2131 pg_catalog.min	n	0	1237 int8smaller	0	1237 int8smaller	0	0	0	0	0	f	f	r	r	412	20	0	0	0	\N	\N
+2132 pg_catalog.min	n	0	769 int4smaller	0	769 int4smaller	0	0	0	0	0	f	f	r	r	97	23	0	0	0	\N	\N
+2133 pg_catalog.min	n	0	771 int2smaller	0	771 int2smaller	0	0	0	0	0	f	f	r	r	95	21	0	0	0	\N	\N
+2134 pg_catalog.min	n	0	1966 oidsmaller	0	1966 oidsmaller	0	0	0	0	0	f	f	r	r	609	26	0	0	0	\N	\N
+2135 pg_catalog.min	n	0	211 float4smaller	0	211 float4smaller	0	0	0	0	0	f	f	r	r	622	700	0	0	0	\N	\N
+2136 pg_catalog.min	n	0	224 float8smaller	0	224 float8smaller	0	0	0	0	0	f	f	r	r	672	701	0	0	0	\N	\N
+2138 pg_catalog.min	n	0	1139 date_smaller	0	1139 date_smaller	0	0	0	0	0	f	f	r	r	1095	1082	0	0	0	\N	\N
+2139 pg_catalog.min	n	0	1378 time_smaller	0	1378 time_smaller	0	0	0	0	0	f	f	r	r	1110	1083	0	0	0	\N	\N
+2142 pg_catalog.min	n	0	2035 timestamp_smaller	0	2035 timestamp_smaller	0	0	0	0	0	f	f	r	r	2062	1114	0	0	0	\N	\N
+2143 pg_catalog.min	n	0	1195 timestamptz_smaller	0	1195 timestamptz_smaller	0	0	0	0	0	f	f	r	r	1322	1184	0	0	0	\N	\N
+2144 pg_catalog.min	n	0	1197 interval_smaller	0	1197 interval_smaller	0	0	0	0	0	f	f	r	r	1332	1186	0	0	0	\N	\N
+2145 pg_catalog.min	n	0	459 text_smaller	0	459 text_smaller	0	0	0	0	0	f	f	r	r	664	25	0	0	0	\N	\N
+2146 pg_catalog.min	n	0	1766 numeric_smaller	0	1766 numeric_smaller	0	0	0	0	0	f	f	r	r	1754	1700	0	0	0	\N	\N
+2147 pg_catalog.count	n	0	2804 int8inc_any	0	463 int8pl	0	0	2804 int8inc_any	3547 int8dec_any	0	f	f	r	r	0	20	0	20	0	0	0
+2244 pg_catalog.max	n	0	1063 bpchar_larger	0	1063 bpchar_larger	0	0	0	0	0	f	f	r	r	1060	1042	0	0	0	\N	\N
+2245 pg_catalog.min	n	0	1064 bpchar_smaller	0	1064 bpchar_smaller	0	0	0	0	0	f	f	r	r	1058	1042	0	0	0	\N	\N
+2335 pg_catalog.array_agg	n	0	2333 array_agg_transfn	2334 array_agg_finalfn	6293 array_agg_combine	6294 array_agg_serialize	6295 array_agg_deserialize	0	0	0	t	f	r	r	0	2281	0	0	0	\N	\N
+2517 bool_and	n	0	2515 booland_statefunc	0	2515 booland_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3498 bool_alltrue	f	f	r	r	58	16	0	2281	16	\N	\N
+2518 bool_or	n	0	2516 boolor_statefunc	0	2516 boolor_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3499 bool_anytrue	f	f	r	r	59	16	0	2281	16	\N	\N
+2519 every	n	0	2515 booland_statefunc	0	2515 booland_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3498 bool_alltrue	f	f	r	r	58	16	0	2281	16	\N	\N
+2803 pg_catalog.count	n	0	1219 int8inc	0	463 int8pl	0	0	1219 int8inc	3546 int8dec	0	f	f	r	r	0	20	0	20	0	0	0
+3175 json_agg	n	0	3173 json_agg_transfn	3174 json_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+3197 json_object_agg	n	0	3180 json_object_agg_transfn	3196 json_object_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+3267 jsonb_agg	n	0	3265 jsonb_agg_transfn	3266 jsonb_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+3270 jsonb_object_agg	n	0	3268 jsonb_object_agg_transfn	3269 jsonb_object_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+3538 pg_catalog.string_agg	n	0	3535 string_agg_transfn	3536 string_agg_finalfn	6299 string_agg_combine	6300 string_agg_serialize	6301 string_agg_deserialize	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+3545 pg_catalog.string_agg	n	0	3543 bytea_string_agg_transfn	3544 bytea_string_agg_finalfn	6299 string_agg_combine	6300 string_agg_serialize	6301 string_agg_deserialize	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
+4053 pg_catalog.array_agg	n	0	4051 array_agg_array_transfn	4052 array_agg_array_finalfn	6296 array_agg_array_combine	6297 array_agg_array_serialize	6298 array_agg_array_deserialize	0	0	0	t	f	r	r	0	2281	0	0	0	\N	\N

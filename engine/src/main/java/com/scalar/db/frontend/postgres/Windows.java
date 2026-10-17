@@ -25,7 +25,7 @@ final class Windows {
   /** Prefix of a window call's hidden row key: the prefix followed by the call's text. */
   static final String KEY = "$window:";
 
-  private static final List<String> RANKING =
+  static final List<String> RANKING =
       Arrays.asList(
           "ROW_NUMBER",
           "RANK",

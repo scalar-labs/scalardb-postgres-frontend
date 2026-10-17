@@ -25,6 +25,15 @@ Behaviour that changes:
   unqualified user table of the same name, as in PostgreSQL; qualify the table (`public.pg_user`) to read it.
 - A statement that cannot be planned fails at Describe, not only at Execute; before, Describe answered that
   it returns no rows.
+- `pg_proc`, `pg_aggregate`, `pg_operator` and `pg_cast` list what the frontend implements, as PostgreSQL 16
+  catalogs it, and a call's result is described with the type of the signature it matches, as PostgreSQL
+  does. Types that change: `current_database()`, `current_schema()`, `current_user` and `pg_get_userbyid()`
+  are `name`, not `text`; `date_part()` is `double precision`, not `numeric`; `date_trunc()`,
+  `clock_timestamp()` and `gen_random_uuid()` are their timestamp or `uuid` type; `smallint` and `real`
+  arithmetic stay `smallint` and `real`; `x::varchar` is `character varying`; `json -> x` stays `json`.
+- A function called with a number of arguments none of its signatures takes fails with `0A000`, as do the
+  text functions on `bytea` and `date_trunc` with a time zone, which answered wrongly before.
+  `'f'::regproc` and `'f(text)'::regprocedure` name functions by OID, and `pg_typeof` works.
 - `ROLLBACK` undoes the `SET`s made in the transaction, and a `SET` after `SET LOCAL` outlasts the
   transaction, as in PostgreSQL. `SET`, `RESET` and `SET ... TO DEFAULT` of a setting PostgreSQL fixes, such
   as `server_version`, fail with `55P02`.

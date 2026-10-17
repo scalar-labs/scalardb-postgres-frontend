@@ -67,7 +67,7 @@ at the end of this section.
   reflection read `pg_catalog` and `information_schema` as the frontend builds them from ScalarDB's
   metadata. A catalog relation the frontend does not have fails with `42P01`, as an unknown table
   does, instead of answering no rows; so do the system views it lacks, such as
-  `pg_stat_activity`, `pg_locks` and `pg_operator`. These relations exist and are empty, because
+  `pg_stat_activity` and `pg_locks`. These relations exist and are empty, because
   nothing of their kind exists here:
 
   | Catalog relations | Empty because |
@@ -89,9 +89,13 @@ at the end of this section.
   | `pg_auth_members` | no role memberships, unless ScalarDB Cluster's roles have them |
   | `pg_default_acl`, `pg_parameter_acl`, `pg_db_role_setting`, `pg_shdescription`, `pg_prepared_xacts`, `pg_largeobject_metadata` | no such privileges, settings, comments, two-phase transactions or large objects |
 
-  Not complete yet: `pg_proc` lists no functions, `pg_depend` no dependencies, and `pg_collation`
-  only the ICU collation, when ScalarDB uses one; `pg_operator`, `pg_cast` and `pg_aggregate` are missing. Catalog
-  relations are not themselves listed in `pg_class`. Database and table sizes show empty.
+  `pg_proc`, `pg_aggregate`, `pg_operator` and `pg_cast` list the functions, operators and casts the
+  frontend implements, with PostgreSQL 16's OIDs and descriptions, so `\df`, `\do`, `\dC`, JDBC's
+  `getFunctions` and `regproc` see only those; a call outside them fails with `0A000`. The functions a
+  cast or an operator is carried out by, such as `int4(bigint)` and `int4pl`, are not among them, so
+  `\dC` shows no function name. Not complete yet: `pg_depend` lists no dependencies, and
+  `pg_collation` only the ICU collation, when ScalarDB uses one. Catalog relations are not themselves
+  listed in `pg_class`. Database and table sizes show empty.
 - **The search path decides what is visible.** As in PostgreSQL, `\dt`, `pg_table_is_visible` and
   an unqualified name see only the namespaces on `search_path`. The default path shows the
   connected namespace, as schema `public`; `SET search_path = public, sales` or `\dt sales.*`

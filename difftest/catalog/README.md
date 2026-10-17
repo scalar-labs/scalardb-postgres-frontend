@@ -53,3 +53,18 @@ Each query records PostgreSQL 16's answer as a row count and a digest of the row
 reviewed, the frontend's expected answer (`-- expect:`), which a rewrite keeps. `replay.py` keeps at
 most two queries of the same shape (equal up to string literals), so a fresh capture that looks up a
 third table or type the same way loses that lookup; it counts the dropped queries on stderr.
+
+## What the frontend implements
+
+`builtins.py` writes the frontend's `pg_proc`, `pg_aggregate`, `pg_operator` and `pg_cast` rows (engine
+resources `builtins.txt`, `aggregates.txt`, `operators.txt`, `casts.txt`) and the calls that prove them
+(`engine/src/test/resources/builtins-calls.txt`, which `BuiltinsTest` runs). It calls each candidate on
+PostgreSQL 16 and on the frontend, keeps what the frontend runs, and lists on stderr every call whose
+result type or text differs. Run it after adding or changing a function, against a frontend started with
+`-Dscalardb.frontend.builtins.ungated=true` (otherwise the frontend refuses what the lists lack yet), then
+rebuild and run it once more: the second run uses the new lists to describe result types.
+
+```
+python builtins.py 15416 15473
+python catalog_types.py 15416 > ../../engine/src/main/resources/com/scalar/db/frontend/postgres/catalog-types.txt
+```
