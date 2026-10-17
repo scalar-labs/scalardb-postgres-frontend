@@ -500,14 +500,14 @@ final class Evaluator {
       }
       Object value = args.get(next++);
       if (spec == 's') {
-        out.append(value == null ? "" : text(value));
+        out.append(value == null ? "" : outputText(value));
       } else if (spec == 'L') {
-        out.append(value == null ? "NULL" : quoteLiteral(text(value)));
+        out.append(value == null ? "NULL" : quoteLiteral(outputText(value)));
       } else if (value == null) {
         throw new PgException.Argument(
             "22004", "null values cannot be formatted as an SQL identifier");
       } else {
-        out.append(quoteIdent(text(value)));
+        out.append(quoteIdent(outputText(value)));
       }
     }
     return out.toString();
@@ -1931,7 +1931,7 @@ final class Evaluator {
         case "current_catalog":
           return ctx.catalog == null ? null : ctx.catalog.database;
         case "current_schema":
-          return ctx.catalog == null ? null : "public"; // the connected namespace shows as public
+          return ctx.catalog == null ? null : ctx.catalog.currentSchema();
         case "current_user":
         case "user":
         case "session_user":
@@ -2046,6 +2046,11 @@ final class Evaluator {
 
   static boolean isIntegral(Object v) {
     return v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte;
+  }
+
+  /** A value as its type's output function writes it, as concat and format take it: t, not true. */
+  static String outputText(Object v) {
+    return v instanceof Boolean ? ((Boolean) v ? "t" : "f") : text(v);
   }
 
   static String text(Object v) {
@@ -3087,7 +3092,7 @@ final class Evaluator {
         StringBuilder sb = new StringBuilder();
         for (Object a : args) {
           if (a != null) {
-            sb.append(text(a));
+            sb.append(outputText(a));
           }
         }
         return sb.toString();
@@ -3104,7 +3109,7 @@ final class Evaluator {
         StringJoiner joined = new StringJoiner(text(args.get(0)));
         for (Object a : args.subList(1, args.size())) {
           if (a != null) {
-            joined.add(text(a));
+            joined.add(outputText(a));
           }
         }
         return joined.toString();
@@ -3539,7 +3544,7 @@ final class Evaluator {
           try {
             return arg(args, 0) == null || ctx.catalog == null
                 ? null
-                : (Object) ctx.catalog.relationOid(str(args, 0));
+                : ctx.catalog.reg("regclass", ctx.catalog.relationOid(str(args, 0)));
           } catch (IllegalArgumentException unknownRelation) {
             return null;
           }
@@ -3601,11 +3606,7 @@ final class Evaluator {
           return "";
         case "CURRENT_SCHEMA": // the first schema of search_path that exists
           {
-            if (ctx.catalog == null) {
-              return null;
-            }
-            List<Object> schemas = ctx.catalog.schemas(false);
-            return schemas.isEmpty() ? null : schemas.get(0);
+            return ctx.catalog == null ? null : ctx.catalog.currentSchema();
           }
         case "CURRENT_DATABASE":
           return ctx.catalog == null ? null : ctx.catalog.database;

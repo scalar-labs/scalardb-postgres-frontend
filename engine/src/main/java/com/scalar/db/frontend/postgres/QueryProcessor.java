@@ -303,6 +303,7 @@ public class QueryProcessor {
   public void setClientDefault(String name, String value) {
     String key = settingKey(name);
     defaults.put(key == null ? name : key, checkedValue(key, name, value));
+    searchPathChanged(key);
   }
 
   @Nullable private String resetOrDiscard(String sql) {

@@ -3097,9 +3097,10 @@ public class QueryParserTest {
     when(admin.getNamespaceNames())
         .thenReturn(new java.util.LinkedHashSet<>(Arrays.asList(NS, "other")));
     when(admin.getNamespaceTableNames("other"))
-        .thenReturn(new java.util.LinkedHashSet<>(Arrays.asList("t", "u")));
+        .thenReturn(new java.util.LinkedHashSet<>(Arrays.asList("t", "u", "My T")));
     when(admin.getTableMetadata("other", "t")).thenReturn(METADATA);
     when(admin.getTableMetadata("other", "u")).thenReturn(METADATA);
+    when(admin.getTableMetadata("other", "My T")).thenReturn(METADATA);
     String visible =
         "SELECT n.nspname || '.' || c.relname AS r FROM pg_class c"
             + " JOIN pg_namespace n ON n.oid = c.relnamespace"
@@ -3107,7 +3108,9 @@ public class QueryParserTest {
     String names =
         "SELECT current_schemas(true) AS a, current_schemas(false) AS b, current_schema() AS c,"
             + " 'public.t'::regclass::text AS d, 'other.t'::regclass::text AS e,"
-            + " pg_table_is_visible('pg_class'::regclass) AS f";
+            + " pg_table_is_visible('pg_class'::regclass) AS f, current_schema AS g,"
+            + " 'PUBLIC.T'::regclass::text AS h, 'other.\"My T\"'::regclass::text AS i,"
+            + " pg_table_is_visible(999999) AS j";
     assertThat(parser.parse(visible).execute(transaction)).containsExactly(map("r", "public.t"));
     assertThat(parser.parse(names).execute(transaction))
         .containsExactly(
@@ -3123,13 +3126,21 @@ public class QueryParserTest {
                 "e",
                 "other.t",
                 "f",
-                true));
+                true,
+                "g",
+                "public",
+                "h",
+                "t",
+                "i",
+                "other.\"My T\"",
+                "j",
+                null));
     assertThatThrownBy(() -> parser.parse("SELECT 'u'::regclass").execute(transaction))
         .hasMessageContaining("relation \"u\" does not exist");
 
     parser.setSearchPath("other, public");
     assertThat(parser.parse(visible).execute(transaction))
-        .containsExactly(map("r", "other.t"), map("r", "other.u"));
+        .containsExactly(map("r", "other.My T"), map("r", "other.t"), map("r", "other.u"));
     assertThat(parser.parse(names).execute(transaction))
         .containsExactly(
             map(
@@ -3144,7 +3155,15 @@ public class QueryParserTest {
                 "e",
                 "t",
                 "f",
-                true));
+                true,
+                "g",
+                "other",
+                "h",
+                "public.t",
+                "i",
+                "\"My T\"",
+                "j",
+                null));
 
     // an explicit pg_catalog, placed later, is where the path says
     parser.setSearchPath("other, pg_catalog");
@@ -3158,6 +3177,19 @@ public class QueryParserTest {
                 .execute(transaction))
         .containsExactly(map("c", null, "s", Collections.emptyList()));
     assertThat(parser.parse(visible).execute(transaction)).isEmpty();
+
+    // SET search_path = '': no schema, so nothing user-made is visible by its bare name
+    parser.setSearchPath("");
+    assertThat(
+            parser
+                .parse(
+                    "SELECT current_schema AS c, current_schemas(true) AS s,"
+                        + " 'public.t'::regclass::text AS t, to_regclass('Public.T')::text AS r")
+                .execute(transaction))
+        .containsExactly(
+            map("c", null, "s", Arrays.asList("pg_catalog"), "t", "public.t", "r", "public.t"));
+    assertThatThrownBy(() -> parser.parse("SELECT 'a..b'::regclass").execute(transaction))
+        .hasMessageContaining("invalid name syntax");
   }
 
   @Test
@@ -3167,7 +3199,8 @@ public class QueryParserTest {
                 .parse(
                     "SELECT format('%I.%I', 'public', 'My t') AS a, format('%I', 'select') AS b,"
                         + " format('%L, %L, %s%%', 'it''s', NULL, NULL) AS c,"
-                        + " quote_ident('abc') AS d, quote_literal('a\\b') AS e")
+                        + " quote_ident('abc') AS d, quote_literal('a\\b') AS e,"
+                        + " format('%s %L', true, false) AS f, concat(true, 1) AS g")
                 .execute(transaction))
         .containsExactly(
             map(
@@ -3180,7 +3213,11 @@ public class QueryParserTest {
                 "d",
                 "abc",
                 "e",
-                "E'a\\\\b'"));
+                "E'a\\\\b'",
+                "f",
+                "t 'f'",
+                "g",
+                "t1"));
     assertThatThrownBy(() -> parser.parse("SELECT format('%I', NULL)").execute(transaction))
         .hasMessageContaining("null values cannot be formatted");
     assertThatThrownBy(() -> parser.parse("SELECT format('%s %s', 'a')").execute(transaction))

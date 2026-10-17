@@ -3100,7 +3100,7 @@ public class QueryParser {
         entries.add(e.startsWith("\"") ? unquote(e) : e.toLowerCase(Locale.ROOT));
       }
     }
-    searchPath = entries.isEmpty() ? Arrays.asList("$user", "public") : entries;
+    searchPath = entries; // SET search_path = '': no schema at all, only pg_catalog
     catalog.searchPath = searchNamespaces();
   }
 
@@ -4776,8 +4776,9 @@ public class QueryParser {
       case "CURRENT_SCHEMAS":
         return 1009;
       case "TO_REGTYPE":
-      case "TO_REGCLASS":
         return 26;
+      case "TO_REGCLASS":
+        return 2205;
       case "SUM":
         return first == 23 || first == 21 ? 20 : first == 20 ? 1700 : first == 0 ? 0 : first;
       case "AVG":

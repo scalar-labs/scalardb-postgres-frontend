@@ -628,7 +628,13 @@ final class Catalog {
             Object namespace = c.get("c.relnamespace");
             String schema = namespace instanceof Long ? namespaceName((Long) namespace) : null;
             String relation = (String) c.get("c.relname");
-            name = visible(oid) ? relation : schema + "." + relation; // qualified as psql shows it
+            // qualified when its bare name finds another, quoted as an identifier, as PostgreSQL
+            name =
+                Boolean.TRUE.equals(visible(oid))
+                    ? Evaluator.quoteIdent(String.valueOf(relation))
+                    : Evaluator.quoteIdent(String.valueOf(schema))
+                        + "."
+                        + Evaluator.quoteIdent(String.valueOf(relation));
           }
         }
         if (name == null) {
@@ -1072,19 +1078,36 @@ final class Catalog {
    * pg_table_is_visible: whether this relation is the one its bare name finds, the first of that
    * name on search_path. Catalog relations are, as pg_catalog is always searched.
    */
-  boolean visible(long oid) throws ExecutionException {
+  @Nullable Boolean visible(long oid) throws ExecutionException {
     load();
     String name = relationNames.get(oid);
     if (name == null) {
-      return true;
+      return CATALOG_OIDS.containsValue(oid) ? true : null; // NULL for no such relation
     }
-    for (String namespace : searchPath) {
-      Long found = relationOids.get(namespace + "." + name);
+    List<String> path = new ArrayList<>(searchPath);
+    if (!path.contains("pg_catalog")) {
+      path.add(0, "pg_catalog");
+    }
+    for (String namespace : path) {
+      Long found =
+          namespace.equals("pg_catalog")
+              ? CATALOG_OIDS.get(name)
+              : relationOids.get(namespace + "." + name);
       if (found != null) {
         return found == oid;
       }
     }
     return false;
+  }
+
+  /** current_schema: the first schema of search_path that exists, or NULL. */
+  @Nullable Object currentSchema() {
+    try {
+      List<Object> schemas = schemas(false);
+      return schemas.isEmpty() ? null : schemas.get(0);
+    } catch (ExecutionException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   /**
@@ -1119,12 +1142,21 @@ final class Catalog {
     } catch (ExecutionException e) {
       throw new IllegalStateException(e);
     }
-    String n = name.trim().replace("\"", "");
+    List<String> parts = nameParts(name);
+    if (parts.size() == 3 && parts.get(0).equals(database)) {
+      parts = parts.subList(1, 3); // database.schema.name, of this database
+    } else if (parts.size() > 2) {
+      throw new PgException.Argument(
+          parts.size() == 3 ? "0A000" : "42601",
+          parts.size() == 3
+              ? "cross-database references are not implemented: \"" + name + "\""
+              : "improper relation name (too many dotted names): " + name);
+    }
+    String n = String.join(".", parts);
     Long oid;
-    if (n.startsWith("pg_catalog.")) {
-      oid = CATALOG_OIDS.get(n.substring("pg_catalog.".length()));
-    } else if (n.contains(".")) {
-      oid = relationOids.get(n);
+    if (parts.size() == 2) {
+      oid =
+          parts.get(0).equals("pg_catalog") ? CATALOG_OIDS.get(parts.get(1)) : relationOids.get(n);
     } else {
       // pg_catalog first unless search_path places it, then search_path's namespaces in order;
       // a catalog table itself, as in pgjdbc's d.classoid = 'pg_class'::regclass
@@ -1141,6 +1173,43 @@ final class Catalog {
       throw new PgException.Argument("42P01", "relation \"" + n + "\" does not exist");
     }
     return oid;
+  }
+
+  /**
+   * A dotted name's parts as identifiers: unquoted ones folded to lower case, quoted ones as
+   * written ({@code ""} for a quote inside).
+   */
+  static List<String> nameParts(String name) {
+    List<String> parts = new ArrayList<>();
+    StringBuilder part = new StringBuilder();
+    boolean quoted = false;
+    boolean started = false; // the part has a character or a quote
+    for (int i = 0; i < name.length(); i++) {
+      char c = name.charAt(i);
+      if (c == '"' && quoted && i + 1 < name.length() && name.charAt(i + 1) == '"') {
+        part.append(c);
+        i++;
+      } else if (c == '"') {
+        quoted = !quoted;
+        started = true;
+      } else if (quoted) {
+        part.append(c);
+      } else if (c == '.' && started) {
+        parts.add(part.toString());
+        part.setLength(0);
+        started = false;
+      } else if (c == '.') {
+        throw new PgException.Argument("42602", "invalid name syntax");
+      } else if (!Character.isWhitespace(c)) {
+        part.append(Character.toLowerCase(c));
+        started = true;
+      }
+    }
+    if (quoted || !started) {
+      throw new PgException.Argument("42602", "invalid name syntax");
+    }
+    parts.add(part.toString());
+    return parts;
   }
 
   /** The OID of a namespace named as in a {@code regnamespace} cast. */
