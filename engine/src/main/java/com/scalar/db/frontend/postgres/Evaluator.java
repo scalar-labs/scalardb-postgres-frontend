@@ -987,18 +987,29 @@ final class Evaluator {
       Object v = evalText(cast.getLeftExpression(), group, ctx); // '007'::text is 007
       String t = type.toLowerCase(Locale.ROOT);
       t = t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
-      if (v instanceof String && ctx.catalog != null) {
-        // An object name cast to its OID, as ORMs write 'table'::regclass in catalog queries
-        switch (t) {
-          case "regclass":
-            return ctx.catalog.relationOid((String) v);
-          case "regnamespace":
-            return ctx.catalog.namespaceOid((String) v);
-          case "regtype":
-            return Catalog.typeOid((String) v);
-          default:
-            break;
+      boolean reg = t.equals("regclass") || t.equals("regtype") || t.equals("regnamespace");
+      if (reg && v != null && ctx.catalog != null) {
+        // an OID, or an object's name as ORMs write 'table'::regclass, that prints as the name
+        Object o = v instanceof Catalog.Reg ? (Object) ((Catalog.Reg) v).oid : v;
+        long oid;
+        if (o instanceof Number) {
+          oid = ((Number) o).longValue();
+        } else if (text(o).trim().matches("\\d+")) {
+          oid = Long.parseLong(text(o).trim());
+        } else {
+          String name = text(o);
+          oid =
+              t.equals("regclass")
+                  ? ctx.catalog.relationOid(name)
+                  : t.equals("regnamespace")
+                      ? ctx.catalog.namespaceOid(name)
+                      : Catalog.typeOid(name);
         }
+        return ctx.catalog.reg(t, oid);
+      }
+      if (t.equals("regproc") && v instanceof String && ((String) v).startsWith("pg_catalog.")) {
+        // ponytail: a function's name stands for it until pg_proc has OIDs (todo 057, Phase 2)
+        return ((String) v).substring("pg_catalog.".length());
       }
       return cast(type, v);
     }
@@ -1676,6 +1687,8 @@ final class Evaluator {
 
   /** Compares two values; a text value is converted to the other value's type first. */
   static int compare(Object a, Object b) {
+    a = a instanceof Catalog.Reg ? (Object) ((Catalog.Reg) a).oid : a;
+    b = b instanceof Catalog.Reg ? (Object) ((Catalog.Reg) b).oid : b;
     if (a instanceof Json.Value || b instanceof Json.Value) {
       Json.Value x = Json.of(a);
       Json.Value y = Json.of(b);
@@ -1966,7 +1979,7 @@ final class Evaluator {
   }
 
   static String text(Object v) {
-    if (v instanceof Json.Value) {
+    if (v instanceof Json.Value || v instanceof Catalog.Reg) {
       return v.toString();
     }
     if (v instanceof BigDecimal) {
@@ -2760,6 +2773,9 @@ final class Evaluator {
         Object exact = cast(precision.replaceFirst("").trim(), v);
         return exact == null ? null : roundedTo(exact, Integer.parseInt(precision.group(1)));
       }
+    }
+    if (v instanceof Catalog.Reg && !(t.contains("char") || t.equals("text") || t.equals("name"))) {
+      v = ((Catalog.Reg) v).oid; // to oid or a number; to text it is the name
     }
     String s = text(v);
     try {

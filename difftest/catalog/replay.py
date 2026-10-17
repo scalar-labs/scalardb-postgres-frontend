@@ -17,7 +17,8 @@ system OID or a relation the mapping does not know.
 A fixture keeps the input's header comments, `-- source:`, `-- oids:` (the capturing server's relation
 OIDs), and per query its label, PostgreSQL's answer (`-- postgres16: N DIGEST`) and, once reviewed, the
 frontend's expected answer, which is kept across rewrites: `-- expect: N`, `-- expect: rows` for at least
-one, `-- expect: same` for PostgreSQL's rows exactly, or `-- expect: ERROR 42P01`.
+one, `-- expect: same` for PostgreSQL's rows exactly, or `-- expect: ERROR 42P01`, each optionally
+followed by `  # why`.
 Near-duplicate queries (the same text up to string literals) are kept at most twice; when capturing
 anew, a third lookup of the same shape (another table, another type) is dropped, and counted on stderr.
 """

@@ -404,6 +404,9 @@ public class PostgresServer implements AutoCloseable {
     private boolean tls;
     private final Map<String, String> statements = new HashMap<>(); // name -> SQL with $n
     private final Map<String, int[]> parameterTypes = new HashMap<>(); // name -> declared OIDs
+    // name -> the OIDs Describe reported, by which a binary parameter is read when none was
+    // declared
+    private final Map<String, int[]> describedTypes = new HashMap<>();
     private final Map<String, Portal> portals = new HashMap<>();
     // Bytes held per prepared statement and portal, and their total, against MAX_PREPARED_BYTES
     private final Map<String, Long> statementBytes = new HashMap<>();
@@ -740,6 +743,7 @@ public class PostgresServer implements AutoCloseable {
             oids[i] = msg.getInt();
           }
           parameterTypes.put(name, oids);
+          describedTypes.remove(name);
           send('1', new Msg()); // ParseComplete
           break;
         case 'B':
@@ -765,6 +769,7 @@ public class PostgresServer implements AutoCloseable {
           release(kind == 'S' ? statementBytes : portalBytes, closing);
           if (kind == 'S') {
             parameterTypes.remove(closing);
+            describedTypes.remove(closing);
           }
           send('3', new Msg()); // CloseComplete
           break;
@@ -1006,7 +1011,9 @@ public class PostgresServer implements AutoCloseable {
         byte[] value = new byte[length];
         msg.get(value);
         short format = formats.length == 0 ? 0 : formats.length == 1 ? formats[0] : formats[i];
-        int oid = i < oids.length ? oids[i] : 0;
+        int[] described = describedTypes.getOrDefault(statement, new int[0]);
+        int oid =
+            i < oids.length && oids[i] != 0 ? oids[i] : i < described.length ? described[i] : 0;
         params.add(format == 0 ? new String(value, StandardCharsets.UTF_8) : binary(oid, value));
       }
       int needed = Math.max(QueryParser.parameterCount(sql), oids.length); // as PostgreSQL counts
@@ -1059,17 +1066,26 @@ public class PostgresServer implements AutoCloseable {
           throw new PgException.Argument(
               "08P01", "too many parameters: $" + n); // $99999999 in the SQL
         }
-        int[] oids = parameterTypes.getOrDefault(name, new int[0]);
-        Msg m = new Msg().i16(n);
-        for (int i = 0; i < n; i++) {
-          m.i32(i < oids.length ? oids[i] : 0); // 0: parameter type unspecified
-        }
-        send('t', m); // ParameterDescription
+        boolean described;
         try {
           columns = processor.describe(sql, Collections.nCopies(n, null));
+          described = true;
         } catch (RuntimeException e) {
           columns = Collections.emptyMap(); // the row shape depends on the parameter values
+          described = false;
         }
+        int[] oids = parameterTypes.getOrDefault(name, new int[0]);
+        int[] reported = new int[n];
+        Msg m = new Msg().i16(n);
+        for (int i = 0; i < n; i++) {
+          // the type the client declared in Parse, else the one the statement gives $i+1
+          int declared = i < oids.length ? oids[i] : 0;
+          reported[i] =
+              declared != 0 || !described ? declared : processor.describedParameterOid(i + 1);
+          m.i32(reported[i]);
+        }
+        describedTypes.put(name, reported);
+        send('t', m); // ParameterDescription
       } else {
         Portal portal = portals.get(name);
         if (portal == null) {
@@ -1679,16 +1695,21 @@ public class PostgresServer implements AutoCloseable {
                 java.time.temporal.ChronoUnit.MICROS.between(
                     PG_EPOCH.toInstant(ZoneOffset.UTC), (Instant) value))
             .array();
+      case 22: // int2vector: an int2 array indexed from 0, as pg_index.indkey is
+        return arrayBinary(21, Evaluator.elements(value), 0);
       default:
         if (Catalog.elementOid(oid) != 0) {
           // every array type the catalog knows, not a hand-kept list of them (todo 019)
-          return arrayBinary((int) Catalog.elementOid(oid), Evaluator.elements(value));
+          return arrayBinary((int) Catalog.elementOid(oid), Evaluator.elements(value), 1);
         }
         return text(value).getBytes(StandardCharsets.UTF_8); // text types: the same bytes
     }
   }
 
   private static Number number(Object value) {
+    if (value instanceof Catalog.Reg) {
+      return ((Catalog.Reg) value).oid;
+    }
     return value instanceof Number ? (Number) value : new java.math.BigDecimal(value.toString());
   }
 
@@ -1750,6 +1771,12 @@ public class PostgresServer implements AutoCloseable {
         return String.valueOf(b.getShort());
       case 23:
         return String.valueOf(b.getInt());
+      case 26: // oid and its reg* aliases: unsigned
+      case 24:
+      case 2205:
+      case 2206:
+      case 4089:
+        return String.valueOf(Integer.toUnsignedLong(b.getInt()));
       case 20:
         return String.valueOf(b.getLong());
       case 700:
@@ -1785,7 +1812,7 @@ public class PostgresServer implements AutoCloseable {
   }
 
   /** A one-dimensional array in binary format: the mirror of {@link #arrayText(ByteBuffer)}. */
-  private static byte[] arrayBinary(int elementOid, List<?> elements) {
+  private static byte[] arrayBinary(int elementOid, List<?> elements, int lowerBound) {
     List<byte[]> encoded = new ArrayList<>();
     int size = 20;
     boolean nulls = false;
@@ -1810,7 +1837,7 @@ public class PostgresServer implements AutoCloseable {
       size += 4 + bytes.length;
     }
     ByteBuffer b = ByteBuffer.allocate(size);
-    b.putInt(1).putInt(nulls ? 1 : 0).putInt(elementOid).putInt(elements.size()).putInt(1);
+    b.putInt(1).putInt(nulls ? 1 : 0).putInt(elementOid).putInt(elements.size()).putInt(lowerBound);
     for (byte[] bytes : encoded) {
       if (bytes == null) {
         b.putInt(-1);

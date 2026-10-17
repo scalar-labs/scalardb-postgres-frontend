@@ -122,6 +122,30 @@ public class PostgresServerTest {
   }
 
   @Test
+  public void describe_UntypedParameters_ShouldTakeTheTypesTheirPlacesGive() throws Exception {
+    // asyncpg declares no parameter types and introspects whatever Describe reports; 0 sent it
+    // round its own introspection query forever
+    String[][] cases = {
+      {"SELECT id FROM t WHERE id = ? AND name = ?", "int4", "text"},
+      {"SELECT ?::bigint, ?", "int8", "text"},
+      {"SELECT id FROM t WHERE id IN (?, ?)", "int4", "int4"},
+      {"INSERT INTO t (id, name) VALUES (?, ?)", "int4", "text"},
+      {"UPDATE t SET name = ? WHERE id = ?", "text", "int4"},
+      {"SELECT t.oid FROM pg_catalog.pg_type t WHERE t.oid = any(?::oid[])", "_oid", null},
+    };
+    try (Connection connection = connect("")) {
+      for (String[] c : cases) {
+        try (PreparedStatement statement = connection.prepareStatement(c[0])) {
+          java.sql.ParameterMetaData meta = statement.getParameterMetaData();
+          for (int i = 1; i < c.length && c[i] != null; i++) {
+            assertThat(meta.getParameterTypeName(i)).as(c[0] + " $" + i).isEqualTo(c[i]);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   public void simpleProtocol_SelectAndMultiRowInsert_ShouldWork() throws Exception {
     try (Connection connection = connect("?preferQueryMode=simple");
         Statement statement = connection.createStatement()) {

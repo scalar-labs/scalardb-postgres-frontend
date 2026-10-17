@@ -144,15 +144,27 @@ that come from neither fallback. They join Phase 1 under "Other wrong answers":
 ### Phase 1: Stop inventing answers, and fix what clients hit
 
 **Other wrong answers** (found by Phase 0):
-- [ ] `regtype`, `regclass`, `regnamespace` and `regproc` values print as names (`-` for 0), and their
-      text casts give the name. A `reg*` cast of a name that doesn't exist fails (42704 or 42P01), as in
+- [x] `regtype`, `regclass` and `regnamespace` values print as names (`-` for 0), and their
+      text casts give the name. A `reg*` cast of a name that doesn't exist fails (42704, 42P01 or 3F000), as in
       PostgreSQL. Acceptance: asyncpg's prepared statements, and the asyncpg fixture.
+  - `regproc` waits for Phase 2's `pg_proc` OIDs; until then a function's name stands for it, with the
+    `pg_catalog.` prefix stripped so pgjdbc's `typinput = 'pg_catalog.array_in'::regproc` holds.
+  - asyncpg's RecursionError had another cause: Describe reported every undeclared parameter as type 0,
+    and asyncpg introspects type 0 with a query whose own parameter was type 0. Parameters now take
+    the type their place gives them (a cast, a compared or assigned column, IN, BETWEEN), text
+    otherwise, and binary parameters are read by that type.
+  - asyncpg then needed what its introspection reads to be typed as in PostgreSQL: catalog columns
+    take PostgreSQL 16's types (`catalog-types.txt`, from `difftest/catalog/catalog_types.py`) where
+    `pg_type` lists the type; `oid`, `"char"`, `uuid` and the `reg*` types are added to `pg_type`;
+    `int2vector.typelem` is `int2`, and it goes out in binary as an `int2` array from 0; `json`,
+    `jsonb` and `uuid` casts are described as those types.
 - [ ] `generate_subscripts` and `array_lower` follow an `int2vector`'s (or `oidvector`'s) lower bound of
       0. Acceptance: compat/ruby's primary-key, find/update and destroy steps.
 - [ ] `unnest(...) WITH ORDINALITY` and a column list on its alias (`co(colid, arridx)`). Acceptance:
       Django `inspectdb` keeps `primary_key=True`.
-- [ ] Re-run asyncpg after the `reg*` fix, and look at its `jsonb` value (the binary version byte reached
-      the client as text) and its `uuid` value (arrived as text).
+- [x] Re-run asyncpg after the `reg*` fix, and look at its `jsonb` value (the binary version byte reached
+      the client as text) and its `uuid` value (arrived as text). Both were casts described as text;
+      fixed above.
 
 **Removing the fallbacks** (`QueryParser.java`):
 - [ ] Delete the catch-all at 2190-2209, and `catalogColumnNames` (2218-2246), which becomes dead code.

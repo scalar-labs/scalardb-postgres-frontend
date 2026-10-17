@@ -391,6 +391,14 @@ final class Catalog {
     type(3802, "jsonb", "jsonb");
     type(19, "name", "name");
     type(22, "int2vector", "int2vector"); // pg_index.indkey, which drivers look up by OID
+    type(26, "oid", "oid");
+    type(18, "char", "\"char\""); // the one-byte codes of catalog columns: relkind, typtype
+    type(2950, "uuid", "uuid"); // uuid values; a uuid column is stored as TEXT
+    // the OID aliases a cast like 'items'::regclass gives, printed as the object's name
+    type(24, "regproc", "regproc");
+    type(2205, "regclass", "regclass");
+    type(2206, "regtype", "regtype");
+    type(4089, "regnamespace", "regnamespace");
   }
 
   /** pg_get_keywords(): PostgreSQL's SQL keywords, from keywords.txt, read on first use. */
@@ -451,12 +459,123 @@ final class Catalog {
     }
   }
 
-  /** The type OID of a catalog column that is not inferred from its value: name, int2vector. */
-  static long catalogColumnOid(String column) {
-    if (column.equals("indkey")) {
-      return 22;
+  /**
+   * A value of a reg* type: an OID that prints as its object's name ({@code integer}, {@code
+   * sales.orders}, {@code -} for 0), and compares, casts to a number and goes out in binary as the
+   * OID.
+   */
+  static final class Reg {
+    final long oid;
+    final String name;
+
+    Reg(long oid, String name) {
+      this.oid = oid;
+      this.name = name;
     }
-    return column.endsWith("name") ? 19 : 0;
+
+    @Override
+    public boolean equals(Object o) {
+      return o instanceof Reg && ((Reg) o).oid == oid;
+    }
+
+    @Override
+    public int hashCode() {
+      return Long.hashCode(oid);
+    }
+
+    @Override
+    public String toString() {
+      return name;
+    }
+  }
+
+  /** A regclass, regtype or regnamespace value for an OID; an unknown OID prints as the number. */
+  Reg reg(String type, long oid) {
+    try {
+      return regOf(type, oid);
+    } catch (ExecutionException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  private Reg regOf(String type, long oid) throws ExecutionException {
+    if (oid == 0) {
+      return new Reg(0, "-");
+    }
+    String name = null;
+    switch (type) {
+      case "regtype":
+        name = TYPE_NAMES.get(oid);
+        break;
+      case "regnamespace":
+        name = namespaceName(oid);
+        break;
+      case "regclass":
+        for (Map<String, Object> c : rows("pg_catalog", "pg_class", "c")) {
+          if (Objects.equals(c.get("c.oid"), oid)) {
+            Object namespace = c.get("c.relnamespace");
+            String schema = namespace instanceof Long ? namespaceName((Long) namespace) : null;
+            String relation = (String) c.get("c.relname");
+            // ponytail: qualified unless public or pg_catalog; search_path visibility is todo 057's
+            name =
+                "public".equals(schema) || "pg_catalog".equals(schema)
+                    ? relation
+                    : schema + "." + relation;
+          }
+        }
+        if (name == null) {
+          for (Map.Entry<String, Long> e : CATALOG_OIDS.entrySet()) {
+            name = e.getValue() == oid ? e.getKey() : name;
+          }
+        }
+        break;
+      default:
+        throw new IllegalArgumentException("not a reg* type: " + type);
+    }
+    return new Reg(oid, name == null ? String.valueOf(oid) : name);
+  }
+
+  @Nullable private String namespaceName(long oid) throws ExecutionException {
+    for (Map<String, Object> n : rows("pg_catalog", "pg_namespace", "n")) {
+      if (Objects.equals(n.get("n.oid"), oid)) {
+        return (String) n.get("n.nspname");
+      }
+    }
+    return null;
+  }
+
+  /** The type OID of a catalog column that is not inferred from its value: name, int2vector. */
+  static long catalogColumnOid(String table, String column) {
+    Long oid = CatalogTypes.TYPES.get(table + " " + column);
+    if (oid == null || oid == 24) {
+      // ponytail: regproc columns hold function names until pg_proc has OIDs (todo 057, Phase 2)
+      return column.equals("indkey") ? 22 : column.endsWith("name") ? 19 : 0;
+    }
+    long element = elementOid(oid);
+    return TYPE_NAMES.containsKey(element != 0 ? element : oid) ? oid : 25;
+  }
+
+  /** PostgreSQL 16's type of each catalog column, from catalog-types.txt, read on first use. */
+  private static final class CatalogTypes {
+    static final Map<String, Long> TYPES = new HashMap<>();
+
+    static {
+      try (java.io.BufferedReader in =
+          new java.io.BufferedReader(
+              new java.io.InputStreamReader(
+                  Objects.requireNonNull(
+                      Catalog.class.getResourceAsStream("catalog-types.txt"), "catalog-types.txt"),
+                  java.nio.charset.StandardCharsets.UTF_8))) {
+        for (String line = in.readLine(); line != null; line = in.readLine()) {
+          if (!line.startsWith("#")) {
+            int last = line.lastIndexOf(' ');
+            TYPES.put(line.substring(0, last), Long.parseLong(line.substring(last + 1)));
+          }
+        }
+      } catch (java.io.IOException e) {
+        throw new java.io.UncheckedIOException(e);
+      }
+    }
   }
 
   private static final Map<Long, Long> ARRAY_OIDS = new LinkedHashMap<>();
@@ -481,7 +600,14 @@ final class Catalog {
       {1186, 1187},
       {1700, 1231},
       {114, 199},
-      {3802, 3807}
+      {3802, 3807},
+      {26, 1028},
+      {18, 1002},
+      {2950, 2951},
+      {24, 1008},
+      {2205, 2210},
+      {2206, 2211},
+      {4089, 4090}
     };
     for (long[] p : pairs) {
       ARRAY_OIDS.put(p[0], p[1]);
@@ -530,12 +656,18 @@ final class Catalog {
   static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
+      case 18:
         return 1;
       case 21:
         return 2;
       case 23:
       case 700:
       case 1082:
+      case 26:
+      case 24:
+      case 2205:
+      case 2206:
+      case 4089:
         return 4;
       case 20:
       case 701:
@@ -544,6 +676,7 @@ final class Catalog {
       case 1184:
         return 8;
       case 1186:
+      case 2950:
         return 16;
       case 19:
         return 64;
@@ -773,7 +906,7 @@ final class Catalog {
       oid = CATALOG_OIDS.get(n.startsWith("pg_catalog.") ? n.substring(11) : n);
     }
     if (oid == null) {
-      throw new IllegalArgumentException("relation \"" + n + "\" does not exist");
+      throw new PgException.Argument("42P01", "relation \"" + n + "\" does not exist");
     }
     return oid;
   }
@@ -785,9 +918,10 @@ final class Catalog {
     } catch (ExecutionException e) {
       throw new IllegalStateException(e);
     }
-    Long oid = namespaceOids.get(name.trim().replace("\"", ""));
+    String n = name.trim().replace("\"", "");
+    Long oid = n.equals("pg_catalog") ? (Long) PG_CATALOG_NAMESPACE : namespaceOids.get(n);
     if (oid == null) {
-      throw new IllegalArgumentException("schema \"" + name + "\" does not exist");
+      throw new PgException.Argument("3F000", "schema \"" + name + "\" does not exist");
     }
     return oid;
   }
@@ -796,12 +930,15 @@ final class Catalog {
   static long typeOid(String name) {
     String n = name.trim().toLowerCase(Locale.ROOT);
     n = n.startsWith("pg_catalog.") ? n.substring("pg_catalog.".length()) : n;
+    if (n.equals("char")) {
+      return 1042; // char is character(1); the one-byte type is spelled "char"
+    }
     for (Map.Entry<Long, String> e : INTERNAL_TYPE_NAMES.entrySet()) {
       if (e.getValue().equals(n) || n.equals(TYPE_NAMES.get(e.getKey()))) {
         return e.getKey();
       }
     }
-    throw new IllegalArgumentException("type \"" + name + "\" does not exist");
+    throw new PgException.Argument("42704", "type \"" + name + "\" does not exist");
   }
 
   @Nullable String indexDef(long oid) throws ExecutionException {
@@ -910,7 +1047,7 @@ final class Catalog {
           name,
           PG_CATALOG_NAMESPACE,
           oid == 25 || oid == 1043 ? 100L : 0L,
-          0L,
+          oid == 22 ? 21L : 0L, // typelem: int2vector is subscripted as an int2 array
           ",",
           name + "in",
           "b",

@@ -131,7 +131,7 @@ public class ClientCatalogTest {
         } else if (line.startsWith("-- postgres16: ")) {
           q.postgres = line.substring("-- postgres16: ".length());
         } else if (line.startsWith("-- expect: ")) {
-          q.expect = line.substring("-- expect: ".length());
+          q.expect = line.substring("-- expect: ".length()).replaceFirst("\\s+#.*", ""); // # why
         } else if (!line.startsWith("-- ")) {
           sql.append(line).append('\n');
         }

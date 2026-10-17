@@ -2954,6 +2954,52 @@ public class QueryParserTest {
   }
 
   @Test
+  public void execute_RegValues_ShouldPrintAsNamesAndCompareAsOids() throws Exception {
+    // asyncpg names its codecs from typ::regtype::text; psql prints c.oid::regclass
+    assertThat(
+            parser
+                .parse(
+                    "SELECT 23::regtype::text AS a, 1043::regtype::text AS b, 0::regtype::text AS c,"
+                        + " 't'::regclass::text AS d, 'pg_class'::regclass::text AS e,"
+                        + " 'pg_catalog'::regnamespace::text AS f, 'int4'::regtype::oid AS g,"
+                        + " 99999::regtype::text AS h, 'int4'::regtype = 23 AS i")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "a",
+                "integer",
+                "b",
+                "character varying",
+                "c",
+                "-",
+                "d",
+                "t",
+                "e",
+                "pg_class",
+                "f",
+                "pg_catalog",
+                "g",
+                23L,
+                "h",
+                "99999",
+                "i",
+                true));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT c.oid::regclass::text AS r FROM pg_catalog.pg_class c"
+                        + " WHERE c.oid = 't'::regclass")
+                .execute(transaction))
+        .containsExactly(map("r", "t"));
+    assertThatThrownBy(() -> parser.parse("SELECT 'nosuch'::regtype").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42704"));
+    assertThatThrownBy(() -> parser.parse("SELECT 'nosuch'::regclass").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P01"));
+  }
+
+  @Test
   public void execute_Intervals_ShouldFollowPostgresArithmeticAndText() throws Exception {
     QueryParser.Plan plan =
         parser.parse(

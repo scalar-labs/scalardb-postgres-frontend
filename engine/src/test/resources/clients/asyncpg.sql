@@ -4,6 +4,7 @@
 -- oids: public.items=16385 public.items_name_idx=16392 public.items_pkey=16390 sales.orders=16394 sales.orders_pkey=16397
 -- [asyncpg]
 -- postgres16: 2 2e576cef02c5
+-- expect: same
 WITH RECURSIVE typeinfo_tree(
     oid, ns, name, kind, basetype, elemtype, elemdelim,
     range_subtype, attrtypoids, attrnames, depth)
@@ -201,6 +202,7 @@ ORDER BY
 -----
 -- [asyncpg]
 -- postgres16: 2 e2a3fdd0d24f
+-- expect: same
 WITH RECURSIVE typeinfo_tree(
     oid, ns, name, kind, basetype, elemtype, elemdelim,
     range_subtype, attrtypoids, attrnames, depth)
@@ -398,5 +400,6 @@ ORDER BY
 -----
 -- [asyncpg]
 -- postgres16: 1 f71998fe363b
+-- expect: 1  # LIMIT 1 without ORDER BY: PostgreSQL's first row is a system index
 SELECT indkey FROM pg_catalog.pg_index LIMIT 1
 -----

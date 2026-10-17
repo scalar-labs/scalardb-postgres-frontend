@@ -998,6 +998,7 @@ final class Operators {
    * two texts the collation calls equal (ICU's sort key; under BINARY the text itself).
    */
   @Nullable static Object normalize(@Nullable Object v) {
+    v = v instanceof Catalog.Reg ? (Object) ((Catalog.Reg) v).oid : v;
     if (v instanceof String && Evaluator.collation().hasCanonicalTextForm()) {
       return java.nio.ByteBuffer.wrap(Evaluator.collation().canonicalTextFormOf((String) v));
     }

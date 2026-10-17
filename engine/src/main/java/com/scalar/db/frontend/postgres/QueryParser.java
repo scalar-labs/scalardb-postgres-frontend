@@ -281,8 +281,7 @@ public class QueryParser {
     void column(Target t, String name) {
       ColumnType declared = t.columns.type(name);
       boolean exact = declared.encoded(); // varchar(n), not text; numeric(10,2), not bigint
-      oids.add(
-          exact ? (int) declared.oid() : (int) Catalog.typeOid(t.metadata.getColumnDataType(name)));
+      oids.add(columnOid(t, name));
       typmods.add(exact ? declared.typmod() : -1);
     }
   }
@@ -402,6 +401,15 @@ public class QueryParser {
 
     private boolean rootFixed; // the root is given, not built from the sources
     private boolean cacheable; // set by parse(): reusable with other parameter values
+    private Map<Integer, Integer> parameterOids = Collections.emptyMap(); // $n -> inferred type
+
+    /**
+     * The type PostgreSQL would give placeholder {@code $index}, from where it stands (a cast, a
+     * column it is compared with or assigned to); text where nothing says.
+     */
+    public int parameterOid(int index) {
+      return parameterOids.getOrDefault(index, 25);
+    }
 
     /** Warnings for the client (PostgreSQL NOTICEs): what a DDL accepted but cannot enforce. */
     final List<String> notices = new ArrayList<>();
@@ -2186,9 +2194,11 @@ public class QueryParser {
     }
     BOUND.set(parameters);
     EMBEDDED.set(false);
+    PARAMETER_OIDS.set(new HashMap<>());
     try {
       Plan plan = plan(sql);
       plan.cacheable = !EMBEDDED.get() && plan.reusable();
+      plan.parameterOids = PARAMETER_OIDS.get();
       plan.useColumnMaps(columnMaps);
       return plan;
     } catch (IllegalArgumentException e) {
@@ -2207,6 +2217,7 @@ public class QueryParser {
       throw e;
     } finally {
       BOUND.remove();
+      PARAMETER_OIDS.remove();
     }
   }
 
@@ -2255,6 +2266,103 @@ public class QueryParser {
   // Set when a placeholder's value became part of the plan being made (a key, a LIMIT, a VALUES
   // row): such a plan serves this execution only, see Plan#isCacheable
   private static final ThreadLocal<Boolean> EMBEDDED = ThreadLocal.withInitial(() -> false);
+  // the types of the statement's $n inferred while planning it (Plan.parameterOid)
+  private static final ThreadLocal<Map<Integer, Integer>> PARAMETER_OIDS =
+      ThreadLocal.withInitial(HashMap::new);
+
+  /**
+   * Records the type of each {@code $n} in {@code e} from where it stands, as PostgreSQL infers it:
+   * a cast's type, or the type of what it is compared with, added to, or tested IN or BETWEEN.
+   * Subqueries are left to their own binding, where their columns resolve.
+   */
+  private static void inferParameters(
+      @Nullable Expression e, java.util.function.ToIntFunction<Expression> typeOf) {
+    if (e == null) {
+      return;
+    }
+    e.accept(
+        new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(CastExpression cast, S context) {
+            note(cast.getLeftExpression(), cast);
+            return super.visit(cast, context);
+          }
+
+          @Override
+          protected <S> Void visitBinaryExpression(BinaryExpression b, S context) {
+            note(b.getLeftExpression(), b.getRightExpression());
+            note(b.getRightExpression(), b.getLeftExpression());
+            return super.visitBinaryExpression(b, context);
+          }
+
+          @Override
+          public <S> Void visit(InExpression in, S context) {
+            if (in.getRightExpression() instanceof ExpressionList) {
+              for (Object item : (ExpressionList<?>) in.getRightExpression()) {
+                note(in.getLeftExpression(), (Expression) item);
+                note((Expression) item, in.getLeftExpression());
+              }
+            }
+            return super.visit(in, context);
+          }
+
+          @Override
+          public <S> Void visit(
+              net.sf.jsqlparser.expression.operators.relational.Between between, S context) {
+            note(between.getLeftExpression(), between.getBetweenExpressionStart());
+            note(between.getBetweenExpressionStart(), between.getLeftExpression());
+            note(between.getBetweenExpressionEnd(), between.getLeftExpression());
+            return super.visit(between, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+
+          private void note(Expression parameter, Expression typed) {
+            Expression p = unwrap(parameter);
+            if (p instanceof JdbcParameter && !(unwrap(typed) instanceof JdbcParameter)) {
+              int oid = typeOf.applyAsInt(typed);
+              if (oid != 0) {
+                PARAMETER_OIDS.get().putIfAbsent(((JdbcParameter) p).getIndex(), oid);
+              }
+            }
+          }
+        });
+  }
+
+  /** As {@link #inferParameters}, where columns are those of the written table {@code t}. */
+  private static void inferParameters(@Nullable Expression e, Target t) {
+    inferParameters(
+        e,
+        x ->
+            isColumn(x) && t.metadata.getColumnNames().contains(columnName(x))
+                ? columnOid(t, columnName(x))
+                : inferOid(x, Collections.emptyList()));
+  }
+
+  /** {@code column = $n} and {@code VALUES ($n)}: the placeholder takes the column's type. */
+  private static void inferAssigned(Target t, String column, Expression value) {
+    Expression p = unwrap(value);
+    if (p instanceof JdbcParameter && t.metadata.getColumnNames().contains(column)) {
+      PARAMETER_OIDS.get().putIfAbsent(((JdbcParameter) p).getIndex(), columnOid(t, column));
+    }
+    inferParameters(value, t);
+  }
+
+  /** The type OID a SELECT of column {@code name} of {@code t} reports. */
+  private static int columnOid(Target t, String name) {
+    ColumnType declared = t.columns.type(name);
+    return declared.encoded()
+        ? (int) declared.oid()
+        : (int) Catalog.typeOid(t.metadata.getColumnDataType(name));
+  }
 
   /** The highest {@code $n} placeholder number in the statement, outside quotes. */
   static int parameterCount(String sql) {
@@ -2880,6 +2988,7 @@ public class QueryParser {
       }
       Map<String, Cte> saved = pushCtes(insert.getWithItemsList());
       try {
+        inferWriteParameters(insert);
         // Literal rows without RETURNING map straight to Inserts, or to Upserts for the plain
         // "ON CONFLICT DO UPDATE SET c = EXCLUDED.c" form; anything else is driven by a read
         boolean direct =
@@ -2901,6 +3010,13 @@ public class QueryParser {
       checkSingleAssignments(update.getUpdateSets());
       Map<String, Cte> saved = pushCtes(update.getWithItemsList());
       try {
+        Target written = target(update.getTable());
+        for (UpdateSet set : update.getUpdateSets()) {
+          for (int i = 0; i < set.getColumns().size(); i++) {
+            inferAssigned(written, columnName(set.getColumn(i)), set.getValue(i));
+          }
+        }
+        inferParameters(update.getWhere(), written);
         if (update.getFromItem() != null || !keyed(update) || update.getReturningClause() != null) {
           return updateByScan(update);
         }
@@ -2924,6 +3040,7 @@ public class QueryParser {
           (net.sf.jsqlparser.statement.delete.Delete) statement;
       Map<String, Cte> saved = pushCtes(delete.getWithItemsList());
       try {
+        inferParameters(delete.getWhere(), target(delete.getTable()));
         if (!usingItems(delete).isEmpty()
             || !keyed(delete)
             || delete.getReturningClause() != null) {
@@ -4208,6 +4325,19 @@ public class QueryParser {
       plan.limit = fetchCount(select.getFetch());
       plan.withTies = select.getFetch().toString().toUpperCase(Locale.ROOT).contains("WITH TIES");
     }
+    java.util.function.ToIntFunction<Expression> typeOf = x -> inferOid(x, plan.sources);
+    for (SelectItem<?> item : select.getSelectItems()) {
+      inferParameters(item.getExpression(), typeOf);
+    }
+    inferParameters(select.getWhere(), typeOf);
+    inferParameters(select.getHaving(), typeOf);
+    if (select.getJoins() != null) {
+      for (net.sf.jsqlparser.statement.select.Join join : select.getJoins()) {
+        for (Expression on : join.getOnExpressions()) {
+          inferParameters(on, typeOf);
+        }
+      }
+    }
     for (int i = 0; i < plan.outputExpressions.size(); i++) {
       Expression e = plan.outputExpressions.get(i);
       plan.outputTypes.add(outputType(e, plan.sources));
@@ -4346,7 +4476,9 @@ public class QueryParser {
         if (s.catalogTable != null
             && c.getTable() != null
             && s.qualifier.equals(unquote(c.getTable().getName()))) {
-          return (int) Catalog.catalogColumnOid(columnName(e)); // name, int2vector
+          // PostgreSQL's type of the column: oid, "char", name, int2vector, ...
+          String table = s.catalogTable.replaceFirst("^Catalog ", "");
+          return (int) Catalog.catalogColumnOid(table, columnName(e));
         }
       }
       return 0;
@@ -4473,11 +4605,20 @@ public class QueryParser {
           return 1186;
         case "bytea":
           return 17;
+        case "json":
+          return 114;
+        case "jsonb":
+          return 3802;
+        case "uuid":
+          return 2950;
         case "oid":
-        case "regclass":
-        case "regtype":
-        case "regnamespace":
           return 26;
+        case "regclass":
+          return 2205;
+        case "regtype":
+          return 2206;
+        case "regnamespace":
+          return 4089;
         default:
           return 25;
       }
@@ -6263,6 +6404,28 @@ public class QueryParser {
    * INSERT driven by rows: from a query, or literal rows that need RETURNING or an ON CONFLICT that
    * must read the existing row (DO NOTHING, or DO UPDATE with its own expressions).
    */
+  /** The types of an INSERT's placeholders: each VALUES item and SET value takes its column's. */
+  private void inferWriteParameters(net.sf.jsqlparser.statement.insert.Insert insert)
+      throws ExecutionException {
+    Target t = target(insert.getTable());
+    if (insert.getSelect() instanceof Values) {
+      List<String> names = insertColumns(insert, t);
+      for (List<Expression> tuple : tuples(((Values) insert.getSelect()).getExpressions())) {
+        for (int i = 0; i < Math.min(tuple.size(), names.size()); i++) {
+          inferAssigned(t, names.get(i), tuple.get(i));
+        }
+      }
+    }
+    InsertConflictAction action = insert.getConflictAction();
+    if (action != null && action.getUpdateSets() != null) {
+      for (UpdateSet set : action.getUpdateSets()) {
+        for (int i = 0; i < set.getColumns().size(); i++) {
+          inferAssigned(t, columnName(set.getColumn(i)), set.getValue(i));
+        }
+      }
+    }
+  }
+
   private Plan insertRows(net.sf.jsqlparser.statement.insert.Insert insert)
       throws ExecutionException {
     Target t = target(insert.getTable());

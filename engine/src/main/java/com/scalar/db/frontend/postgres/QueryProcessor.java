@@ -984,6 +984,11 @@ public class QueryProcessor {
     return describedPlan == null ? new int[0] : describedPlan.outputOids();
   }
 
+  /** The type of placeholder {@code $index} in the statement {@link #describe} last planned. */
+  public int describedParameterOid(int index) {
+    return describedPlan == null ? 25 : describedPlan.parameterOid(index);
+  }
+
   /** The type modifiers of the columns {@link #describe} last returned; -1 where there is none. */
   public int[] describedTypmods() {
     return describedPlan == null ? new int[0] : describedPlan.outputTypmods();
