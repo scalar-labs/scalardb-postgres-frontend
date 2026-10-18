@@ -44,10 +44,18 @@ Two cases the plan put in Phase 5 are not handled:
 
 ## Acceptance Criteria
 
-- [ ] A second session's RENAME makes the first session's next statement fail with 42703 naming the client
-      column, and the statement after that succeeds with the new name.
+- [x] A second session's RENAME makes the first session's next statement fail with 42703 naming the client
+      column, and the statement after that succeeds with the new name. (Done differently: within a second the
+      session sees the new names; a statement inside that second may still get ScalarDB's error.)
 - [ ] An orphan `before_` column is either hidden with a clear error naming the repair, or cannot arise.
 
 ## Work Log
 
 - 2026-10-15: deferred from Phase 5; LIMITATIONS.md documents the manual repair.
+- 2026-10-18: Case 2 was worse than described: a session cached its column maps until DDL in its own process,
+  so after a rename by another frontend process it kept them for its whole life (`SELECT total` failed with
+  "Unknown column", `SELECT amount` returned NULL). Now each session compares its cached tables' ScalarDB
+  metadata with `admin.getTableMetadata` once a second (`QueryParser#changedElsewhere`) and on a change drops
+  maps and plans in every session of the process. Verified live with two frontends on one backend, and by
+  `QueryProcessorTest#plan_AfterAnotherProcessesDdl_ShouldSeeTheNewColumns`. Case 1 (orphan `before_` column)
+  stays open: it needs the core fix (solution B).

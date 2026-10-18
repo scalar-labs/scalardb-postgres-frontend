@@ -153,15 +153,15 @@ public class QueryParser {
   private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
   private final String defaultNamespace;
   private final Catalog catalog;
-  // Per session; dropped after DDL by any session of this process (DDL_GENERATION, todo 011).
-  // ponytail: DDL from another process is seen only through ScalarDB's own metadata cache expiry;
-  // a cluster-wide schema version would be the upgrade path
+  // Per session; dropped after DDL by any session of this process (DDL_GENERATION, todo 011), and
+  // when a cached table's ScalarDB metadata changed, as DDL from another process does (todo 054).
   // namespace.table -> the table's columns as clients see them; replaced, not cleared, after DDL,
   // so a plan keeps the maps it was made with (read from the lookup threads too)
   private Map<String, ColumnMap> columnMaps = new java.util.concurrent.ConcurrentHashMap<>();
   private static final java.util.concurrent.atomic.AtomicLong DDL_GENERATION =
       new java.util.concurrent.atomic.AtomicLong();
   private long seenGeneration = DDL_GENERATION.get();
+  private long checkedNanos = System.nanoTime();
 
   public QueryParser(DistributedTransactionAdmin admin, String defaultNamespace) {
     this.admin = admin;
@@ -191,6 +191,9 @@ public class QueryParser {
    * dropped, and the caller drops plans made with it.
    */
   public boolean metadataChanged() {
+    if (changedElsewhere()) {
+      invalidateMetadata();
+    }
     long now = DDL_GENERATION.get();
     if (now == seenGeneration) {
       return false;
@@ -198,6 +201,28 @@ public class QueryParser {
     seenGeneration = now;
     columnMaps = new java.util.concurrent.ConcurrentHashMap<>();
     return true;
+  }
+
+  /**
+   * True when a table this session cached has other ScalarDB metadata now: DDL from another
+   * process. ponytail: once a second, a metadata read per cached table; a cluster-wide schema
+   * version would spare the reads
+   */
+  private boolean changedElsewhere() {
+    if (System.nanoTime() - checkedNanos < 1_000_000_000L) {
+      return false;
+    }
+    checkedNanos = System.nanoTime();
+    for (ColumnMap columns : columnMaps.values()) {
+      try {
+        if (!columns.metadata().equals(admin.getTableMetadata(columns.namespace, columns.table))) {
+          return true;
+        }
+      } catch (ExecutionException e) {
+        return true; // read it afresh, and fail there if it still fails
+      }
+    }
+    return false;
   }
 
   /**

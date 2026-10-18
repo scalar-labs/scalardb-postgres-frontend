@@ -558,6 +558,23 @@ public class QueryProcessorTest {
     verify(admin).getTableMetadata("ns", "t");
   }
 
+  @Test
+  public void plan_AfterAnotherProcessesDdl_ShouldSeeTheNewColumns() throws Exception {
+    DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
+    TableMetadata renamed =
+        TableMetadata.newBuilder().addColumn("key", DataType.INT).addPartitionKey("key").build();
+    when(admin.getTableMetadata("ns", "t")).thenReturn(METADATA);
+    when(manager.scan(any())).thenReturn(Collections.emptyList());
+    QueryProcessor a = new QueryProcessor(manager, admin, "ns");
+    a.execute("SELECT id FROM t");
+    when(admin.getTableMetadata("ns", "t")).thenReturn(renamed); // RENAME COLUMN in another process
+    Thread.sleep(1100); // the session checks once a second
+    a.execute("SELECT 1"); // the check
+    assertThatThrownBy(() -> a.execute("SELECT id FROM t"))
+        .hasMessageContaining("Unknown column: t.id");
+    a.execute("SELECT key FROM t");
+  }
+
   private static Map<String, Object> map(Object... namesAndValues) {
     Map<String, Object> m = new java.util.LinkedHashMap<>();
     for (int i = 0; i < namesAndValues.length; i += 2) {
