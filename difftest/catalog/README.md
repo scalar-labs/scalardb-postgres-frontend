@@ -70,3 +70,10 @@ rebuild and run it once more: the second run uses the new lists to describe resu
 python builtins.py 15416 15473
 python catalog_types.py 15416 > ../../engine/src/main/resources/com/scalar/db/frontend/postgres/catalog-types.txt
 ```
+
+`to_char_cases.py` records how PostgreSQL 16 writes `to_char` of timestamps, dates and numbers under a
+grid of templates (`engine/src/test/resources/to_char-cases.txt`, which `ToCharTest` checks `ToChar` against):
+
+```
+python to_char_cases.py 15416 > ../../engine/src/test/resources/to_char-cases.txt
+```

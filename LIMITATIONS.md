@@ -71,7 +71,8 @@ at the end of this section.
   process ID each was given at connect, which `pg_backend_pid()` returns; as in PostgreSQL, another
   user's session shows its query and state only to a superuser. Its `client_addr` is `text`, there
   being no `inet` type, and without Cluster's users `usesysid` is NULL, as the name a client gives
-  is no role. The wait events and transaction IDs are NULL. These relations exist and are empty,
+  is no role. The wait events and transaction IDs are NULL, and `pg_blocking_pids()` is always empty,
+  since nothing waits for a lock. These relations exist and are empty,
   because nothing of their kind exists here:
 
   | Catalog relations | Empty because |
@@ -96,7 +97,10 @@ at the end of this section.
 
   `pg_proc`, `pg_aggregate`, `pg_operator` and `pg_cast` list the functions, operators and casts the
   frontend implements, with PostgreSQL 16's OIDs and descriptions, so `\df`, `\do`, `\dC`, JDBC's
-  `getFunctions` and `regproc` see only those; a call outside them fails with `0A000`. The functions a
+  `getFunctions` and `regproc` see only those; a call outside them fails with `0A000`. `to_char` writes
+  timestamps, dates and numbers as PostgreSQL 16 does under an English locale, but not intervals or the
+  number patterns `RN`, `EEEE` and `L`, nor a NaN or infinite float (`0A000`); its `TZ` is Java's abbreviation for the zone, which
+  for a zone without a common one can differ from PostgreSQL's (`BRT` for `-03`). The functions a
   cast or an operator is carried out by, such as `int4(bigint)` and `int4pl`, are not among them, so
   `\dC` shows no function name. The catalog lists itself: the `pg_catalog` and `information_schema`
   relations the frontend has are in `pg_class`, `pg_tables`, `pg_views` and `information_schema.tables`

@@ -16,7 +16,9 @@ relations that are empty, and why.
 
 `pg_stat_activity` lists the frontend's sessions: each one's user, database, application name, client,
 state and current or last query. `pg_backend_pid()` returns the process ID the session was given at connect
-(pgjdbc's `getBackendPID()`), where it returned 0.
+(pgjdbc's `getBackendPID()`), where it returned 0. `to_char` formats timestamps, dates and numbers as
+PostgreSQL 16 does, and `pg_blocking_pids()` answers an empty array, so pgAdmin's dashboard lists the
+sessions.
 
 Behaviour that changes:
 

@@ -1681,7 +1681,7 @@ final class Catalog {
       this.secret = secret;
       this.database = database;
       this.user = user;
-      this.clientAddr = client.getAddress().getHostAddress();
+      this.clientAddr = inetText(client.getAddress());
       this.clientPort = client.getPort();
     }
 
@@ -1709,6 +1709,34 @@ final class Catalog {
       stateChange = java.time.Instant.now();
       this.applicationName = applicationName;
     }
+  }
+
+  /**
+   * An address as PostgreSQL's inet prints it: IPv6's longest run of two or more 0 groups as ::.
+   */
+  static String inetText(java.net.InetAddress address) {
+    String text = address.getHostAddress().replaceFirst("%.*", ""); // inet prints no scope
+    if (!(address instanceof java.net.Inet6Address)) {
+      return text;
+    }
+    List<String> groups = Arrays.asList(text.split(":", -1));
+    int best = -1;
+    int bestLength = 1;
+    for (int i = 0; i < groups.size(); i++) {
+      int j = i;
+      while (j < groups.size() && groups.get(j).equals("0")) {
+        j++;
+      }
+      if (j - i > bestLength) {
+        best = i;
+        bestLength = j - i;
+      }
+    }
+    return best < 0
+        ? text
+        : String.join(":", groups.subList(0, best))
+            + "::"
+            + String.join(":", groups.subList(best + bestLength, groups.size()));
   }
 
   /** This server's sessions, by process ID. */

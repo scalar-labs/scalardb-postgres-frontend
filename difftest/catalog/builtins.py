@@ -147,7 +147,7 @@ def information_schema(native, kept):
     kept_only = " WHERE substring(specific_name from '_([0-9]+)$')::oid = ANY(%s)"
     for view in ["routines", "parameters", "domains", "character_sets"]:
         where, params = (kept_only, (kept,)) if view in ("routines", "parameters") else ("", None)
-        cur, rows = text_rows(native, f"SELECT * FROM information_schema.{view}{where} ORDER BY 1, 2, 3",
+        cur, rows = text_rows(native, f"SELECT * FROM information_schema.{view}{where} ORDER BY 1, 2, 3, 4",
                               params)
         write(f"information_schema-{view}.txt", cur, rows)
 

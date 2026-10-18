@@ -3566,6 +3566,12 @@ final class Evaluator {
           throw new PgException.Argument("0A000", "Unsupported function: " + f);
         }
         return dateTrunc(str(args, 0), arg(args, 1));
+      case "TO_CHAR":
+        return arg(args, 0) == null || arg(args, 1) == null
+            ? null
+            : ToChar.toChar(args.get(0), str(args, 1), zone());
+      case "PG_BLOCKING_PIDS": // ScalarDB's transactions are optimistic: no session waits on a lock
+        return arg(args, 0) == null ? null : Collections.emptyList();
       default:
         throw new PgException.Argument("0A000", "Unsupported function: " + f);
     }

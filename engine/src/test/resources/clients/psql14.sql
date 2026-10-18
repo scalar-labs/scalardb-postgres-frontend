@@ -1069,7 +1069,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
--- expect: 242  # only the functions the frontend implements
+-- expect: 250  # only the functions the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",

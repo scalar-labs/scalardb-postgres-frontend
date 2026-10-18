@@ -20,6 +20,17 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /** The static helpers the SQL-level tests reach only indirectly. */
 public class HelpersTest {
+  @Test
+  public void inetText_ShouldPrintAddressesAsPostgreSqlInetDoes() throws Exception {
+    assertThat(Catalog.inetText(java.net.InetAddress.getByName("::1"))).isEqualTo("::1");
+    assertThat(Catalog.inetText(java.net.InetAddress.getByName("127.0.0.1")))
+        .isEqualTo("127.0.0.1");
+    assertThat(Catalog.inetText(java.net.InetAddress.getByName("2001:db8:0:0:1:0:0:1")))
+        .isEqualTo("2001:db8::1:0:0:1"); // the first of two equal runs
+    assertThat(Catalog.inetText(java.net.InetAddress.getByName("1:0:2:3:4:5:6:7")))
+        .isEqualTo("1:0:2:3:4:5:6:7"); // a single 0 group stays
+    assertThat(Catalog.inetText(java.net.InetAddress.getByName("fe80::"))).isEqualTo("fe80::");
+  }
 
   static Stream<Arguments> failures() {
     return Stream.of(
