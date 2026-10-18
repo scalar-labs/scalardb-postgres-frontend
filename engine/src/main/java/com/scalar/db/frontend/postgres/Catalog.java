@@ -956,6 +956,7 @@ final class Catalog {
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
     declare("pg_views"); // the catalog views, which catalogRelations lists
+    declare("pg_stat_activity"); // this server's sessions, which activity() lists
     // information_schema views with PostgreSQL 16's columns; empty where none of their objects
     // exist
     declare("information_schema.views");
@@ -1641,8 +1642,10 @@ final class Catalog {
     for (Map<String, Object> row :
         table.equals("pg_catalog.pg_settings")
             ? settings() // the session's, as it is now
-            : Objects.requireNonNull(tables, "loaded above")
-                .getOrDefault(table, Collections.emptyList())) {
+            : table.equals("pg_catalog.pg_stat_activity")
+                ? activity() // the sessions, as they are now
+                : Objects.requireNonNull(tables, "loaded above")
+                    .getOrDefault(table, Collections.emptyList())) {
       Map<String, Object> qualified = new LinkedHashMap<>();
       for (Map.Entry<String, Object> e : row.entrySet()) {
         qualified.put(qualifier + "." + e.getKey(), e.getValue());
@@ -1653,6 +1656,113 @@ final class Catalog {
       out.add(qualified);
     }
     return out;
+  }
+
+  /** A session of this server, as pg_stat_activity shows it; PostgresServer keeps it current. */
+  static final class Activity {
+    final int pid; // the process ID BackendKeyData gave the client
+    final int secret; // and the secret key, which a CancelRequest must name with it
+    final java.util.concurrent.atomic.AtomicBoolean cancel =
+        new java.util.concurrent.atomic.AtomicBoolean(); // a CancelRequest sets it
+    final String database;
+    final String user;
+    final String clientAddr;
+    final long clientPort;
+    final java.time.Instant backendStart = java.time.Instant.now();
+    volatile String applicationName = "";
+    volatile String state = "idle";
+    volatile String query = "";
+    @Nullable volatile java.time.Instant xactStart;
+    @Nullable volatile java.time.Instant queryStart;
+    volatile java.time.Instant stateChange = backendStart;
+
+    Activity(int pid, int secret, String database, String user, java.net.InetSocketAddress client) {
+      this.pid = pid;
+      this.secret = secret;
+      this.database = database;
+      this.user = user;
+      this.clientAddr = client.getAddress().getHostAddress();
+      this.clientPort = client.getPort();
+    }
+
+    /** A query starts: active, in a transaction of its own unless one is open. */
+    void start(String sql, boolean inTransaction) {
+      java.time.Instant now = java.time.Instant.now();
+      if (!inTransaction && xactStart == null) { // an implicit one lasts until Sync
+        xactStart = now;
+      }
+      query = sql;
+      queryStart = now;
+      state = "active";
+      stateChange = now;
+    }
+
+    /** ReadyForQuery: idle, in a transaction block ('T') or a failed one ('E'), or not ('I'). */
+    void ready(char status, String applicationName) {
+      if (status == 'I') {
+        xactStart = null;
+      }
+      state =
+          status == 'I'
+              ? "idle"
+              : status == 'T' ? "idle in transaction" : "idle in transaction (aborted)";
+      stateChange = java.time.Instant.now();
+      this.applicationName = applicationName;
+    }
+  }
+
+  /** This server's sessions, by process ID. */
+  static final Map<Integer, Activity> ACTIVITY = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
+   * pg_stat_activity: this server's sessions. As PostgreSQL, another user's session shows only who
+   * and where, unless the reader is a superuser; without Cluster's users, every session is.
+   */
+  private List<Map<String, Object>> activity() {
+    Map<String, Long> databases = new HashMap<>();
+    for (Map<String, Object> d :
+        Objects.requireNonNull(tables)
+            .getOrDefault("pg_catalog.pg_database", Collections.emptyList())) {
+      databases.put((String) d.get("datname"), (Long) d.get("oid"));
+    }
+    Map<String, Long> roles = new HashMap<>();
+    boolean superuser = !clusterUsers;
+    for (Map<String, Object> r :
+        Objects.requireNonNull(tables)
+            .getOrDefault("pg_catalog.pg_roles", Collections.emptyList())) {
+      roles.put((String) r.get("rolname"), (Long) r.get("oid"));
+      superuser |= user.equals(r.get("rolname")) && Boolean.TRUE.equals(r.get("rolsuper"));
+    }
+    Map<String, List<Map<String, Object>>> t = new HashMap<>();
+    for (Activity a : ACTIVITY.values()) {
+      boolean shown = superuser || a.user.equals(user);
+      row(
+          t,
+          "pg_catalog.pg_stat_activity",
+          databases.get(a.database),
+          a.database,
+          (long) a.pid,
+          null,
+          roles.get(a.user),
+          a.user,
+          a.applicationName,
+          shown ? a.clientAddr : null,
+          null,
+          shown ? (Object) a.clientPort : null,
+          shown ? a.backendStart : null,
+          shown ? a.xactStart : null,
+          shown ? a.queryStart : null,
+          shown ? a.stateChange : null,
+          null,
+          null,
+          shown ? a.state : null,
+          null,
+          null,
+          null,
+          shown ? a.query : "<insufficient privilege>",
+          shown ? "client backend" : null);
+    }
+    return t.getOrDefault("pg_catalog.pg_stat_activity", Collections.emptyList());
   }
 
   /** pg_settings: each setting as the session running on this thread has it. */

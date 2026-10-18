@@ -652,9 +652,8 @@ final class Evaluator {
   // is interrupted and each regex match gets the whole budget
   private static final ThreadLocal<Statement> STATEMENT = new ThreadLocal<>();
 
-  // The session's cancel flag, on its connection thread: a CancelRequest sets it
-  private static final ThreadLocal<java.util.concurrent.atomic.AtomicBoolean> CANCEL =
-      new ThreadLocal<>();
+  // The session served on this thread, for its cancel flag and pg_backend_pid
+  private static final ThreadLocal<Catalog.Activity> SESSION = new ThreadLocal<>();
 
   /** The session's settings, for current_setting and set_config. */
   interface Settings {
@@ -683,9 +682,9 @@ final class Evaluator {
     return SETTINGS.get();
   }
 
-  /** Gives the session running on this thread its cancel flag, once, at startup. */
-  static void setCancel(java.util.concurrent.atomic.AtomicBoolean cancel) {
-    CANCEL.set(cancel);
+  /** Gives this thread the session it serves, once, at startup. */
+  static void setSession(Catalog.Activity session) {
+    SESSION.set(session);
   }
 
   /**
@@ -694,7 +693,8 @@ final class Evaluator {
    * stops it. The regex budget covers all the statement's matches over however many rows.
    */
   static void startStatement(Instant now, long timeoutMillis) {
-    java.util.concurrent.atomic.AtomicBoolean cancel = CANCEL.get();
+    Catalog.Activity session = SESSION.get();
+    java.util.concurrent.atomic.AtomicBoolean cancel = session == null ? null : session.cancel;
     if (cancel != null) {
       cancel.set(false); // a cancel sent between statements is for none of them
     }
@@ -3850,7 +3850,10 @@ final class Evaluator {
         case "CURRENT_DATABASE":
           return ctx.catalog == null ? null : ctx.catalog.database;
         case "PG_BACKEND_PID":
-          return 0L;
+          { // the session's process ID; 0 outside a server session, as in a test
+            Catalog.Activity session = SESSION.get();
+            return session == null ? 0L : (long) session.pid;
+          }
         default:
           return NOT_A_CATALOG_FUNCTION;
       }

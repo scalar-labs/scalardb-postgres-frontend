@@ -83,14 +83,6 @@ public class PostgresServer implements AutoCloseable {
           "TimeZone",
           "application_name");
 
-  // Each session's cancel flag, by the process ID and secret key sent to it in BackendKeyData
-  private static final Map<Long, java.util.concurrent.atomic.AtomicBoolean> CANCELS =
-      new java.util.concurrent.ConcurrentHashMap<>();
-
-  private static long cancelKey(int pid, int secret) {
-    return ((long) pid << 32) | (secret & 0xFFFFFFFFL);
-  }
-
   private static final int TEXT_OID = 25;
 
   /** PostgreSQL's own limit on a startup packet. */
@@ -437,7 +429,7 @@ public class PostgresServer implements AutoCloseable {
     }
 
     @Nullable private Authenticator.Identity identity; // the authenticated user, if any
-    @Nullable private Long cancelKey; // this session's entry in CANCELS
+    @Nullable private Catalog.Activity activity; // this session's entry in Catalog.ACTIVITY
     // The ParameterStatus values the client was last told, by name
     private final Map<String, String> reported = new java.util.LinkedHashMap<>();
 
@@ -491,8 +483,8 @@ public class PostgresServer implements AutoCloseable {
           }
         }
         sessions.remove(accepted);
-        if (cancelKey != null) {
-          CANCELS.remove(cancelKey);
+        if (activity != null) {
+          Catalog.ACTIVITY.remove(activity.pid);
         }
         if (identity != null) {
           identity.close();
@@ -545,10 +537,10 @@ public class PostgresServer implements AutoCloseable {
           // The key pair from BackendKeyData: the named session's running statement stops
           // with 57014 at its next row. As in PostgreSQL, the requester gets no answer
           if (length == 16) {
-            java.util.concurrent.atomic.AtomicBoolean flag =
-                CANCELS.get(cancelKey(in.readInt(), in.readInt()));
-            if (flag != null) {
-              flag.set(true);
+            Catalog.Activity named = Catalog.ACTIVITY.get(in.readInt());
+            int secret = in.readInt();
+            if (named != null && named.secret == secret) {
+              named.cancel.set(true);
             }
           }
           return null;
@@ -617,15 +609,21 @@ public class PostgresServer implements AutoCloseable {
         for (Map.Entry<String, String> s : reported.entrySet()) {
           send('S', new Msg().str(s.getKey()).str(s.getValue()));
         }
-        int pid = KEYS.nextInt();
+        // a process ID as PostgreSQL's, positive and unique among the sessions, which
+        // pg_backend_pid() and pg_stat_activity show
         int secret = KEYS.nextInt(); // a cancel request must not be guessable
-        java.util.concurrent.atomic.AtomicBoolean cancel =
-            new java.util.concurrent.atomic.AtomicBoolean();
-        cancelKey = cancelKey(pid, secret);
-        CANCELS.put(cancelKey, cancel);
-        send('K', new Msg().i32(pid).i32(secret));
+        java.net.InetSocketAddress client =
+            (java.net.InetSocketAddress) accepted.getRemoteSocketAddress();
+        Catalog.Activity registered;
+        do {
+          registered =
+              new Catalog.Activity(
+                  KEYS.nextInt(Integer.MAX_VALUE) + 1, secret, database, user, client);
+        } while (Catalog.ACTIVITY.putIfAbsent(registered.pid, registered) != null);
+        activity = registered;
+        send('K', new Msg().i32(registered.pid).i32(secret));
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
-        Evaluator.setCancel(cancel); // this thread serves the session from here on
+        Evaluator.setSession(registered); // this thread serves the session from here on
         processor.setDdlSettleMillis(ddlSettleMillis);
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
@@ -744,10 +742,11 @@ public class PostgresServer implements AutoCloseable {
           }
           parameterTypes.put(name, oids);
           describedTypes.remove(name);
+          started(processor, text);
           send('1', new Msg()); // ParseComplete
           break;
         case 'B':
-          bind(msg);
+          started(processor, bind(msg));
           break;
         case 'D':
           describe(processor, msg);
@@ -805,6 +804,7 @@ public class PostgresServer implements AutoCloseable {
     }
 
     private void simpleQuery(QueryProcessor processor, String sql) throws Exception {
+      started(processor, sql);
       if (implicit) {
         endImplicit(processor); // a Query without the Sync that should have come before it
       }
@@ -985,7 +985,8 @@ public class PostgresServer implements AutoCloseable {
       send('D', m);
     }
 
-    private void bind(ByteBuffer msg) throws IOException {
+    /** Binds a portal, and returns its statement's SQL. */
+    private String bind(ByteBuffer msg) throws IOException {
       String portal = readString(msg);
       String statement = readString(msg);
       String sql = statements.get(statement);
@@ -1049,6 +1050,7 @@ public class PostgresServer implements AutoCloseable {
         replaced.close();
       }
       send('2', new Msg()); // BindComplete
+      return sql;
     }
 
     private void describe(QueryProcessor processor, ByteBuffer msg) throws Exception {
@@ -1133,6 +1135,7 @@ public class PostgresServer implements AutoCloseable {
         send('I', new Msg());
         return;
       }
+      started(processor, portal.sql);
       // As PostgreSQL: the writes up to a Sync run in an implicit transaction, so a batch, which
       // pgjdbc sends with one Sync, is all or nothing (todo 009). A read or any other statement
       // commits the writes before it first: a read after a write in one ScalarDB transaction
@@ -1268,12 +1271,26 @@ public class PostgresServer implements AutoCloseable {
       }
     }
 
+    /**
+     * A query starts, as pg_stat_activity shows it: as in PostgreSQL, at Parse and Bind as well as
+     * at Execute, and the frontend plans at Describe, between them.
+     */
+    private void started(QueryProcessor processor, String sql) {
+      if (activity != null) {
+        activity.start(sql, processor.inTransaction());
+      }
+    }
+
     private void readyForQuery(QueryProcessor processor) throws IOException {
       if (!processor.inTransaction()) {
         closeSuspended();
       }
       reportSettings(processor);
-      send('Z', new Msg().i8(processor.isAborted() ? 'E' : processor.inTransaction() ? 'T' : 'I'));
+      char status = processor.isAborted() ? 'E' : processor.inTransaction() ? 'T' : 'I';
+      if (activity != null) {
+        activity.ready(status, reported.getOrDefault("application_name", ""));
+      }
+      send('Z', new Msg().i8(status));
       out.flush();
     }
 

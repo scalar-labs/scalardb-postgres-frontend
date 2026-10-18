@@ -67,8 +67,12 @@ at the end of this section.
   reflection read `pg_catalog` and `information_schema` as the frontend builds them from ScalarDB's
   metadata. A catalog relation the frontend does not have fails with `42P01`, as an unknown table
   does, instead of answering no rows; so do the system views it lacks, such as
-  `pg_stat_activity` and `pg_locks`. These relations exist and are empty, because
-  nothing of their kind exists here:
+  `pg_locks` and `pg_stat_user_tables`. `pg_stat_activity` lists this frontend's sessions, by the
+  process ID each was given at connect, which `pg_backend_pid()` returns; as in PostgreSQL, another
+  user's session shows its query and state only to a superuser. Its `client_addr` is `text`, there
+  being no `inet` type, and without Cluster's users `usesysid` is NULL, as the name a client gives
+  is no role. The wait events and transaction IDs are NULL. These relations exist and are empty,
+  because nothing of their kind exists here:
 
   | Catalog relations | Empty because |
   |---|---|

@@ -750,6 +750,28 @@ pg_catalog.pg_settings pending_restart 16 16 -1 f 0 1 0 p
 pg_catalog.pg_shdescription objoid 26 26 -1 t 0 4 0 p
 pg_catalog.pg_shdescription classoid 26 26 -1 t 0 4 0 p
 pg_catalog.pg_shdescription description 25 25 -1 t 950 -1 0 x
+pg_catalog.pg_stat_activity datid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity datname 19 19 -1 f 950 64 0 p
+pg_catalog.pg_stat_activity pid 23 23 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity leader_pid 23 23 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity usesysid 26 26 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity usename 19 19 -1 f 950 64 0 p
+pg_catalog.pg_stat_activity application_name 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity client_addr 869 869 -1 f 0 -1 0 m
+pg_catalog.pg_stat_activity client_hostname 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity client_port 23 23 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity backend_start 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_stat_activity xact_start 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_stat_activity query_start 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_stat_activity state_change 1184 1184 -1 f 0 8 0 p
+pg_catalog.pg_stat_activity wait_event_type 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity wait_event 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity state 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity backend_xid 28 28 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity backend_xmin 28 28 -1 f 0 4 0 p
+pg_catalog.pg_stat_activity query_id 20 20 -1 f 0 8 0 p
+pg_catalog.pg_stat_activity query 25 25 -1 f 100 -1 0 x
+pg_catalog.pg_stat_activity backend_type 25 25 -1 f 100 -1 0 x
 pg_catalog.pg_statio_all_tables relid 26 26 -1 f 0 4 0 p
 pg_catalog.pg_statio_all_tables schemaname 19 19 -1 f 950 64 0 p
 pg_catalog.pg_statio_all_tables relname 19 19 -1 f 950 64 0 p
@@ -975,6 +997,7 @@ pg_catalog.pg_views definition 25 25 -1 f 100 -1 0 x
 @ pg_catalog.pg_sequences 12048 v
 @ pg_catalog.pg_settings 12104 v
 @ pg_catalog.pg_shdescription 2396 r
+@ pg_catalog.pg_stat_activity 12222 v
 @ pg_catalog.pg_statio_all_tables 12170 v
 @ pg_catalog.pg_statistic_ext 3381 r
 @ pg_catalog.pg_stats 12053 v

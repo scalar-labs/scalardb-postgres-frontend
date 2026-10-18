@@ -14,10 +14,14 @@ and `get_indexes`, and `pg_get_keywords()` now answer as in PostgreSQL 16. `pg_t
 `SHOW ALL` and `current_setting` read the same settings. [LIMITATIONS.md](LIMITATIONS.md) lists the catalog
 relations that are empty, and why.
 
+`pg_stat_activity` lists the frontend's sessions: each one's user, database, application name, client,
+state and current or last query. `pg_backend_pid()` returns the process ID the session was given at connect
+(pgjdbc's `getBackendPID()`), where it returned 0.
+
 Behaviour that changes:
 
-- A catalog relation the frontend does not have, such as `pg_stat_activity`, `pg_locks` or `pg_operator`,
-  fails with `42P01` instead of answering no rows, qualified or not.
+- A catalog relation the frontend does not have, such as `pg_locks` or `pg_stat_user_tables`, fails with
+  `42P01` instead of answering no rows, qualified or not.
 - `\dt`, `pg_table_is_visible` and SQLAlchemy's `get_table_names()` list only the tables on `search_path`,
   as in PostgreSQL. By default that is the connected namespace (schema `public`); before, they listed every
   namespace's tables. `SET search_path = public, sales` or `\dt sales.*` shows another namespace's tables.

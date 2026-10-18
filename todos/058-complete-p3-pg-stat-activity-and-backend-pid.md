@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "058"
 tags: [catalog, protocol, sessions]
@@ -39,12 +39,20 @@ so a client that compares the two, or that passes the PID to `pg_cancel_backend`
 
 ## Recommended Action
 
+1, the session registry (`Catalog.ACTIVITY`, which `PostgresServer` keeps current).
+
 ## Acceptance Criteria
 
-- [ ] `SELECT pg_backend_pid()` equals the PID in BackendKeyData (pgjdbc: `PGConnection.getBackendPID()`).
-- [ ] `pg_stat_activity` lists this frontend's sessions, with this session's row showing its own query, or
+- [x] `SELECT pg_backend_pid()` equals the PID in BackendKeyData (pgjdbc: `PGConnection.getBackendPID()`).
+- [x] `pg_stat_activity` lists this frontend's sessions, with this session's row showing its own query, or
       stays undeclared.
 
 ## Work Log
 
 - 2026-10-17: Filed from todo 057 Phase 1; `pg_stat_activity` left undeclared.
+- 2026-10-18: Done. Each session registers a `Catalog.Activity` under a positive, unique process ID, which
+  BackendKeyData sends and `pg_backend_pid()` returns. It is active from Parse, Bind or a Query, as in
+  PostgreSQL, and idle (in a transaction, or a failed one) at ReadyForQuery. `pg_stat_activity` is built
+  from the registry per read; another user's session shows only who and where unless the reader is a
+  superuser, as PostgreSQL 16 shows it. pgAdmin's dashboard query still fails on `to_char` and
+  `pg_blocking_pids` (todo 064).

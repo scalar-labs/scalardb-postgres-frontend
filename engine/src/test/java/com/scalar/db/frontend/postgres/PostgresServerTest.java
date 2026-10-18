@@ -758,6 +758,88 @@ public class PostgresServerTest {
     }
   }
 
+  @Test
+  public void pgStatActivity_ShouldListTheSessionsByTheirBackendPids() throws Exception {
+    int other;
+    try (Connection connection = connect("?ApplicationName=watcher");
+        Statement statement = connection.createStatement()) {
+      int pid = connection.unwrap(org.postgresql.PGConnection.class).getBackendPID();
+      try (ResultSet rs = statement.executeQuery("SELECT pg_backend_pid()")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getInt(1)).isEqualTo(pid).isPositive();
+      }
+      String columns =
+          "SELECT application_name, state, query, xact_start IS NOT NULL AS x, usename"
+              + " FROM pg_stat_activity WHERE pid = ";
+      try (Connection idle = connect("");
+          Statement idleStatement = idle.createStatement()) {
+        other = idle.unwrap(org.postgresql.PGConnection.class).getBackendPID();
+        idle.setAutoCommit(false);
+        idleStatement.executeQuery("SELECT id FROM t").close();
+        // this session runs its own query; the other waits in its transaction after its last one
+        try (ResultSet rs = statement.executeQuery(columns + pid)) {
+          assertThat(rs.next()).isTrue();
+          assertThat(rs.getString(1)).isEqualTo("watcher");
+          assertThat(rs.getString(2)).isEqualTo("active");
+          assertThat(rs.getString(3)).isEqualTo(columns + pid);
+          assertThat(rs.getBoolean(4)).isTrue();
+          assertThat(rs.getString(5)).isEqualTo("test");
+        }
+        try (ResultSet rs = statement.executeQuery(columns + other)) {
+          assertThat(rs.next()).isTrue();
+          assertThat(rs.getString(1)).isEqualTo("PostgreSQL JDBC Driver");
+          assertThat(rs.getString(2)).isEqualTo("idle in transaction");
+          assertThat(rs.getString(3)).isEqualTo("SELECT id FROM t");
+          assertThat(rs.getBoolean(4)).isTrue();
+        }
+        idle.rollback();
+        try (ResultSet rs = statement.executeQuery(columns + other)) {
+          assertThat(rs.next()).isTrue();
+          assertThat(rs.getString(2)).isEqualTo("idle");
+          assertThat(rs.getBoolean(4)).isFalse();
+        }
+      }
+      // a closed session leaves the list, once its connection thread has ended
+      for (int i = 0; i < 50 && Catalog.ACTIVITY.containsKey(other); i++) {
+        Thread.sleep(100);
+      }
+      try (ResultSet rs =
+          statement.executeQuery("SELECT count(*) FROM pg_stat_activity WHERE pid = " + other)) {
+        assertThat(rs.next()).isTrue();
+        assertThat(rs.getLong(1)).isZero();
+      }
+    }
+  }
+
+  @Test
+  public void pgStatActivity_AnotherUsersSession_ShouldShowOnlyWhoAndWhere() throws Exception {
+    allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
+    server.setAuthenticator(this::stubAuthenticate);
+    // bob's session, as PostgresServer registers one; alice is no superuser
+    Catalog.Activity bob =
+        new Catalog.Activity(
+            Integer.MAX_VALUE, 0, "ns", "bob", new java.net.InetSocketAddress("127.0.0.1", 5432));
+    bob.start("SELECT secret FROM t", false);
+    Catalog.ACTIVITY.put(bob.pid, bob);
+    try (Connection connection = connectAs("alice", "secret");
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                "SELECT usename, datname, client_addr, state, query, backend_type"
+                    + " FROM pg_stat_activity WHERE pid = "
+                    + bob.pid)) {
+      assertThat(rs.next()).isTrue();
+      assertThat(rs.getString(1)).isEqualTo("bob");
+      assertThat(rs.getString(2)).isEqualTo("ns");
+      assertThat(rs.getString(3)).isNull();
+      assertThat(rs.getString(4)).isNull();
+      assertThat(rs.getString(5)).isEqualTo("<insufficient privilege>");
+      assertThat(rs.getString(6)).isNull();
+    } finally {
+      Catalog.ACTIVITY.remove(bob.pid);
+    }
+  }
+
   // ---- CREATE USER, GRANT and the like, onto AuthAdmin
 
   private Connection connectForDcl() throws Exception {
@@ -1499,7 +1581,7 @@ public class PostgresServerTest {
       // an unknown catalog table fails when described (the frontend plans at Describe, not at
       // Parse), a setting that does not exist when it runs; both fail every time they run
       String[][] cases = {
-        {"SELECT * FROM pg_catalog.pg_stat_activity", "42P01", "42P01"},
+        {"SELECT * FROM pg_catalog.pg_locks", "42P01", "42P01"},
         {"SELECT current_setting('nosuch') AS v", "", "42704"}
       };
       for (String[] c : cases) {

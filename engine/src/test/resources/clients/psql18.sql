@@ -42,7 +42,7 @@ ORDER BY 1,2;
 -----
 -- [dS]
 -- postgres16: 141 b47968481df1
--- expect: 66  # only the catalog relations the frontend declares
+-- expect: 67  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1052,7 +1052,7 @@ ORDER BY 1,2;
 -----
 -- [dvS]
 -- postgres16: 76 653bfbb3a818
--- expect: 15  # only the catalog relations the frontend declares
+-- expect: 16  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1578,7 +1578,7 @@ ORDER BY 1, 2;
 -----
 -- [dpS]
 -- postgres16: 141 8e6b0b784f22
--- expect: 66  # only the catalog relations the frontend declares
+-- expect: 67  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as "Type",
