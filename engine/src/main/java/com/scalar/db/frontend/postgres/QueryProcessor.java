@@ -57,6 +57,7 @@ public class QueryProcessor {
   private boolean aborted; // a statement failed inside the transaction: only ROLLBACK/COMMIT now
   private String lastCommandTag = "";
   private long ddlSettleMillis;
+  @Nullable private String ddlNotice; // when the cache is too long to wait out
 
   /** DDL after which the engine's cached metadata of an existing table is stale. */
   private static final Set<String> CHANGES_EXISTING_TABLES =
@@ -958,6 +959,10 @@ public class QueryProcessor {
                 ? new Rows(null, Plan.Cursor.EMPTY)
                 : new Rows(plan, plan.open(manager, identity)); // what the DDL reports
         rows.notices = plan.notices;
+        if (ddlNotice != null && CHANGES_EXISTING_TABLES.contains(lastCommandTag)) {
+          rows.notices = new ArrayList<>(plan.notices);
+          rows.notices.add(ddlNotice);
+        }
         return rows;
       }
       if (plan.getWrite() != null) {
@@ -1114,6 +1119,11 @@ public class QueryProcessor {
    */
   public void setDdlSettleMillis(long millis) {
     ddlSettleMillis = millis;
+  }
+
+  /** The NOTICE sent after DDL on an existing table when the cache is too long to wait out. */
+  void setDdlNotice(@Nullable String notice) {
+    ddlNotice = notice;
   }
 
   /**

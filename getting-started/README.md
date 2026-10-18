@@ -73,7 +73,9 @@ Two ScalarDB settings get different defaults from the frontend, unless the file 
 quickly, and `scalar.db.scan_fetch_size` is `1000` (not 10), so a scan fetches 1000 rows per round
 trip to the database instead of 10. Against ScalarDB Cluster the nodes run the reads and cache table
 metadata themselves: set `scalar.db.metadata.cache_expiration_time_secs=1` on the nodes too, or after
-`ALTER TABLE` on an existing table, reads keep using the old columns for up to a minute.
+`ALTER TABLE` on an existing table, reads keep using the old columns for up to a minute. If the file
+sets the cache above 5 seconds, sessions do not wait it out after such DDL: the statement answers with
+a NOTICE saying how long the change takes to apply.
 
 The frontend also enforces fixed limits that protect it from a single client:
 
@@ -166,7 +168,11 @@ SELECT * FROM customers WHERE id = 6509;
 EXPLAIN SELECT * FROM customers WHERE id = 6509;
 ```
 
-`EXPLAIN` shows the ScalarDB operations a statement turns into; here, one Get.
+`EXPLAIN` shows the ScalarDB operations a statement turns into; here, one Get. Lines that start with
+`ScalarDB` (Get, Scan, ScanAll, with their `conditions`) run in the database; every other line (Filter,
+Sort, Aggregate, joins) runs in the frontend over the rows those reads return. A condition shown under
+Filter rather than in `conditions` could not be handed to ScalarDB, for example because it calls a
+function or compares a column ScalarDB stores in another form.
 
 With JDBC (the standard PostgreSQL driver, `org.postgresql:postgresql`):
 

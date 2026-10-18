@@ -230,6 +230,12 @@ public class QueryProcessorTest {
     long start = System.nanoTime();
     processor.execute("DROP TABLE t2");
     assertThat((System.nanoTime() - start) / 1_000_000).isGreaterThanOrEqualTo(30);
+
+    // a cache too long to wait out is announced instead
+    processor.setDdlSettleMillis(0);
+    processor.setDdlNotice("cached");
+    assertThat(processor.open("DROP TABLE t2").notices()).containsExactly("cached");
+    assertThat(processor.open("CREATE TABLE t3 (k INT PRIMARY KEY)").notices()).isEmpty();
   }
 
   @Test

@@ -173,6 +173,9 @@ public final class PostgresServer implements AutoCloseable {
   /** Milliseconds a session waits after DDL on an existing table, see {@link #configure}. */
   long ddlSettleMillis;
 
+  // the NOTICE after DDL on an existing table when the cache is too long to wait out
+  @Nullable String ddlNotice;
+
   private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling
   // numeric(p,s) up to this many digits is stored as a scaled bigint
@@ -240,10 +243,12 @@ public final class PostgresServer implements AutoCloseable {
     if (cacheSecs >= 0 && cacheSecs <= MAX_SETTLE_SECS) {
       ddlSettleMillis = cacheSecs * 1000 + 50;
     } else {
-      logger.warn(
-          "Table metadata is cached for {} s: DDL on an existing table takes effect for the engine"
-              + " only after that",
-          cacheSecs);
+      ddlNotice =
+          "Table metadata is cached for "
+              + (cacheSecs < 0 ? "ever" : cacheSecs + " s")
+              + ": this change takes effect for statements "
+              + (cacheSecs < 0 ? "only after a restart" : "only after that");
+      logger.warn("{}", ddlNotice);
     }
     // SHOW TRANSACTION ISOLATION LEVEL: Consensus Commit's SNAPSHOT reads like REPEATABLE READ
     String isolation = properties.getProperty("scalar.db.consensus_commit.isolation_level", "");
@@ -625,6 +630,7 @@ public final class PostgresServer implements AutoCloseable {
         QueryProcessor processor = new QueryProcessor(manager, admin, database);
         Evaluator.setSession(registered); // this thread serves the session from here on
         processor.setDdlSettleMillis(ddlSettleMillis);
+        processor.setDdlNotice(ddlNotice);
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
         processor.setMaxScaledPrecision(maxScaledPrecision);
