@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "056"
 tags: [cluster, ddl, metadata-cache]
@@ -35,7 +35,19 @@ The frontend shortens ScalarDB's table-metadata cache to 1 s and waits it out af
 2. Ask Cluster to drop its cached metadata for a table after DDL through the node (the node runs the DDL, so it
    knows). The right fix; outside this repository.
 
+## Recommended Action
+
+Solution 1: the node setting, documented in getting-started and LIMITATIONS.md and set in
+`difftest/cluster-auth/node.properties`. Solution 2 is Cluster's to make.
+
 ## Acceptance Criteria
 
-- [ ] The limitation is documented with the node setting that avoids it, or the node invalidates its cache
-- [ ] `run.sh` in `difftest/cluster-auth` covers RENAME COLUMN followed by a read
+- [x] The limitation is documented with the node setting that avoids it, or the node invalidates its cache
+- [x] `run.sh` in `difftest/cluster-auth` covers RENAME COLUMN followed by a read
+
+## Work Log
+
+- 2026-10-18: Reproduced on Cluster `main` (node of 2026-10-09) with the node at its default 60 s: DB-CORE-30040,
+  column amount not found. With `scalar.db.metadata.cache_expiration_time_secs=1` on the node, RENAME COLUMN and
+  ADD COLUMN are both read right away. `run.sh` checks the rename: 83 of 85 pass, the 2 failures being the known
+  stale-password Cluster bug.

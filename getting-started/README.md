@@ -71,7 +71,9 @@ The same file takes the frontend's own settings, all optional:
 Two ScalarDB settings get different defaults from the frontend, unless the file sets them:
 `scalar.db.metadata.cache_expiration_time_secs` is `1` (not 60), so sessions see DDL from others
 quickly, and `scalar.db.scan_fetch_size` is `1000` (not 10), so a scan fetches 1000 rows per round
-trip to the database instead of 10.
+trip to the database instead of 10. Against ScalarDB Cluster the nodes run the reads and cache table
+metadata themselves: set `scalar.db.metadata.cache_expiration_time_secs=1` on the nodes too, or after
+`ALTER TABLE` on an existing table, reads keep using the old columns for up to a minute.
 
 The frontend also enforces fixed limits that protect it from a single client:
 

@@ -125,5 +125,10 @@ check "an unknown grantee" '42704' "$(su 'GRANT SELECT ON items TO ghost')"
 check "dropping yourself" '55006' "$(su 'DROP USER admin')"
 check "DROP ROLE" 'DROP ROLE' "$(su 'DROP ROLE carol, dave, erin, frank, auditors, leads')"
 check "a dropped user cannot log in" 'password authentication failed for user "carol"' "$(as carol carolpw2 'SELECT 1')"
+# The node caches table metadata too (node.properties sets it to 1 s, as the frontend does)
+su 'DROP TABLE IF EXISTS renamed' >/dev/null 2>&1
+check "a read after RENAME COLUMN sees the new name" '^5$' "$(PGPASSWORD=admin $PSQL "sslmode=require user=admin dbname=authdemo" \
+  -c 'CREATE TABLE renamed (id INT PRIMARY KEY, amount INT)' -c 'INSERT INTO renamed VALUES (1, 5)' \
+  -c 'ALTER TABLE renamed RENAME COLUMN amount TO total' -c 'SELECT total FROM renamed' -c 'DROP TABLE renamed' 2>&1)"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

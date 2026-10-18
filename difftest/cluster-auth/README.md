@@ -42,7 +42,7 @@ PGPASSWORD=alicepw psql "host=localhost port=15445 dbname=authdemo user=alice ss
 alice sees her name and the rows, and `\conninfo` reports TLS; bob is refused with `42501` and Cluster's message
 naming the missing READ privilege; the wrong password is refused after about a second; the plaintext attempt is
 refused outright. Then, as the node's superuser `admin`, it creates a user and a role in SQL, grants, revokes and
-drops them, and checks what each step lets the new user do. `./run.sh` performs 84 such checks and prints PASS or
+drops them, and checks what each step lets the new user do. `./run.sh` performs 85 such checks and prints PASS or
 FAIL for each.
 
 ### Users

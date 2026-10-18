@@ -130,6 +130,10 @@ at the end of this section.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**
   (`DB-CORE-10106`). This is a ScalarDB limitation; reads by primary key work.
 - **DDL inside a transaction takes effect at once** and is not undone by `ROLLBACK`.
+- **Against ScalarDB Cluster, the nodes' metadata cache must be as short as the frontend's.** The nodes
+  cache table metadata for 60 s by default, so after `ALTER TABLE` on an existing table reads keep using
+  the old columns (`DB-CORE-30040`, column not found) until it expires; set
+  `scalar.db.metadata.cache_expiration_time_secs=1` on the nodes.
 - **`SAVEPOINT` is accepted, but `ROLLBACK TO SAVEPOINT` works only while nothing was written
   since the savepoint.** After a write it fails, and that error aborts the whole transaction, so
   the writes before the savepoint are lost too when the transaction ends.
