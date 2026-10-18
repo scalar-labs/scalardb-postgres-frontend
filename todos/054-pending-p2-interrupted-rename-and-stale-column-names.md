@@ -38,7 +38,7 @@ Two cases the plan put in Phase 5 are not handled:
 - **A. Document and repair by hand** (done in LIMITATIONS.md): rename `before_<old>` to `before_<new stored name>`
   in the backing database.
 - **B. Core fix**: make ScalarDB's rename atomic or idempotent, or let `removeTransactionMetaColumns` report
-  orphans. Belongs with the core type-modifier work (`core-todo.md` item 11).
+  orphans. Filed as `core-todo.md` item 16 (2026-10-18).
 - **C. Stale names**: catch the operation-check codes at the Reader and commit sites, compare the column with fresh
   metadata, and raise 42703 naming the client column. Needs a two-session test against a real backend.
 
