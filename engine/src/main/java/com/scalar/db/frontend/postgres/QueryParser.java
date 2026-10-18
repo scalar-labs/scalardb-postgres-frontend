@@ -2144,11 +2144,9 @@ public class QueryParser {
     String text;
     if (value instanceof java.nio.ByteBuffer) {
       java.nio.ByteBuffer b = ((java.nio.ByteBuffer) value).duplicate();
-      StringBuilder hex = new StringBuilder("\\x");
-      while (b.hasRemaining()) {
-        hex.append(String.format("%02x", b.get()));
-      }
-      text = hex.toString();
+      byte[] bytes = new byte[b.remaining()];
+      b.get(bytes);
+      text = "\\x" + Evaluator.hex(bytes);
     } else {
       text =
           value instanceof BigDecimal

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "046"
 tags: [code-review, performance]
@@ -41,7 +41,12 @@ to four times per statement; the window key is deparsed per row although Spec ca
 
 ## Recommended Action
 
-**To be filled during triage.**
+Option 1, for the per-cell paths only. Timestamp, time, offset and bytea text are built by
+zero-padded appends and `HexFormat`; CAST's precision and OID-digit patterns are static. The window
+key was already cached by `Spec.key()`.
+
+Left as is: `firstWord` (once per statement, not per row) and the binary numeric `%04d` (once per
+bound numeric parameter).
 
 ## Technical Details
 
@@ -60,9 +65,9 @@ to four times per statement; the window key is deparsed per row although Spec ca
 
 ## Acceptance Criteria
 
-- [ ] No Pattern.compile in per-row paths (profiler).
-- [ ] Timestamp text output unchanged byte for byte.
-- [ ] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
+- [x] No Pattern.compile in per-row paths (by reading; not profiled).
+- [x] Timestamp text output unchanged byte for byte.
+- [x] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
 
 ## Work Log
 
@@ -83,3 +88,17 @@ to four times per statement; the window key is deparsed per row although Spec ca
 
 **Verdict:**
 - STILL REAL (performance). String.format and per-call Pattern compiles on per-cell paths.
+
+### 2026-10-18 - Done
+
+**By:** Claude Code
+
+**Actions:**
+- `Evaluator.timestampText`, the time text, `fraction` and `offsetText` append into a StringBuilder
+  through a `pad` helper that matches `%0Nd`, negative years included; `Evaluator.hex` uses
+  `HexFormat`, and QueryParser's bytea text calls it.
+- `Evaluator.cast` uses static `PRECISION` and `DIGITS` patterns; the regclass OID check uses `DIGITS`.
+- `HelpersTest#timestampText_ShouldPadAsFormatDid` pins the text for fractions, years below 1000,
+  negative and five-digit years, offsets and hex. `./gradlew check`: 374 tests, 0 failing.
+- Against PostgreSQL 16: timestamp, timestamp(0), time, timestamptz with +05:30 and -03:30, and
+  bytea text are identical.

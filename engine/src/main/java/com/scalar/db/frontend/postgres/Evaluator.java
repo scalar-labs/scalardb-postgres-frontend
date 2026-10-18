@@ -283,8 +283,8 @@ final class Evaluator {
   static String offsetText(ZoneOffset offset) {
     int total = offset.getTotalSeconds();
     int abs = Math.abs(total);
-    String text = String.format("%s%02d", total < 0 ? "-" : "+", abs / 3600);
-    return (abs % 3600) / 60 == 0 ? text : text + String.format(":%02d", (abs % 3600) / 60);
+    StringBuilder sb = pad(new StringBuilder(total < 0 ? "-" : "+"), abs / 3600, 2);
+    return ((abs % 3600) / 60 == 0 ? sb : pad(sb.append(':'), (abs % 3600) / 60, 2)).toString();
   }
 
   /**
@@ -1078,7 +1078,7 @@ final class Evaluator {
         long oid;
         if (o instanceof Number) {
           oid = ((Number) o).longValue();
-        } else if (text(o).trim().matches("\\d+")) {
+        } else if (DIGITS.matcher(text(o).trim()).matches()) {
           oid = Long.parseLong(text(o).trim());
         } else {
           String name = text(o);
@@ -2138,8 +2138,10 @@ final class Evaluator {
     }
     if (v instanceof LocalTime) {
       LocalTime t = (LocalTime) v;
-      return String.format("%02d:%02d:%02d", t.getHour(), t.getMinute(), t.getSecond())
-          + fraction(t.getNano());
+      StringBuilder sb = new StringBuilder();
+      pad(sb, t.getHour(), 2).append(':');
+      pad(sb, t.getMinute(), 2).append(':');
+      return fraction(pad(sb, t.getSecond(), 2), t.getNano()).toString();
     }
     if (v instanceof LocalDateTime) {
       return timestampText((LocalDateTime) v);
@@ -2201,27 +2203,41 @@ final class Evaluator {
 
   /** PostgreSQL's timestamp text: the date and time, and the fraction without trailing zeros. */
   static String timestampText(LocalDateTime t) {
-    return String.format(
-            "%04d-%02d-%02d %02d:%02d:%02d",
-            t.getYear(),
-            t.getMonthValue(),
-            t.getDayOfMonth(),
-            t.getHour(),
-            t.getMinute(),
-            t.getSecond())
-        + fraction(t.getNano());
+    StringBuilder sb = new StringBuilder(26);
+    pad(sb, t.getYear(), 4).append('-');
+    pad(sb, t.getMonthValue(), 2).append('-');
+    pad(sb, t.getDayOfMonth(), 2).append(' ');
+    pad(sb, t.getHour(), 2).append(':');
+    pad(sb, t.getMinute(), 2).append(':');
+    return fraction(pad(sb, t.getSecond(), 2), t.getNano()).toString();
   }
 
-  private static String fraction(int nanos) {
-    return nanos == 0 ? "" : String.format(".%06d", nanos / 1000).replaceAll("0+$", "");
+  /** Appends {@code n} zero-padded to {@code width}, as {@code %0<width>d} does. */
+  private static StringBuilder pad(StringBuilder sb, int n, int width) {
+    String digits = Integer.toString(Math.abs(n));
+    if (n < 0) {
+      sb.append('-');
+      width--;
+    }
+    for (int i = digits.length(); i < width; i++) {
+      sb.append('0');
+    }
+    return sb.append(digits);
+  }
+
+  /** Appends the microseconds' fraction without trailing zeros, nothing if there is none. */
+  private static StringBuilder fraction(StringBuilder sb, int nanos) {
+    if (nanos != 0) {
+      pad(sb.append('.'), nanos / 1000, 6);
+      while (sb.charAt(sb.length() - 1) == '0') {
+        sb.setLength(sb.length() - 1);
+      }
+    }
+    return sb;
   }
 
   static String hex(byte[] bytes) {
-    StringBuilder sb = new StringBuilder();
-    for (byte b : bytes) {
-      sb.append(String.format("%02x", b));
-    }
-    return sb.toString();
+    return java.util.HexFormat.of().formatHex(bytes);
   }
 
   /**
@@ -2895,6 +2911,9 @@ final class Evaluator {
     }
   }
 
+  private static final Pattern PRECISION = Pattern.compile("\\s*\\((\\d+)\\)");
+  private static final Pattern DIGITS = Pattern.compile("\\d+");
+
   @Nullable static Object cast(String type, @Nullable Object v) {
     if (v == null) {
       return null;
@@ -2903,7 +2922,7 @@ final class Evaluator {
     t = t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
     if (t.startsWith("time")) {
       // timestamp(p), timestamptz(p), time(p): the fraction is rounded to p digits
-      java.util.regex.Matcher precision = Pattern.compile("\\s*\\((\\d+)\\)").matcher(t);
+      java.util.regex.Matcher precision = PRECISION.matcher(t);
       if (precision.find()) {
         Object exact = cast(precision.replaceFirst("").trim(), v);
         return exact == null ? null : roundedTo(exact, Integer.parseInt(precision.group(1)));
@@ -2918,7 +2937,7 @@ final class Evaluator {
         // regclass, regtype, regnamespace: an OID given as a number stays numeric
         return v instanceof Number
             ? ((Number) v).longValue()
-            : s.matches("\\d+") ? Long.parseLong(s) : v;
+            : DIGITS.matcher(s).matches() ? Long.parseLong(s) : v;
       }
       if (t.equals("interval")) {
         return v instanceof Interval ? v : Interval.parse(s);
