@@ -2,10 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,7 +10,6 @@ import static org.mockito.Mockito.when;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.Insert;
-import com.scalar.db.api.Mutation;
 import com.scalar.db.api.Operation;
 import com.scalar.db.api.Result;
 import com.scalar.db.api.Selection;
@@ -24,7 +20,6 @@ import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.TextColumn;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,8 +48,8 @@ public class NumericTextColumnTest {
   private DistributedTransactionAdmin admin;
   private DistributedTransaction transaction;
   private QueryParser parser;
-  private final List<Result> table = new ArrayList<>();
-  private final List<Operation> executed = new ArrayList<>();
+  private List<Result> table;
+  private List<Operation> executed;
 
   private static Result row(int k, String b, String c) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -77,26 +72,14 @@ public class NumericTextColumnTest {
         NS, "u", "c", ColumnType.declared("numeric(30,10)", ColumnType.MAX_SCALED_PRECISION));
     parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
+    MemoryTable memory = new MemoryTable(STORED, transaction);
+    table = memory.rows;
+    executed = memory.executed;
     // as text, "10" sorts before "9" and "1.10" differs from "1.1"
     table.add(row(1, "9", "1.0000000000"));
     table.add(row(2, "10", "2.5000000000"));
     table.add(row(3, "1.10", "12345678901234567890.1234567890"));
     table.add(row(4, "NaN", "0.0000000000"));
-    when(transaction.scan(any()))
-        .thenAnswer(
-            invocation -> {
-              executed.add(invocation.getArgument(0));
-              return new ArrayList<>(table);
-            });
-    TestScanners.stub(transaction);
-    doAnswer(
-            invocation -> {
-              List<Mutation> mutations = invocation.getArgument(0);
-              executed.addAll(mutations);
-              return null;
-            })
-        .when(transaction)
-        .mutate(anyList());
   }
 
   private static String state(ThrowingRunnable r) {

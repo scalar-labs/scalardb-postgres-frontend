@@ -7553,7 +7553,7 @@ public class QueryParser {
     }
   }
 
-  private static Column<?> parseColumn(DataType type, String name, @Nullable String s) {
+  static Column<?> parseColumn(DataType type, String name, @Nullable String s) {
     switch (type) {
       case BOOLEAN:
         return s == null

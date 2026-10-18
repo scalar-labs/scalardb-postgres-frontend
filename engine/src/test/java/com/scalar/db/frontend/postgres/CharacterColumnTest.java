@@ -2,10 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,7 +11,6 @@ import com.scalar.db.api.ConditionBuilder;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.Insert;
-import com.scalar.db.api.Mutation;
 import com.scalar.db.api.Operation;
 import com.scalar.db.api.Result;
 import com.scalar.db.api.Selection;
@@ -24,7 +20,6 @@ import com.scalar.db.io.Column;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
 import com.scalar.db.io.TextColumn;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,8 +48,8 @@ public class CharacterColumnTest {
   private DistributedTransactionAdmin admin;
   private DistributedTransaction transaction;
   private QueryParser parser;
-  private final List<Result> table = new ArrayList<>();
-  private final List<Operation> executed = new ArrayList<>();
+  private List<Result> table;
+  private List<Operation> executed;
 
   private static Result row(int k, String c, String v, int s) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -78,23 +73,11 @@ public class CharacterColumnTest {
     types.seed(NS, "w", "s", ColumnType.declared("smallint", ColumnType.MAX_SCALED_PRECISION));
     parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
+    MemoryTable memory = new MemoryTable(STORED, transaction);
+    table = memory.rows;
+    executed = memory.executed;
     table.add(row(1, "ab", "xyz", 7));
     table.add(row(2, "abc", "x", -32768));
-    when(transaction.scan(any()))
-        .thenAnswer(
-            invocation -> {
-              executed.add(invocation.getArgument(0));
-              return new ArrayList<>(table);
-            });
-    TestScanners.stub(transaction);
-    doAnswer(
-            invocation -> {
-              List<Mutation> mutations = invocation.getArgument(0);
-              executed.addAll(mutations);
-              return null;
-            })
-        .when(transaction)
-        .mutate(anyList());
   }
 
   private static String state(ThrowingRunnable r) {

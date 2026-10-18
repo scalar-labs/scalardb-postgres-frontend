@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "043"
 tags: [code-review, tests, testability]
@@ -56,7 +56,9 @@ static helpers; protocol tests for todo 002.
 
 ## Recommended Action
 
-**To be filled during triage.**
+A shared in-memory table (`MemoryTable`) instead of a full fake ScalarDB: the four column-type test classes
+each hand-rolled the same key-only table, so one helper that also applies writes removes the copies and makes
+write-then-read testable. Conditions, ranges and orderings stay with difftest.
 
 ## Technical Details
 
@@ -73,10 +75,10 @@ static helpers; protocol tests for todo 002.
 
 ## Acceptance Criteria
 
-- [ ] A write-then-read test passes against the fake.
-- [ ] No duplicated fixture across the three classes.
-- [ ] Each SQLSTATE branch has a test.
-- [ ] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
+- [x] A write-then-read test passes against the fake (`ColumnMapTest#writes_ShouldBeReadBack`).
+- [x] No duplicated fixture across the column-type test classes (QueryParserTest keeps its own key-only stub).
+- [x] Each SQLSTATE branch has a test (HelpersTest, 2026-10-11).
+- [x] `./gradlew check` passes; no behaviour changed, so no difftest rerun
 
 ## Work Log
 
@@ -126,3 +128,19 @@ static helpers; protocol tests for todo 002.
 
 **Remaining:**
 - The in-memory fake ScalarDB and shared fixtures, as judged on 2026-10-11 above.
+
+### 2026-10-18 - Shared in-memory table
+
+**By:** Claude Code
+
+**Actions:**
+- `MemoryTable` (test helper, about 130 lines): get and scan by key, `mutate` applies Insert, Upsert, Update,
+  Put and Delete, every operation recorded. ColumnMapTest, CharacterColumnTest, NumericColumnTest and
+  NumericTextColumnTest use it instead of their own copies; all their tests pass unchanged with writes applied.
+- `ColumnMapTest#writes_ShouldBeReadBack`: INSERT, UPDATE, ON CONFLICT DO UPDATE and DELETE, each read back.
+- `QueryParser.parseColumn` is package-private so the helper can make a null column of any type.
+
+**Left as is:**
+- QueryParserTest's own key-only stub and the wiring in QueryProcessorTest and PostgresServerTest: they mock
+  other things (the manager, the server) and moving them buys little.
+- Assertions on error wording: unchanged; matching PostgreSQL's wording is part of the goal.

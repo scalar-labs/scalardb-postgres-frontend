@@ -1,9 +1,6 @@
 package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -11,13 +8,10 @@ import com.scalar.db.api.ConditionBuilder;
 import com.scalar.db.api.ConditionalExpression;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
-import com.scalar.db.api.Get;
 import com.scalar.db.api.Insert;
 import com.scalar.db.api.Mutation;
 import com.scalar.db.api.Operation;
 import com.scalar.db.api.Result;
-import com.scalar.db.api.Scan;
-import com.scalar.db.api.ScanAll;
 import com.scalar.db.api.Selection;
 import com.scalar.db.api.TableMetadata;
 import com.scalar.db.api.Update;
@@ -26,9 +20,7 @@ import com.scalar.db.io.BigIntColumn;
 import com.scalar.db.io.Column;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.IntColumn;
-import com.scalar.db.io.Key;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -58,8 +50,8 @@ public class NumericColumnTest {
 
   private DistributedTransaction transaction;
   private QueryParser parser;
-  private final List<Result> table = new ArrayList<>();
-  private final List<Operation> executed = new ArrayList<>();
+  private List<Result> table;
+  private List<Operation> executed;
 
   private static Result row(int k, long p, long a) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -67,16 +59,6 @@ public class NumericColumnTest {
     columns.put("p", BigIntColumn.of("p", p));
     columns.put("a", BigIntColumn.of("a", a));
     return new ResultImpl(columns, STORED);
-  }
-
-  private static boolean keyMatches(Result r, Key key) {
-    for (Column<?> c : key.getColumns()) {
-      if (!String.valueOf(r.getAsObject(c.getName()))
-          .equals(String.valueOf(c.getValueAsObject()))) {
-        return false;
-      }
-    }
-    return true;
   }
 
   @BeforeEach
@@ -91,6 +73,9 @@ public class NumericColumnTest {
     types.seed(NS, "m", "a", ColumnType.declared("numeric(10,2)", ColumnType.MAX_SCALED_PRECISION));
     parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
+    MemoryTable memory = new MemoryTable(STORED, transaction);
+    table = memory.rows;
+    executed = memory.executed;
     table.add(row(1, 100, 1990)); // p 1.00, a 19.90
     table.add(row(1, 250, 5)); // p 2.50, a 0.05
     Map<String, Column<?>> nullA = new LinkedHashMap<>();
@@ -98,39 +83,6 @@ public class NumericColumnTest {
     nullA.put("p", BigIntColumn.of("p", 0));
     nullA.put("a", BigIntColumn.ofNull("a"));
     table.add(new ResultImpl(nullA, STORED)); // k 2, p 0.00, a NULL
-    when(transaction.get(any()))
-        .thenAnswer(
-            invocation -> {
-              Get get = invocation.getArgument(0);
-              executed.add(get);
-              return table.stream()
-                  .filter(r -> keyMatches(r, get.getPartitionKey()))
-                  .filter(
-                      r ->
-                          !get.getClusteringKey().isPresent()
-                              || keyMatches(r, get.getClusteringKey().get()))
-                  .findFirst();
-            });
-    when(transaction.scan(any()))
-        .thenAnswer(
-            invocation -> {
-              Scan scan = invocation.getArgument(0);
-              executed.add(scan);
-              return scan instanceof ScanAll
-                  ? new ArrayList<>(table)
-                  : table.stream()
-                      .filter(r -> keyMatches(r, scan.getPartitionKey()))
-                      .collect(Collectors.toList());
-            });
-    TestScanners.stub(transaction);
-    doAnswer(
-            invocation -> {
-              List<Mutation> mutations = invocation.getArgument(0);
-              executed.addAll(mutations);
-              return null;
-            })
-        .when(transaction)
-        .mutate(anyList());
   }
 
   private List<Mutation> mutations() {

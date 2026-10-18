@@ -3,7 +3,6 @@ package com.scalar.db.frontend.postgres;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -21,8 +20,6 @@ import com.scalar.db.api.Mutation;
 import com.scalar.db.api.Operation;
 import com.scalar.db.api.Put;
 import com.scalar.db.api.Result;
-import com.scalar.db.api.Scan;
-import com.scalar.db.api.ScanAll;
 import com.scalar.db.api.ScanWithIndex;
 import com.scalar.db.api.Selection;
 import com.scalar.db.api.TableMetadata;
@@ -40,7 +37,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -69,8 +65,8 @@ public class ColumnMapTest {
   private MemoryTypeStore types;
   private DistributedTransaction transaction;
   private QueryParser parser;
-  private final List<Result> table = new ArrayList<>();
-  private final List<Operation> executed = new ArrayList<>();
+  private List<Result> table;
+  private List<Operation> executed;
 
   private static Result row(String k, String c, String name, int n) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -87,16 +83,6 @@ public class ColumnMapTest {
       m.put((String) namesAndValues[i], namesAndValues[i + 1]);
     }
     return m;
-  }
-
-  private static boolean keyMatches(Result r, Key key) {
-    for (Column<?> c : key.getColumns()) {
-      if (!String.valueOf(r.getAsObject(c.getName()))
-          .equals(String.valueOf(c.getValueAsObject()))) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private static ColumnType declared(String type) {
@@ -118,43 +104,11 @@ public class ColumnMapTest {
     parser = new QueryParser(admin, NS);
     parser.setTypeStore(types.store);
     transaction = mock(DistributedTransaction.class);
+    MemoryTable memory = new MemoryTable(STORED, transaction);
+    table = memory.rows;
+    executed = memory.executed;
     table.addAll(
         Arrays.asList(row("a", "x", "b", 1), row("a", "y", "c", 2), row("z", "x", "b", 3)));
-    // The in-memory table answers reads by key; every operation is recorded
-    when(transaction.get(any()))
-        .thenAnswer(
-            invocation -> {
-              Get get = invocation.getArgument(0);
-              executed.add(get);
-              return table.stream()
-                  .filter(r -> keyMatches(r, get.getPartitionKey()))
-                  .filter(
-                      r ->
-                          !get.getClusteringKey().isPresent()
-                              || keyMatches(r, get.getClusteringKey().get()))
-                  .findFirst();
-            });
-    when(transaction.scan(any()))
-        .thenAnswer(
-            invocation -> {
-              Scan scan = invocation.getArgument(0);
-              executed.add(scan);
-              if (scan instanceof ScanAll) {
-                return new ArrayList<>(table);
-              }
-              return table.stream()
-                  .filter(r -> keyMatches(r, scan.getPartitionKey()))
-                  .collect(Collectors.toList());
-            });
-    TestScanners.stub(transaction);
-    doAnswer(
-            invocation -> {
-              List<Mutation> mutations = invocation.getArgument(0);
-              executed.addAll(mutations);
-              return null;
-            })
-        .when(transaction)
-        .mutate(anyList());
   }
 
   private static String state(ThrowingRunnable r) {
@@ -263,6 +217,34 @@ public class ColumnMapTest {
     assertThat(parser.parse("SELECT count(*) AS c FROM e").execute(transaction))
         .containsExactly(map("c", 3L));
     assertThat(executed).anyMatch(op -> op instanceof ScanWithIndex);
+  }
+
+  @Test
+  public void writes_ShouldBeReadBack() throws Exception {
+    write("INSERT INTO e (k, c, name, n) VALUES ('q', 'r', 'w', 5)");
+    assertThat(write("UPDATE e SET n = n + 1 WHERE k = 'q' AND c = 'r'")).isEqualTo(1);
+    assertThat(parser.parse("SELECT name, n FROM e WHERE k = 'q'").execute(transaction))
+        .containsExactly(map("name", "w", "n", 6));
+    write(
+        "INSERT INTO e (k, c, name, n) VALUES ('q', 'r', 'v', 0)"
+            + " ON CONFLICT (k, c) DO UPDATE SET n = e.n + 10");
+    assertThat(parser.parse("SELECT name, n FROM e WHERE k = 'q'").execute(transaction))
+        .containsExactly(map("name", "w", "n", 16));
+    assertThat(write("DELETE FROM e WHERE k = 'q'")).isEqualTo(1);
+    assertThat(parser.parse("SELECT count(*) AS c FROM e").execute(transaction))
+        .containsExactly(map("c", 3L));
+  }
+
+  /**
+   * Runs an INSERT, UPDATE or DELETE as a session does; the rows written, -1 for a plain insert.
+   */
+  private int write(String sql) throws Exception {
+    QueryParser.Plan plan = parser.parse(sql);
+    if (plan.getWrite() != null) {
+      return plan.executeWrite(transaction, 100);
+    }
+    plan.open(transaction);
+    return -1;
   }
 
   @Test
