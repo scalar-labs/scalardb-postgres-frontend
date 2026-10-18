@@ -3,6 +3,7 @@ package com.scalar.db.frontend.postgres;
 import com.scalar.db.api.Operation;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1136,10 +1137,7 @@ final class Operators {
 
     @Override
     public List<Operator> children() {
-      List<Operator> children = new ArrayList<>();
-      children.add(left);
-      children.add(right);
-      return children;
+      return Arrays.asList(left, right);
     }
   }
 
@@ -1599,10 +1597,7 @@ final class Operators {
 
     @Override
     public List<Operator> children() {
-      List<Operator> children = new ArrayList<>();
-      children.add(left);
-      children.add(rightOperator);
-      return children;
+      return Arrays.asList(left, rightOperator);
     }
 
     @Override
@@ -1679,10 +1674,7 @@ final class Operators {
 
     @Override
     public List<Operator> children() {
-      List<Operator> children = new ArrayList<>();
-      children.add(left);
-      children.add(derived.root());
-      return children;
+      return Arrays.asList(left, derived.root());
     }
   }
 
@@ -1731,10 +1723,7 @@ final class Operators {
 
     @Override
     public List<Operator> children() {
-      List<Operator> children = new ArrayList<>();
-      children.add(left);
-      children.add(rightOperator);
-      return children;
+      return Arrays.asList(left, rightOperator);
     }
 
     @Override

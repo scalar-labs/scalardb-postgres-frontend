@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "048"
 tags: [code-review, dead-code, cleanup]
@@ -60,7 +60,14 @@ loop dropped a nibble (already wrapped as Cannot cast).
 
 ## Recommended Action
 
-**To be filled during triage.**
+Remove what is dead or duplicated, re-located against main@fd45c06. Of the doubled and orphaned
+Javadoc, only PostgresServer's `run`, QueryParser's `declaredText` and SELECT-planning header, and
+QueryProcessor's TimeZone pattern were still there; the rest had gone with earlier work. The sqlState
+branches went with todo 026.
+
+Left as is: the bare block in `QueryProcessor.statement` (removing it re-indents 60 lines for nothing),
+`Source.lookupParams` (the physical plan's copy of the logical one, as the other Source fields are),
+and the items the Findings already mark "keep as is".
 
 ## Technical Details
 
@@ -83,9 +90,9 @@ loop dropped a nibble (already wrapped as Cannot cast).
 
 ## Acceptance Criteria
 
-- [ ] javadoc task attaches no orphaned block.
-- [ ] No unused public members in main.
-- [ ] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
+- [x] No orphaned block (checked by a scan for a Javadoc followed by another, a blank line or a brace; the javadoc task was not run).
+- [x] No unused public members among those the review named (no repository-wide scan).
+- [x] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
 
 ## Work Log
 
@@ -106,3 +113,19 @@ loop dropped a nibble (already wrapped as Cannot cast).
 
 **Verdict:**
 - MOSTLY REAL (code quality). The sqlState branches are gone (todo 026); the dead code, 19-argument Plan constructor and doubled Javadoc remain.
+
+### 2026-10-18 - Done
+
+**By:** Claude Code
+
+**Actions:**
+- Removed `Plan.getRoot`, `Plan.of`, `Json.ofNullable` (no callers here or in the cluster-embedding
+  worktree) and PostgresServer's `hex`, `timestamp` and `parameterCount` delegates.
+- `Plan` gains a three-argument constructor for plans with only output columns; `setOf`, `constant`
+  and `deferred` use it instead of 19 arguments.
+- PostgresServer's `arrayText` collects the elements and prints them with `Evaluator.text(List)`; the
+  Bind loop uses `format(formats, i)`; `oid` no longer recurses through a one-row list, a `valueOid`
+  takes the value.
+- `Evaluator.Context` keeps two constructors. Operators' two-child `children()` return `Arrays.asList`.
+- QueryParserTest's `row` helper merged into `map`.
+- `./gradlew check`: 374 tests, 0 failing; `PostgresServerTest` covers the binary array with a NULL.

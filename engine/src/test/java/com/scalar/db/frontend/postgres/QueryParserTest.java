@@ -82,7 +82,7 @@ public class QueryParserTest {
     TestScanners.stub(transaction);
   }
 
-  private static Result row(
+  private static Result map(
       int id, long seq, String name, @Nullable Double price, @Nullable Boolean active) {
     Map<String, Column<?>> columns = new LinkedHashMap<>();
     columns.put("id", IntColumn.of("id", id));
@@ -176,7 +176,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 3, "c", 3.0, true), row(1, 2, "b", 2.0, false), row(1, 1, "a", 1.0, true)));
+                map(1, 3, "c", 3.0, true), map(1, 2, "b", 2.0, false), map(1, 1, "a", 1.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(map("id", 1, "seq", 1L, "name", "a", "price", 1.0, "active", true));
   }
@@ -260,7 +260,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.5, true), row(1, 2, "b", 2.5, false), row(1, 3, "c", 1.0, true)));
+                map(1, 1, "a", 1.5, true), map(1, 2, "b", 2.5, false), map(1, 3, "c", 1.0, true)));
     assertThat(plan.execute(transaction)).containsExactly(map("name", "a"), map("name", "b"));
   }
 
@@ -268,7 +268,7 @@ public class QueryParserTest {
   public void execute_AggregateFailingWhileOpening_ShouldCloseTheScanner() throws Exception {
     TransactionCrudOperable.Scanner scanner = mock(TransactionCrudOperable.Scanner.class);
     when(scanner.one())
-        .thenReturn(java.util.Optional.of(row(1, 1, "a", 1.5, true)))
+        .thenReturn(java.util.Optional.of(map(1, 1, "a", 1.5, true)))
         .thenReturn(java.util.Optional.empty());
     doReturn(scanner).when(transaction).getScanner(any());
     QueryParser.Plan plan =
@@ -297,11 +297,11 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.5, true),
-                row(1, 2, "b", 2.5, false),
-                row(1, 3, "c", 3.0, true),
-                row(2, 1, "d", 4.0, null),
-                row(2, 2, "e", 1.0, null)));
+                map(1, 1, "a", 1.5, true),
+                map(1, 2, "b", 2.5, false),
+                map(1, 3, "c", 3.0, true),
+                map(2, 1, "d", 4.0, null),
+                map(2, 2, "e", 1.0, null)));
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("active", true, "n", 2L, "total", 4.5), map("active", null, "n", 2L, "total", 5.0));
@@ -319,10 +319,10 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.5, true),
-                row(1, 2, "b", 1.5, true),
-                row(1, 3, "c", 3.0, true),
-                row(2, 1, "d", 4.0, true)));
+                map(1, 1, "a", 1.5, true),
+                map(1, 2, "b", 1.5, true),
+                map(1, 3, "c", 3.0, true),
+                map(2, 1, "d", 4.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(map("id", 1, "p", 6.0), map("id", 1, "p", 3.0));
   }
@@ -348,11 +348,11 @@ public class QueryParserTest {
         .contains(
             "-> Left Lookup Join (per outer row): ScalarDB Get ns.t partitionKey={id=a.id} "
                 + "clusteringKey={seq=2} projections=[id, seq, name] AS b");
-    stubTable(Arrays.asList(row(1, 2, "x", 1.0, true), row(2, 2, "y", 1.0, true)));
+    stubTable(Arrays.asList(map(1, 2, "x", 1.0, true), map(2, 2, "y", 1.0, true)));
     when(transaction.scan(left))
         .thenReturn(
             Arrays.asList(
-                row(2, 1, "b", 1.0, true), row(1, 1, "a", 1.0, true), row(3, 1, "c", 1.0, true)));
+                map(2, 1, "b", 1.0, true), map(1, 1, "a", 1.0, true), map(3, 1, "c", 1.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("name", "a", "other", "x"),
@@ -383,10 +383,10 @@ public class QueryParserTest {
                 + "projections=[id, seq] AS y");
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.0, true),
-            row(1, 2, "b", 3.0, false),
-            row(2, 1, "c", 5.0, true),
-            row(2, 2, "d", 4.0, false)));
+            map(1, 1, "a", 1.0, true),
+            map(1, 2, "b", 3.0, false),
+            map(2, 1, "c", 5.0, true),
+            map(2, 2, "d", 4.0, false)));
     assertThat(plan.execute(transaction)).containsExactly(map("name", "c"), map("name", "d"));
   }
 
@@ -401,7 +401,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 2.0, true), row(2, 1, "a", 3.0, true), row(2, 2, "b", 4.0, true)));
+                map(1, 1, "a", 2.0, true), map(2, 1, "a", 3.0, true), map(2, 2, "b", 4.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(map("n", "a", "c", 2L), map("n", "b", "c", 1L));
   }
@@ -414,7 +414,7 @@ public class QueryParserTest {
                 + "CASE WHEN active THEN 'y' ELSE 'n' END AS c, CAST(seq AS TEXT) || '!' AS s, "
                 + "ROUND(price * 3, 1) AS r, seq % 2 AS m FROM t WHERE id = 1 AND seq = 1");
 
-    when(transaction.get(any())).thenReturn(java.util.Optional.of(row(1, 1, "ab", null, true)));
+    when(transaction.get(any())).thenReturn(java.util.Optional.of(map(1, 1, "ab", null, true)));
     assertThat(plan.execute(transaction))
         .containsExactly( // coalesce(double, 0) is double precision, as in PostgreSQL
             map("u", "AB", "l", 2L, "p", 0.0, "c", "y", "s", "1!", "r", null, "m", 1L));
@@ -562,7 +562,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.5, true), row(1, 2, "b", 2.5, false), row(1, 3, "c", 1.0, true)));
+                map(1, 1, "a", 1.5, true), map(1, 2, "b", 2.5, false), map(1, 3, "c", 1.0, true)));
     QueryParser.Plan plan =
         parser.parse(
             "SELECT active AS on_sale, count(*) FILTER (WHERE price > 1.2) AS pricey,"
@@ -738,7 +738,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_UnsupportedSql_ShouldThrowIllegalArgumentException() throws Exception {
-    when(transaction.scan(any())).thenReturn(Collections.singletonList(row(1, 1, "a", 1.0, true)));
+    when(transaction.scan(any())).thenReturn(Collections.singletonList(map(1, 1, "a", 1.0, true)));
     for (String sql :
         new String[] {
           "DELETE FROM t WHERE nope = 1",
@@ -798,7 +798,7 @@ public class QueryParserTest {
     try {
       stubTable(
           Arrays.asList(
-              row(1, 1, "abc", 1.0, true), row(2, 1, "ABC", 1.0, true), row(3, 1, "b", 1.0, true)));
+              map(1, 1, "abc", 1.0, true), map(2, 1, "ABC", 1.0, true), map(3, 1, "b", 1.0, true)));
       assertThat(Evaluator.compare("abc", "ABC")).isZero();
       // byte order would put ABC first; ICU ties them, and the sort is stable
       assertThat(parser.parse("SELECT name FROM t ORDER BY name").execute(transaction))
@@ -1181,11 +1181,11 @@ public class QueryParserTest {
                 + "clusteringKey={seq=2} conditions=[price > 0.0] "
                 + "projections=[id, seq, price, name] AS b",
             "    -> ScalarDB ScanAll ns.t projections=[id, name] AS a");
-    stubTable(Arrays.asList(row(1, 2, "x", 1.0, true), row(2, 2, "y", 1.0, true)));
+    stubTable(Arrays.asList(map(1, 2, "x", 1.0, true), map(2, 2, "y", 1.0, true)));
     when(transaction.scan((Scan) plan.getOperations().get(0)))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true), row(2, 1, "b", 1.0, true), row(3, 1, "c", 1.0, true)));
+                map(1, 1, "a", 1.0, true), map(2, 1, "b", 1.0, true), map(3, 1, "c", 1.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(map("name", "a", "other", "x"), map("name", "b", "other", "y"));
   }
@@ -1204,10 +1204,10 @@ public class QueryParserTest {
             "    -> ScalarDB ScanAll ns.t projections=[price, id, name] AS b");
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.0, true),
-            row(2, 1, "b", 1.0, true),
-            row(3, 1, "c", 2.0, true),
-            row(4, 1, "d", 1.0, true)));
+            map(1, 1, "a", 1.0, true),
+            map(2, 1, "b", 1.0, true),
+            map(3, 1, "c", 2.0, true),
+            map(4, 1, "d", 1.0, true)));
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("name", "a", "other", "b"),
@@ -1219,7 +1219,7 @@ public class QueryParserTest {
   public void open_LimitAfterInMemoryFilter_ShouldStopPullingAndCloseScanner() throws Exception {
     List<Result> rows = new ArrayList<>();
     for (int i = 1; i <= 100; i++) {
-      rows.add(row(i, 1, "n" + i, 1.0, i % 2 == 0));
+      rows.add(map(i, 1, "n" + i, 1.0, i % 2 == 0));
     }
     java.util.Iterator<Result> iterator = rows.iterator();
     java.util.concurrent.atomic.AtomicInteger pulled =
@@ -1393,7 +1393,7 @@ public class QueryParserTest {
             "    -> Values IN (2, 1) AS $in1 (in memory)");
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.0, true), row(2, 1, "b", 1.0, true), row(3, 1, "c", 1.0, true)));
+            map(1, 1, "a", 1.0, true), map(2, 1, "b", 1.0, true), map(3, 1, "c", 1.0, true)));
     assertThat(plan.execute(transaction)).containsExactly(map("name", "b"), map("name", "a"));
 
     // OR of equalities on the key is the same thing
@@ -1459,10 +1459,10 @@ public class QueryParserTest {
   public void parse_SetOperations_ShouldCombineMembers() throws Exception {
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.0, true),
-            row(1, 2, "a", 1.0, true),
-            row(2, 1, "b", 1.0, true),
-            row(3, 1, "c", 1.0, true)));
+            map(1, 1, "a", 1.0, true),
+            map(1, 2, "a", 1.0, true),
+            map(2, 1, "b", 1.0, true),
+            map(3, 1, "c", 1.0, true)));
 
     QueryParser.Plan union =
         parser.parse(
@@ -1532,7 +1532,7 @@ public class QueryParserTest {
             "  -> Project [id, seq, $1, $2]",
             "    -> Filter NOT t.active",
             "      -> ScalarDB Scan ns.t partitionKey={id=1} projections=[id, active, seq, price] AS t");
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
     assertThat(plan.executeWrite(transaction, 10)).isEqualTo(1);
     verify(transaction)
         .mutate(
@@ -1655,7 +1655,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_DecimalLiteralAgainstIntegerColumn_ShouldCompareInMemory() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 1, "b", 2.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 1, "b", 2.5, false)));
     QueryParser.Plan plan = parser.parse("SELECT id FROM t WHERE id > 1.5 AND id < 2.5");
     assertThat(parser.explain(plan).get(0)).doesNotContain("partitionKey");
     assertThat(plan.execute(transaction)).containsExactly(map("id", 2));
@@ -1776,7 +1776,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_UncorrelatedSubquery_ShouldRunOnce() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 2, "b", 2.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 2, "b", 2.5, false)));
     String once =
         String.join(
             "\n",
@@ -1977,7 +1977,7 @@ public class QueryParserTest {
   @Test
   public void parse_UpdateFromAndDeleteUsing_ShouldJoinThenWriteEachTargetKeyOnce()
       throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 2, "b", 2.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 2, "b", 2.5, false)));
 
     // two joined rows match the same target row: PostgreSQL writes it once
     QueryParser.Plan update =
@@ -2014,7 +2014,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_DeleteByScanAndInsertSelect_ShouldReadThenMutate() throws Exception {
-    stubTable(Arrays.asList(row(1, 2, "a", 1.5, true), row(2, 2, "b", 2.5, false)));
+    stubTable(Arrays.asList(map(1, 2, "a", 1.5, true), map(2, 2, "b", 2.5, false)));
 
     QueryParser.Plan delete = parser.parse("DELETE FROM t WHERE seq = 2");
     assertThat(parser.explain(delete))
@@ -2071,7 +2071,7 @@ public class QueryParserTest {
   public void parse_ExplainAnalyze_ShouldRunTheQueryAndReportActualCounts() throws Exception {
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false), row(2, 1, "c", 2.0, true)));
+            map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false), map(2, 1, "c", 2.0, true)));
 
     List<Map<String, Object>> report =
         parser
@@ -2102,7 +2102,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_Cte_ShouldPlanEachReferenceAsASubquery() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
 
     QueryParser.Plan plan =
         parser.parse(
@@ -2119,7 +2119,7 @@ public class QueryParserTest {
                 + " projections=[id, price, seq] AS t",
             "    -> Subquery AS v",
             "      -> Values");
-    assertThat(plan.execute(transaction)).containsExactly(row("seq", 2L, "label", "two"));
+    assertThat(plan.execute(transaction)).containsExactly(map("seq", 2L, "label", "two"));
 
     // a CTE sees the ones before it
     assertThat(
@@ -2131,7 +2131,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_InsertOnConflict_ShouldUpsertOrReadThenDecide() throws Exception {
-    stubTable(Collections.singletonList(row(1, 1, "a", 1.5, true)));
+    stubTable(Collections.singletonList(map(1, 1, "a", 1.5, true)));
 
     // the plain EXCLUDED form is a ScalarDB Upsert
     QueryParser.Plan upsert =
@@ -2158,8 +2158,8 @@ public class QueryParserTest {
                 + " WHERE t.active RETURNING id, seq, name, price");
     assertThat(merge.execute(transaction))
         .containsExactly(
-            row("id", 1, "seq", 1L, "name", "a", "price", 10.5),
-            row("id", 3, "seq", 3L, "name", "new", "price", 1.0));
+            map("id", 1, "seq", 1L, "name", "a", "price", 10.5),
+            map("id", 3, "seq", 3L, "name", "new", "price", 1.0));
     // the lookup names every column, or Cluster's ABAC leaves its data tag column out
     verify(transaction)
         .get(
@@ -2213,13 +2213,13 @@ public class QueryParserTest {
 
   @Test
   public void parse_Returning_ShouldYieldTheRowsLeftByTheWrite() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
 
     QueryParser.Plan update =
         parser.parse("UPDATE t SET price = price * 2 WHERE id = 1 RETURNING seq, price AS p");
     assertThat(update.getOutputColumns()).containsExactly("seq", "p");
     assertThat(update.execute(transaction))
-        .containsExactly(row("seq", 1L, "p", 3.0), row("seq", 2L, "p", 1.0));
+        .containsExactly(map("seq", 1L, "p", 3.0), map("seq", 2L, "p", 1.0));
 
     // a keyed DELETE with RETURNING reads the row first (with a Get)
     QueryParser.Plan delete = parser.parse("DELETE FROM t WHERE id = 1 AND seq = 2 RETURNING *");
@@ -2230,26 +2230,18 @@ public class QueryParserTest {
             "    -> ScalarDB Get ns.t partitionKey={id=1} clusteringKey={seq=2}"
                 + " projections=[id, seq, name, price, active] AS t");
     assertThat(delete.execute(transaction))
-        .containsExactly(row("id", 1, "seq", 2L, "name", "b", "price", 0.5, "active", false));
+        .containsExactly(map("id", 1, "seq", 2L, "name", "b", "price", 0.5, "active", false));
 
     QueryParser.Plan insert =
         parser.parse(
             "INSERT INTO t (id, seq, name) VALUES (7, 7, 'g') RETURNING id * 2 AS d, name");
-    assertThat(insert.execute(transaction)).containsExactly(row("d", 14, "name", "g"));
+    assertThat(insert.execute(transaction)).containsExactly(map("d", 14, "name", "g"));
     assertThat(insert.commandTag(1)).isEqualTo("INSERT 0 1");
-  }
-
-  private static Map<String, Object> row(Object... namesAndValues) {
-    Map<String, Object> row = new LinkedHashMap<>();
-    for (int i = 0; i < namesAndValues.length; i += 2) {
-      row.put((String) namesAndValues[i], namesAndValues[i + 1]);
-    }
-    return row;
   }
 
   @Test
   public void parse_RightFullUsingAndNaturalJoins_ShouldNullExtendEitherSide() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(2, 1, "b", 2.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 1, "b", 2.5, false)));
 
     QueryParser.Plan right =
         parser.parse(
@@ -2257,7 +2249,7 @@ public class QueryParserTest {
                 + " ORDER BY v.k");
     assertThat(parser.explain(right)).anyMatch(l -> l.contains("Right Hash Join ON t.id = v.k"));
     assertThat(right.execute(transaction))
-        .containsExactly(row("name", "a", "k", 1L), row("name", null, "k", 3L));
+        .containsExactly(map("name", "a", "k", 1L), map("name", null, "k", 3L));
 
     // FULL JOIN ... USING: the merged column comes out once, from whichever side has it
     QueryParser.Plan full =
@@ -2268,7 +2260,7 @@ public class QueryParserTest {
         .containsExactly("id", "v.tag", "t.seq", "t.name", "t.price", "t.active");
     assertThat(full.execute(transaction))
         .containsExactly(
-            row(
+            map(
                 "id",
                 1L,
                 "v.tag",
@@ -2281,7 +2273,7 @@ public class QueryParserTest {
                 1.5,
                 "t.active",
                 true),
-            row(
+            map(
                 "id",
                 2,
                 "v.tag",
@@ -2294,7 +2286,7 @@ public class QueryParserTest {
                 2.5,
                 "t.active",
                 false),
-            row(
+            map(
                 "id",
                 3L,
                 "v.tag",
@@ -2317,14 +2309,14 @@ public class QueryParserTest {
                 l.contains(
                     "Lookup Join (per outer row): ScalarDB Scan ns.t partitionKey={id=v.id}"));
     assertThat(natural.execute(transaction))
-        .containsExactly(row("id", 2L, "name", "b", "tag", "y"));
+        .containsExactly(map("id", 2L, "name", "b", "tag", "y"));
 
     // a WHERE condition on the null-extended side stays after the join
     QueryParser.Plan where =
         parser.parse(
             "SELECT v.k FROM t RIGHT JOIN (VALUES (1), (3)) AS v(k) ON v.k = t.id"
                 + " WHERE t.name IS NULL");
-    assertThat(where.execute(transaction)).containsExactly(row("k", 3L));
+    assertThat(where.execute(transaction)).containsExactly(map("k", 3L));
     assertThatThrownBy(() -> parser.parse("SELECT * FROM t JOIN (VALUES (1)) AS v(x) USING (id)"))
         .hasMessageContaining("USING column");
   }
@@ -2408,14 +2400,14 @@ public class QueryParserTest {
                 .build());
 
     // parameters are evaluated in memory too, with the values the plan was made with
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
     assertThat(
             parser
                 .parse(
                     "SELECT name, price * $1 AS p FROM t WHERE id = $2 ORDER BY seq",
                     Arrays.asList(2L, 1L))
                 .execute(transaction))
-        .containsExactly(row("name", "a", "p", 3.0), row("name", "b", "p", 1.0));
+        .containsExactly(map("name", "a", "p", 3.0), map("name", "b", "p", 1.0));
     assertThatThrownBy(
             () -> parser.parse("SELECT name FROM t WHERE id = $2", Collections.singletonList(1L)))
         .hasMessageContaining("parameter $2");
@@ -2423,13 +2415,13 @@ public class QueryParserTest {
 
   @Test
   public void parse_CacheablePlan_ShouldRebindToOtherValues() throws Exception {
-    stubTable(Arrays.asList(row(1, 1, "a", 1.5, true), row(1, 2, "b", 0.5, false)));
+    stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
     QueryParser.Plan plan =
         parser.parse("SELECT name FROM t WHERE id = $1 AND price > $2", Arrays.asList(1L, 1.0));
 
     assertThat(plan.isCacheable()).isTrue();
     // the stubbed scan ignores pushed conditions: the read itself is checked below
-    assertThat(plan.execute(transaction)).containsExactly(row("name", "a"), row("name", "b"));
+    assertThat(plan.execute(transaction)).containsExactly(map("name", "a"), map("name", "b"));
     assertThat(plan.getOperations())
         .containsExactly(
             Scan.newBuilder()
@@ -2440,7 +2432,7 @@ public class QueryParserTest {
                 .where(ConditionBuilder.column("price").isGreaterThanDouble(1.0))
                 .build());
     plan.rebind(Arrays.asList(1L, 0.1));
-    assertThat(plan.execute(transaction)).containsExactly(row("name", "a"), row("name", "b"));
+    assertThat(plan.execute(transaction)).containsExactly(map("name", "a"), map("name", "b"));
     assertThat(plan.getOperations())
         .first()
         .isEqualTo(
@@ -2496,7 +2488,7 @@ public class QueryParserTest {
     // 24 each become one scan with an OR of the keys, matched back to the outer rows by key
     List<Result> rows = new ArrayList<>();
     for (int i = 1; i <= 40; i++) {
-      rows.add(row(1, i, "n" + i, 1.0 * i, true));
+      rows.add(map(1, i, "n" + i, 1.0 * i, true));
     }
     DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
     TestScanners.stub(manager);
@@ -2536,8 +2528,8 @@ public class QueryParserTest {
     List<Result> rows = new ArrayList<>();
     List<Result> looked = new ArrayList<>(); // row (i, i) is what outer row (1, i) looks up
     for (int i = 1; i <= 40; i++) {
-      rows.add(row(1, i, "n" + i, 1.0 * i, true));
-      looked.add(row(i, i, "n" + i, 1.0 * i, true));
+      rows.add(map(1, i, "n" + i, 1.0 * i, true));
+      looked.add(map(i, i, "n" + i, 1.0 * i, true));
     }
     DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
     TestScanners.stub(manager);
@@ -2587,8 +2579,8 @@ public class QueryParserTest {
     List<Result> rows = new ArrayList<>();
     List<Result> looked = new ArrayList<>();
     for (int i = 1; i <= 40; i++) {
-      rows.add(row(1, i, "n" + i, 1.0 * i, true));
-      looked.add(row(i, i, "n" + i, 1.0 * i, true));
+      rows.add(map(1, i, "n" + i, 1.0 * i, true));
+      looked.add(map(i, i, "n" + i, 1.0 * i, true));
     }
     DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
     TestScanners.stub(manager);
@@ -2633,8 +2625,8 @@ public class QueryParserTest {
     List<Result> rows = new ArrayList<>();
     List<Result> looked = new ArrayList<>();
     for (int i = 1; i <= 40; i++) {
-      rows.add(row(1, i, "n" + i, 1.0 * i, true));
-      looked.add(row(i, i, "n" + i, 1.0 * i, true));
+      rows.add(map(1, i, "n" + i, 1.0 * i, true));
+      looked.add(map(i, i, "n" + i, 1.0 * i, true));
     }
     java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
     java.util.concurrent.CountDownLatch held = new java.util.concurrent.CountDownLatch(1);
@@ -2688,18 +2680,18 @@ public class QueryParserTest {
   public void parse_KeywordColumns_ShouldEvaluateToSessionValues() throws Exception {
     // pgjdbc's metadata queries start with SELECT current_catalog
     assertThat(parser.parse("SELECT current_catalog AS c, current_user AS u").execute(transaction))
-        .containsExactly(row("c", NS, "u", Catalog.OWNER));
+        .containsExactly(map("c", NS, "u", Catalog.OWNER));
   }
 
   @Test
   public void parse_UnquotedIdentifiers_ShouldFoldToLowerCaseLikePostgres() throws Exception {
-    stubTable(Collections.singletonList(row(1, 1, "a", 1.5, true)));
+    stubTable(Collections.singletonList(map(1, 1, "a", 1.5, true)));
     // BenchBase writes SQL in upper case against lower-case tables
     assertThat(
             parser
                 .parse("SELECT NAME, Price AS P FROM T WHERE ID = 1 AND SEQ = 1")
                 .execute(transaction))
-        .containsExactly(row("name", "a", "p", 1.5));
+        .containsExactly(map("name", "a", "p", 1.5));
   }
 
   @Test
@@ -2740,10 +2732,10 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true),
-                row(1, 2, "b", 3.0, true),
-                row(1, 3, "c", 3.0, true),
-                row(2, 1, "d", 2.0, true)));
+                map(1, 1, "a", 1.0, true),
+                map(1, 2, "b", 3.0, true),
+                map(1, 3, "c", 3.0, true),
+                map(2, 1, "d", 2.0, true)));
 
     assertThat(plan.execute(transaction))
         .containsExactly(
@@ -2766,10 +2758,10 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true),
-                row(1, 2, "b", 2.0, true),
-                row(1, 3, "c", 3.0, true),
-                row(1, 4, "d", 4.0, true)));
+                map(1, 1, "a", 1.0, true),
+                map(1, 2, "b", 2.0, true),
+                map(1, 3, "c", 3.0, true),
+                map(1, 4, "d", 4.0, true)));
 
     assertThat(plan.execute(transaction))
         .containsExactly(
@@ -2796,10 +2788,10 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true),
-                row(1, 2, "b", 2.0, false),
-                row(1, 3, "c", 3.0, true),
-                row(2, 1, "d", 4.0, true)));
+                map(1, 1, "a", 1.0, true),
+                map(1, 2, "b", 2.0, false),
+                map(1, 3, "c", 3.0, true),
+                map(2, 1, "d", 4.0, true)));
 
     assertThat(plan.execute(transaction))
         .containsExactly(
@@ -2810,7 +2802,7 @@ public class QueryParserTest {
   @Test
   public void execute_WindowFunctionInWhere_ShouldFail() throws Exception {
     QueryParser.Plan plan = parser.parse("SELECT id FROM t WHERE row_number() OVER () = 1");
-    when(transaction.scan(any())).thenReturn(Collections.singletonList(row(1, 1, "a", 1.0, true)));
+    when(transaction.scan(any())).thenReturn(Collections.singletonList(map(1, 1, "a", 1.0, true)));
 
     assertThatThrownBy(() -> plan.execute(transaction))
         .hasMessageContaining("Window functions are allowed only");
@@ -2844,7 +2836,7 @@ public class QueryParserTest {
                 + "SELECT id FROM r");
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 3.0, true), row(2, 1, "b", 1.0, true), row(3, 1, "c", 2.0, true)));
+            map(1, 1, "a", 3.0, true), map(2, 1, "b", 1.0, true), map(3, 1, "c", 2.0, true)));
 
     assertThat(plan.execute(transaction)).containsExactly(map("id", 3), map("id", 2), map("id", 1));
   }
@@ -2887,7 +2879,7 @@ public class QueryParserTest {
             "SELECT avg(seq) AS a, sum(seq) AS b, avg(price) AS c, sum(price) AS d, "
                 + "price * 1.5 AS e FROM t GROUP BY price * 1.5");
     when(transaction.scan(any()))
-        .thenReturn(Arrays.asList(row(1, 1, "a", 2.0, true), row(1, 2, "b", 2.0, true)));
+        .thenReturn(Arrays.asList(map(1, 1, "a", 2.0, true), map(1, 2, "b", 2.0, true)));
 
     assertThat(plan.execute(transaction))
         .containsExactly(
@@ -2906,7 +2898,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true), row(1, 2, "b", 2.0, true), row(2, 1, "c", 3.0, true)));
+                map(1, 1, "a", 1.0, true), map(1, 2, "b", 2.0, true), map(2, 1, "c", 3.0, true)));
 
     assertThat(plan.execute(transaction))
         .containsExactly(map("id", 1, "seq", 2L), map("id", 2, "seq", 1L));
@@ -2921,7 +2913,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true), row(1, 2, "b", 2.0, true), row(2, 1, "c", 3.0, false)));
+                map(1, 1, "a", 1.0, true), map(1, 2, "b", 2.0, true), map(2, 1, "c", 3.0, false)));
 
     assertThat(plan.execute(transaction))
         .containsExactlyInAnyOrder(
@@ -2937,7 +2929,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true), row(1, 2, "b", 2.0, true), row(1, 3, "c", 3.0, true)));
+                map(1, 1, "a", 1.0, true), map(1, 2, "b", 2.0, true), map(1, 3, "c", 3.0, true)));
 
     // ORDER BY a non-key column keeps the limit in memory, where the stubbed scan cannot ignore it
     assertThat(
@@ -3449,7 +3441,7 @@ public class QueryParserTest {
         .thenAnswer(
             invocation -> {
               scans.add(invocation.getArgument(0));
-              return Collections.singletonList(row(1, 3, "c", 3.0, true));
+              return Collections.singletonList(map(1, 3, "c", 3.0, true));
             });
 
     assertThat(plan.execute(transaction)).containsExactly(map("seq", 3L));
@@ -3471,7 +3463,7 @@ public class QueryParserTest {
   public void execute_AnyOverArrays_ShouldBecomeMembershipAndReadByKey() throws Exception {
     stubTable(
         Arrays.asList(
-            row(1, 1, "a", 1.0, true), row(2, 1, "b", 2.0, true), row(3, 1, "c", 3.0, true)));
+            map(1, 1, "a", 1.0, true), map(2, 1, "b", 2.0, true), map(3, 1, "c", 3.0, true)));
 
     QueryParser.Plan plan =
         parser.parse("SELECT id FROM t WHERE id = ANY(ARRAY[1, 3]) ORDER BY id");
@@ -3576,7 +3568,7 @@ public class QueryParserTest {
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
-                row(1, 1, "a", 1.0, true), row(1, 2, "b", 2.0, true), row(2, 1, "c", 3.0, true)));
+                map(1, 1, "a", 1.0, true), map(1, 2, "b", 2.0, true), map(2, 1, "c", 3.0, true)));
     assertThat(
             parser
                 .parse(

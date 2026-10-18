@@ -491,8 +491,11 @@ public class QueryParser {
 
     /** A DML plan whose mutations {@code builder} makes from the bound parameters. */
     static Plan deferred(java.util.function.Function<Evaluator.Context, List<Mutation>> builder) {
-      Plan plan = of(Collections.<Mutation>emptyList());
-      plan.mutations = null;
+      Plan plan =
+          new Plan(
+              Collections.<String>emptyList(),
+              Collections.<Expression>emptyList(),
+              Collections.<DataType>emptyList());
       plan.mutationBuilder = builder;
       return plan;
     }
@@ -599,52 +602,9 @@ public class QueryParser {
       }
     }
 
-    static Plan of(List<Mutation> mutations) {
-      return new Plan(
-          mutations,
-          Collections.emptyList(),
-          Collections.emptyList(),
-          Collections.emptyList(),
-          Collections.emptyList(),
-          Collections.emptyList(),
-          Collections.emptyList(),
-          null,
-          null,
-          false,
-          Collections.emptyList(),
-          false,
-          Collections.emptyList(),
-          -1,
-          0,
-          Collections.emptyMap(),
-          null,
-          false,
-          null);
-    }
-
     /** {@code left kind right}: the output columns are the left member's. */
     static Plan setOf(Operators.SetOperation.Kind kind, boolean all, Plan left, Plan right) {
-      Plan plan =
-          new Plan(
-              null,
-              Collections.emptyList(),
-              Collections.emptyList(),
-              left.outputNames,
-              left.outputExpressions,
-              left.outputTypes,
-              Collections.emptyList(),
-              null,
-              null,
-              false,
-              Collections.emptyList(),
-              false,
-              Collections.emptyList(),
-              -1,
-              0,
-              Collections.emptyMap(),
-              null,
-              false,
-              null);
+      Plan plan = new Plan(left.outputNames, left.outputExpressions, left.outputTypes);
       plan.members = Arrays.asList(left, right);
       plan.setKind = kind;
       plan.setAll = all;
@@ -1037,32 +997,37 @@ public class QueryParser {
       for (int i = 0; i < names.size(); i++) {
         types.add(null);
       }
-      Plan plan =
-          new Plan(
-              null,
-              Collections.emptyList(),
-              Collections.emptyList(),
-              names,
-              none,
-              types,
-              none,
-              null,
-              null,
-              false,
-              Collections.emptyList(),
-              false,
-              Collections.emptyList(),
-              -1,
-              0,
-              Collections.emptyMap(),
-              null,
-              false,
-              null);
+      Plan plan = new Plan(names, none, types);
       plan.tag = tag;
       plan.labels = labels;
       plan.root = new Operators.Values(rows, "Values");
       plan.rootFixed = true;
       return plan;
+    }
+
+    /** A plan with only output columns, for set operations and constant results. */
+    private Plan(
+        List<String> outputNames, List<Expression> outputExpressions, List<DataType> outputTypes) {
+      this(
+          null,
+          Collections.emptyList(),
+          Collections.emptyList(),
+          outputNames,
+          outputExpressions,
+          outputTypes,
+          Collections.emptyList(),
+          null,
+          null,
+          false,
+          Collections.emptyList(),
+          false,
+          Collections.emptyList(),
+          -1,
+          0,
+          Collections.emptyMap(),
+          null,
+          false,
+          null);
     }
 
     private Plan(
@@ -1328,11 +1293,6 @@ public class QueryParser {
       if (analyze != null) {
         analyze.useColumnMaps(maps);
       }
-    }
-
-    /** The root of the operator tree that runs this statement; null for DML. */
-    @Nullable public Operator getRoot() {
-      return mutations() == null ? root() : null;
     }
 
     Operator root() {
@@ -3088,7 +3048,6 @@ public class QueryParser {
 
   // ---- SELECT planning ----
 
-  /** A FROM item while planning: what it is, and what has been pushed down to it so far. */
   // ---- DDL ----
 
   private String namespaceOf(Table table) {
@@ -3663,7 +3622,6 @@ public class QueryParser {
     return plan;
   }
 
-  /** The numeric arguments of a declared type: {10, 2} for {@code NUMERIC (10, 2)}. */
   /**
    * A column definition's type as written, modifiers included: the parser keeps them in the type
    * name for some types (DECIMAL(5,1)) and apart for others (DEC(5,1)).

@@ -342,7 +342,6 @@ public class QueryProcessor {
     }
   }
 
-  /** PostgreSQL's TimeZone names: IANA zones, abbreviations such as JST, and fixed offsets. */
   // SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE (Sequelize sends this on every connection)
   private static final Pattern INTERVAL_ZONE =
       Pattern.compile("(?i)^INTERVAL\\s+'([+-]?\\d{1,2}(?::\\d{2})?)'\\s+HOUR\\s+TO\\s+MINUTE$");

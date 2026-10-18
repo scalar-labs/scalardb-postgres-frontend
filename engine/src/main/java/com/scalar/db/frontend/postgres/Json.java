@@ -98,11 +98,6 @@ final class Json {
     throw new IllegalArgumentException("Not a JSON value: " + v);
   }
 
-  /** {@link #of}, with NULL staying NULL. */
-  @Nullable static Value ofNullable(@Nullable Object v) {
-    return v == null ? null : of(v);
-  }
-
   /** {@code to_json(v)}: a SQL value as a JSON tree. */
   static JsonNode toNode(@Nullable Object v) {
     if (v == null) {

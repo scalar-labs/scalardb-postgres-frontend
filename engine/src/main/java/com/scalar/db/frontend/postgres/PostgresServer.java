@@ -1011,7 +1011,7 @@ public class PostgresServer implements AutoCloseable {
         }
         byte[] value = new byte[length];
         msg.get(value);
-        short format = formats.length == 0 ? 0 : formats.length == 1 ? formats[0] : formats[i];
+        int format = format(formats, i);
         int[] described = describedTypes.getOrDefault(statement, new int[0]);
         int oid =
             i < oids.length && oids[i] != 0 ? oids[i] : i < described.length ? described[i] : 0;
@@ -1063,7 +1063,7 @@ public class PostgresServer implements AutoCloseable {
         if (sql == null) {
           throw new IllegalArgumentException("Unknown prepared statement");
         }
-        int n = parameterCount(sql);
+        int n = QueryParser.parameterCount(sql);
         if (n > MAX_PARAMETERS) {
           throw new PgException.Argument(
               "08P01", "too many parameters: $" + n); // $99999999 in the SQL
@@ -1767,11 +1767,6 @@ public class PostgresServer implements AutoCloseable {
     }
   }
 
-  /** The highest {@code $n} placeholder number in the statement. */
-  static int parameterCount(String sql) {
-    return QueryParser.parameterCount(sql);
-  }
-
   /** Decodes a binary-format parameter into the text a client would have sent. */
   static String binary(int oid, byte[] value) {
     ByteBuffer b = ByteBuffer.wrap(value);
@@ -1809,15 +1804,17 @@ public class PostgresServer implements AutoCloseable {
       case 701:
         return String.valueOf(b.getDouble());
       case 17:
-        return "\\x" + hex(value);
+        return "\\x" + Evaluator.hex(value);
       case 1082:
         return LocalDate.of(2000, 1, 1).plusDays(b.getInt()).toString();
       case 1083:
         return LocalTime.ofNanoOfDay(b.getLong() * 1000).toString();
       case 1114:
-        return timestamp(LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000));
+        return Evaluator.timestampText(
+            LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000));
       case 1184:
-        return timestamp(LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000))
+        return Evaluator.timestampText(
+                LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000))
             + "+00:00";
       case 1700:
         return numeric(b);
@@ -1903,14 +1900,11 @@ public class PostgresServer implements AutoCloseable {
     if (dims == 1) {
       b.getInt(); // lower bound
     }
-    StringBuilder sb = new StringBuilder("{");
+    List<Object> elements = new ArrayList<>();
     for (int i = 0; i < count; i++) {
-      if (i > 0) {
-        sb.append(',');
-      }
       int length = b.getInt();
       if (length < 0) {
-        sb.append("NULL");
+        elements.add(null);
         continue;
       }
       if (length > b.remaining()) {
@@ -1918,22 +1912,9 @@ public class PostgresServer implements AutoCloseable {
       }
       byte[] bytes = new byte[length];
       b.get(bytes);
-      String s = binary(elementOid, bytes);
-      boolean quote =
-          s.isEmpty()
-              || s.equalsIgnoreCase("NULL")
-              || s.chars()
-                  .anyMatch(
-                      c ->
-                          c == '{'
-                              || c == '}'
-                              || c == ','
-                              || c == '"'
-                              || c == '\\'
-                              || Character.isWhitespace(c));
-      sb.append(quote ? "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" : s);
+      elements.add(binary(elementOid, bytes));
     }
-    return sb.append('}').toString();
+    return Evaluator.text(elements);
   }
 
   /**
@@ -2011,14 +1992,6 @@ public class PostgresServer implements AutoCloseable {
     return Evaluator.text(value); // temporal and binary values in PostgreSQL's formats
   }
 
-  private static String timestamp(LocalDateTime t) {
-    return Evaluator.timestampText(t);
-  }
-
-  private static String hex(byte[] bytes) {
-    return Evaluator.hex(bytes);
-  }
-
   /** The PostgreSQL type OID for a column: from its ScalarDB type, else from its first value. */
   private static int oid(
       @Nullable DataType type, String column, @Nullable List<Map<String, Object>> rows) {
@@ -2028,57 +2001,52 @@ public class PostgresServer implements AutoCloseable {
     if (rows != null) {
       for (Map<String, Object> row : rows) {
         Object v = row.get(column);
-        if (v instanceof Boolean) {
-          return 16;
-        }
-        if (v instanceof java.math.BigDecimal) {
-          return 1700;
-        }
-        if (v instanceof Interval) {
-          return 1186;
-        }
-        if (v instanceof Json.Value) {
-          return ((Json.Value) v).binary ? 3802 : 114;
-        }
-        if (v instanceof Catalog.OidVector) {
-          return 30;
-        }
-        if (v instanceof Catalog.Int2Vector) {
-          return 22;
-        }
-        if (v instanceof Evaluator.Row) {
-          return 2249; // record
-        }
-        if (v instanceof List) {
-          Object element = null;
-          for (Object item : (List<?>) v) {
-            if (item != null) {
-              element = item;
-              break;
-            }
-          }
-          int elementOid =
-              element == null
-                  ? 25
-                  : oid(null, "", Collections.singletonList(Collections.singletonMap("", element)));
-          return (int) Catalog.arrayOid(elementOid);
-        }
-        if (v instanceof Integer || v instanceof Short) {
-          return 23;
-        }
-        if (v instanceof Long) {
-          return 20;
-        }
-        if (v instanceof Float) {
-          return 700;
-        }
-        if (v instanceof Double) {
-          return 701;
-        }
         if (v != null) {
-          return TEXT_OID;
+          return valueOid(v);
         }
       }
+    }
+    return TEXT_OID;
+  }
+
+  /** The PostgreSQL type OID for a value of a computed column. */
+  private static int valueOid(Object v) {
+    if (v instanceof Boolean) {
+      return 16;
+    }
+    if (v instanceof java.math.BigDecimal) {
+      return 1700;
+    }
+    if (v instanceof Interval) {
+      return 1186;
+    }
+    if (v instanceof Json.Value) {
+      return ((Json.Value) v).binary ? 3802 : 114;
+    }
+    if (v instanceof Catalog.OidVector) {
+      return 30;
+    }
+    if (v instanceof Catalog.Int2Vector) {
+      return 22;
+    }
+    if (v instanceof Evaluator.Row) {
+      return 2249; // record
+    }
+    if (v instanceof List) {
+      Object element = ((List<?>) v).stream().filter(Objects::nonNull).findFirst().orElse(null);
+      return (int) Catalog.arrayOid(element == null ? TEXT_OID : valueOid(element));
+    }
+    if (v instanceof Integer || v instanceof Short) {
+      return 23;
+    }
+    if (v instanceof Long) {
+      return 20;
+    }
+    if (v instanceof Float) {
+      return 700;
+    }
+    if (v instanceof Double) {
+      return 701;
     }
     return TEXT_OID;
   }

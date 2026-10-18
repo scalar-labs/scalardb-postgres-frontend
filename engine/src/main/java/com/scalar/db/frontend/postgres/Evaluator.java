@@ -150,7 +150,8 @@ final class Evaluator {
 
   /** The outer row of a correlated subquery and the plans of the subqueries in the expression. */
   static final class Context {
-    static final Context EMPTY = new Context(null, Collections.emptyMap(), null);
+    static final Context EMPTY =
+        new Context(null, Collections.emptyMap(), null, Collections.emptyList());
 
     @Nullable final Map<String, Object> outer;
     final Map<Select, QueryParser.Plan> subplans;
@@ -165,30 +166,14 @@ final class Evaluator {
     Context(
         @Nullable Map<String, Object> outer,
         Map<Select, QueryParser.Plan> subplans,
-        @Nullable Catalog catalog) {
-      this(outer, subplans, catalog, Collections.emptyList());
-    }
-
-    Context(
-        @Nullable Map<String, Object> outer,
-        Map<Select, QueryParser.Plan> subplans,
         @Nullable Catalog catalog,
         List<Object> parameters) {
-      this(outer, subplans, catalog, parameters, Collections.emptyMap());
-    }
-
-    Context(
-        @Nullable Map<String, Object> outer,
-        Map<Select, QueryParser.Plan> subplans,
-        @Nullable Catalog catalog,
-        List<Object> parameters,
-        Map<String, com.scalar.db.io.DataType> types) {
       this(
           outer,
           subplans,
           catalog,
           parameters,
-          types,
+          Collections.emptyMap(),
           Collections.emptyList(),
           new java.util.IdentityHashMap<>());
     }
