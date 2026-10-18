@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: "053"
 tags: [code-review, security, injection]
@@ -75,8 +75,8 @@ alternative is an allow-list such as letters, digits, `_`, `$` and non-ASCII let
 
 ## Recommended Action
 
-**To be filled during triage.** Likely both: Option 1 in this repository immediately (it is also Phase 0 material for
-the type-modifier plan), Option 2 reported to the ScalarDB core maintainers through their security channel.
+Option 1, done in `fff28cd` (2026-10-14). Option 2, reporting the core issue to the ScalarDB maintainers, is the
+user's decision and is not tracked here.
 
 ## Technical Details
 
@@ -93,13 +93,24 @@ the type-modifier plan), Option 2 reported to the ScalarDB core maintainers thro
 
 ## Acceptance Criteria
 
-- [ ] A reproduction against a JDBC-backed ScalarDB (PostgreSQL) confirms or refutes the injection, in a throwaway database
-- [ ] Every DDL path refuses each listed character with 42602 (a test per character and per path)
-- [ ] Names that reach ScalarDB from DML cannot contain them either (they must resolve to an existing column anyway)
-- [ ] `LIMITATIONS.md` lists the refused characters
-- [ ] The core issue is reported to the ScalarDB maintainers (user's decision)
+- [ ] ~~A reproduction against a JDBC-backed ScalarDB~~: not needed for the frontend fix; belongs to the core report
+- [x] Every DDL path refuses each listed character with 42602 (a test per character and per path)
+- [x] Names that reach ScalarDB from DML cannot contain them either (they must resolve to an existing column anyway)
+- [x] `LIMITATIONS.md` lists the refused characters
+- [ ] ~~The core issue is reported~~ (user's decision, outside this repository) to the ScalarDB maintainers (user's decision)
 
 ## Work Log
+
+### 2026-10-18 - Closed
+
+**By:** Claude Code
+
+**Actions:**
+- Confirmed on `main` @ 5440311: every name that reaches `admin.createNamespace`, `createTable`, `createIndex`,
+  `addNewColumnToTable` and `renameColumn` passes `checkedName` or `checkedCharacters`; WITH (partition_key,
+  clustering_key) names must be declared columns, which were checked
+- Live against the frontend: the example payload as a column name, `"t;x"` as a table name and `"i'x"` as an index
+  name each fail with 42602; `CREATE SCHEMA "a'b"` is refused as unsupported
 
 ### 2026-10-14 - Frontend fix (Option 1)
 
