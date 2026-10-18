@@ -63,7 +63,7 @@ import org.slf4j.LoggerFactory;
  * certificate is configured, see {@link #configure}. The database name of a connection is used as
  * the default ScalarDB namespace, and each connection is a session with its own transaction state.
  */
-public class PostgresServer implements AutoCloseable {
+public final class PostgresServer implements AutoCloseable {
   private static final Logger logger = LoggerFactory.getLogger(PostgresServer.class);
   private static final java.security.SecureRandom KEYS = new java.security.SecureRandom();
   private static final int SSL_REQUEST = 80877103;
@@ -976,8 +976,8 @@ public class PostgresServer implements AutoCloseable {
         } else {
           byte[] bytes =
               format(formats, i) == 1
-                  ? binary(oids[i], value)
-                  : text(value).getBytes(StandardCharsets.UTF_8);
+                  ? encodeBinary(oids[i], value)
+                  : wireText(value).getBytes(StandardCharsets.UTF_8);
           m.i32(bytes.length).bytes(bytes);
         }
         i++;
@@ -1015,7 +1015,8 @@ public class PostgresServer implements AutoCloseable {
         int[] described = describedTypes.getOrDefault(statement, new int[0]);
         int oid =
             i < oids.length && oids[i] != 0 ? oids[i] : i < described.length ? described[i] : 0;
-        params.add(format == 0 ? new String(value, StandardCharsets.UTF_8) : binary(oid, value));
+        params.add(
+            format == 0 ? new String(value, StandardCharsets.UTF_8) : decodeBinary(oid, value));
       }
       int needed = Math.max(QueryParser.parameterCount(sql), oids.length); // as PostgreSQL counts
       if (params.size() != needed) {
@@ -1225,7 +1226,7 @@ public class PostgresServer implements AutoCloseable {
         failure = new PgException.Argument("08P01", SHORT_MESSAGE);
       }
       Throwable cause = failure.getCause();
-      Throwable e = failure instanceof QueryParser.ReadFailure && cause != null ? cause : failure;
+      Throwable e = failure instanceof Plan.ReadFailure && cause != null ? cause : failure;
       String code = sqlState(e);
       String message =
           e instanceof StackOverflowError
@@ -1456,7 +1457,7 @@ public class PostgresServer implements AutoCloseable {
     if (m.contains("DB-CORE-10053")) {
       return "2BP01"; // dependent_objects_still_exist: DROP SCHEMA with tables in it
     }
-    if (e instanceof QueryParser.UniqueViolationException) {
+    if (e instanceof Plan.UniqueViolationException) {
       return "23505"; // unique_violation
     }
     if (e instanceof QueryProcessor.AbortedTransactionException) {
@@ -1629,7 +1630,7 @@ public class PostgresServer implements AutoCloseable {
   private static final LocalDateTime PG_EPOCH = LocalDateTime.of(2000, 1, 1, 0, 0);
 
   /** A value in PostgreSQL's binary result format for the type {@code oid}. */
-  static byte[] binary(int oid, Object value) {
+  static byte[] encodeBinary(int oid, Object value) {
     switch (oid) {
       case 3802: // jsonb: a version byte, then the text
         {
@@ -1684,7 +1685,8 @@ public class PostgresServer implements AutoCloseable {
         return ByteBuffer.allocate(4).putInt(number(value).intValue()).array();
       case 1186: // interval: microseconds, days, months
         {
-          Interval iv = value instanceof Interval ? (Interval) value : Interval.parse(text(value));
+          Interval iv =
+              value instanceof Interval ? (Interval) value : Interval.parse(wireText(value));
           return ByteBuffer.allocate(16)
               .putLong(iv.micros)
               .putInt(iv.days)
@@ -1698,7 +1700,7 @@ public class PostgresServer implements AutoCloseable {
           b.get(bytes);
           return bytes;
         }
-        return value instanceof byte[] ? (byte[]) value : QueryParser.hex(text(value));
+        return value instanceof byte[] ? (byte[]) value : QueryParser.hex(wireText(value));
       case 1082:
         return ByteBuffer.allocate(4)
             .putInt(
@@ -1727,7 +1729,7 @@ public class PostgresServer implements AutoCloseable {
           // every array type the catalog knows, not a hand-kept list of them (todo 019)
           return arrayBinary((int) Catalog.elementOid(oid), Evaluator.elements(value), 1);
         }
-        return text(value).getBytes(StandardCharsets.UTF_8); // text types: the same bytes
+        return wireText(value).getBytes(StandardCharsets.UTF_8); // text types: the same bytes
     }
   }
 
@@ -1768,7 +1770,7 @@ public class PostgresServer implements AutoCloseable {
   }
 
   /** Decodes a binary-format parameter into the text a client would have sent. */
-  static String binary(int oid, byte[] value) {
+  static String decodeBinary(int oid, byte[] value) {
     ByteBuffer b = ByteBuffer.wrap(value);
     switch (oid) {
       case 3802: // jsonb: a version byte, then the text
@@ -1866,7 +1868,7 @@ public class PostgresServer implements AutoCloseable {
         // elements parsed from array text; NULL elements were handled above
         v = Objects.requireNonNull(Evaluator.cast(Catalog.typeName(elementOid), v));
       }
-      byte[] bytes = binary(elementOid, v);
+      byte[] bytes = encodeBinary(elementOid, v);
       encoded.add(bytes);
       size += 4 + bytes.length;
     }
@@ -1912,7 +1914,7 @@ public class PostgresServer implements AutoCloseable {
       }
       byte[] bytes = new byte[length];
       b.get(bytes);
-      elements.add(binary(elementOid, bytes));
+      elements.add(decodeBinary(elementOid, bytes));
     }
     return Evaluator.text(elements);
   }
@@ -1985,7 +1987,7 @@ public class PostgresServer implements AutoCloseable {
   }
 
   /** A value in PostgreSQL text format. */
-  static String text(Object value) {
+  static String wireText(Object value) {
     if (value instanceof Boolean) {
       return (Boolean) value ? "t" : "f";
     }

@@ -10,13 +10,13 @@ import javax.annotation.Nullable;
  * that the planner builds once per statement and that can be opened repeatedly, for instance once
  * per outer row for a correlated subquery.
  */
-public interface Operator extends QueryParser.Cursor {
+interface Operator extends Plan.Cursor {
   /** What an execution provides: the ScalarDB reader and the enclosing query's row, if any. */
   final class Execution {
-    final QueryParser.Reader reader;
+    final Plan.Reader reader;
     @Nullable final Map<String, Object> outer;
 
-    Execution(QueryParser.Reader reader, @Nullable Map<String, Object> outer) {
+    Execution(Plan.Reader reader, @Nullable Map<String, Object> outer) {
       this.reader = reader;
       this.outer = outer;
     }

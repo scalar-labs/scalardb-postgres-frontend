@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "049"
 tags: [code-review, architecture, naming]
@@ -50,7 +50,7 @@ JSQLParser nodes with an own IR.
 
 ## Recommended Action
 
-**To be filled during triage.**
+Option 1's mechanical part: the move, the narrower API and the names. Not the rest, see the work log.
 
 ## Technical Details
 
@@ -72,9 +72,9 @@ JSQLParser nodes with an own IR.
 
 ## Acceptance Criteria
 
-- [ ] Evaluator and Operators do not import QueryParser.
-- [ ] Only PostgresServer and QueryProcessor are public.
-- [ ] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
+- [ ] Evaluator and Operators do not import QueryParser. Not met: they still call 35 and 21 QueryParser helpers; moving those to a Sql.java was left out.
+- [x] Only PostgresServer and QueryProcessor are public, plus Authenticator, which the Cluster node implements.
+- [x] `./gradlew check` passes; the relevant difftest set is rerun where behaviour changes
 
 ## Work Log
 
@@ -95,3 +95,35 @@ JSQLParser nodes with an own IR.
 
 **Verdict:**
 - STILL REAL (code quality). QueryParser is 6,740 lines with Plan inside; name collisions remain.
+
+### 2026-10-19 - Done, in part
+
+**By:** Claude Code
+
+**Actions:**
+- Plan and its helper types (Source, Effect, Mutator, Returning, WriteByScan, Ddl, Cursor, Reader,
+  ReadFailure, UniqueViolationException) moved to Plan.java, as a top-level `Plan` with them nested.
+  QueryParser is 6,328 lines, Plan.java 1,551. `QueryParser.Plan` and `QueryParser.Cursor` and the like
+  are now `Plan` and `Plan.Cursor`. Plan reaches 19 QueryParser helpers by static import, which were
+  made package-private: the coupling is now visible, not removed.
+- QueryParser, Plan and Operator, and Plan's nested types, are package-private; PostgresServer is
+  final. Outside the package only PostgresServer and Authenticator are used (server module and the
+  Cluster node).
+- `PostgresServer.binary` split into `encodeBinary(int, Object)` and `decodeBinary(int, byte[])`: a
+  `byte[]` argument used to pick the decoder silently. The rename went encoder first, so the compiler
+  listed every encode call. `QueryParser.text(List<Expression>)` is `conjunctionText`,
+  `PostgresServer.text` is `wireText`.
+- QueryProcessor imports what it named by full name (Pattern, Matcher, ZoneId and 11 more).
+- `./gradlew check`: 374 tests, 0 failing; a CREATE, INSERT, UNION, EXPLAIN and DROP through the rebuilt
+  frontend on 15473 work.
+
+**Left out:**
+- The `ctx == null` mode of `pushable`/`valueColumn`: it is the plan-time check behind the named
+  two-argument `pushable(e, t)`, and passing a Context there would evaluate constant expressions at plan
+  time, a behaviour change.
+- Enums for Scan's `stream` and Project's `keepInput`: one meaning each, documented; todo 048 kept
+  `keepInput` too.
+- Moving the literal and identifier helpers Evaluator and Operators borrow to a Sql.java, so the first
+  acceptance criterion is not met. It is the bigger half of untangling the three files and can be its
+  own todo if wanted.
+- Execution's constructor visibility.

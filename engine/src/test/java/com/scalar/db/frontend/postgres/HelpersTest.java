@@ -88,8 +88,7 @@ public class HelpersTest {
         Arguments.of(new RuntimeException("DB-CORE-10017: bad value"), "22023"),
         Arguments.of(new RuntimeException("DB-CORE-10052: table exists"), "42P07"),
         Arguments.of(new RuntimeException("DB-CORE-10053: namespace not empty"), "2BP01"),
-        Arguments.of(
-            new QueryParser.UniqueViolationException(new RuntimeException("dup")), "23505"),
+        Arguments.of(new Plan.UniqueViolationException(new RuntimeException("dup")), "23505"),
         Arguments.of(new QueryProcessor.AbortedTransactionException(), "25P02"),
         Arguments.of(new CrudConflictException("conflict", "tx"), "40001"),
         Arguments.of(new CommitConflictException("conflict", "tx"), "40001"),

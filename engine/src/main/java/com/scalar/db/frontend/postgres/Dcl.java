@@ -89,11 +89,11 @@ final class Dcl {
   }
 
   /** Plans a statement {@link #STATEMENT} matched. */
-  static QueryParser.Plan plan(QueryParser parser, AuthAdmin admin, String sql) {
+  static Plan plan(QueryParser parser, AuthAdmin admin, String sql) {
     return new Dcl(parser, admin, sql).plan();
   }
 
-  private QueryParser.Plan plan() {
+  private Plan plan() {
     String verb = in.word();
     switch (verb) {
       case "CREATE":
@@ -170,7 +170,7 @@ final class Dcl {
     return password;
   }
 
-  private QueryParser.Plan create() {
+  private Plan create() {
     boolean user = in.word().equals("USER");
     String name = in.name();
     Options options = options("CREATE ROLE");
@@ -196,7 +196,7 @@ final class Dcl {
         });
   }
 
-  private QueryParser.Plan alter() {
+  private Plan alter() {
     in.word(); // USER or ROLE
     String name = role();
     if (in.atEnd()) {
@@ -212,7 +212,7 @@ final class Dcl {
         notices -> admin.alterUser(name, options.password, options.userOptions()));
   }
 
-  private QueryParser.Plan drop() {
+  private Plan drop() {
     in.word(); // USER or ROLE, which mean the same, as in PostgreSQL
     boolean ifExists = in.accept("IF");
     if (ifExists) {
@@ -244,7 +244,7 @@ final class Dcl {
 
   // ---- GRANT and REVOKE ----
 
-  private QueryParser.Plan grantOrRevoke(boolean grant) {
+  private Plan grantOrRevoke(boolean grant) {
     String optionOnly = ""; // REVOKE GRANT OPTION FOR or ADMIN OPTION FOR: GRANT or ADMIN
     if (!grant && (in.peek("GRANT") || in.peek("ADMIN")) && in.peekAt(1, "OPTION")) {
       optionOnly = in.word();
@@ -284,8 +284,7 @@ final class Dcl {
     }
   }
 
-  private QueryParser.Plan privileges(
-      boolean grant, boolean revokeOptionOnly, List<Lexer.Token> items) {
+  private Plan privileges(boolean grant, boolean revokeOptionOnly, List<Lexer.Token> items) {
     char kind;
     if (in.accept("ALL")) {
       in.expect("TABLES");
@@ -449,7 +448,7 @@ final class Dcl {
     }
   }
 
-  private QueryParser.Plan roles(boolean grant, boolean adminOptionOnly, List<Lexer.Token> items) {
+  private Plan roles(boolean grant, boolean adminOptionOnly, List<Lexer.Token> items) {
     List<String> roles = new ArrayList<>();
     for (Lexer.Token item : items) {
       roles.add(item.name());
@@ -639,10 +638,10 @@ final class Dcl {
     void run(List<String> notices) throws ExecutionException;
   }
 
-  private static QueryParser.Plan ddl(String tag, List<String> planNotices, Body body) {
-    QueryParser.Plan[] plan = new QueryParser.Plan[1];
+  private static Plan ddl(String tag, List<String> planNotices, Body body) {
+    Plan[] plan = new Plan[1];
     plan[0] =
-        QueryParser.Plan.ddl(
+        Plan.ddl(
             () -> {
               // a prepared statement runs again: its notices are this run's
               plan[0].notices.clear();

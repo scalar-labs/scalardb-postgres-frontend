@@ -7,8 +7,19 @@ import com.scalar.db.exception.storage.ExecutionException;
 import com.scalar.db.exception.transaction.TransactionException;
 import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.AbstractMap;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +27,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
@@ -38,7 +51,7 @@ public class QueryProcessor {
   private boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling; 0: none
   // When the transaction block began: now() for every statement in it, as in PostgreSQL
-  @Nullable private java.time.Instant transactionStart;
+  @Nullable private Instant transactionStart;
   private boolean pendingReadOnly;
   private boolean transactionIsolationSet; // SHOW transaction_isolation reverts when it ends
   private boolean aborted; // a statement failed inside the transaction: only ROLLBACK/COMMIT now
@@ -46,66 +59,59 @@ public class QueryProcessor {
   private long ddlSettleMillis;
 
   /** DDL after which the engine's cached metadata of an existing table is stale. */
-  private static final java.util.Set<String> CHANGES_EXISTING_TABLES =
-      new java.util.HashSet<>(
-          java.util.Arrays.asList(
-              "DROP TABLE", "DROP SCHEMA", "DROP INDEX", "ALTER TABLE", "CREATE INDEX"));
+  private static final Set<String> CHANGES_EXISTING_TABLES =
+      new HashSet<>(
+          Arrays.asList("DROP TABLE", "DROP SCHEMA", "DROP INDEX", "ALTER TABLE", "CREATE INDEX"));
 
   // The statement describe() planned last: the extended protocol describes a portal right before
   // executing it, and planning it once serves both
   // Plans by statement text, most recently used last: a reusable plan is planned once per session
   // Plans whose run is still open, such as a suspended portal's: a plan holds its run's operators,
   // so another run of the same statement must not be handed the same one
-  private final java.util.Set<QueryParser.Plan> openPlans =
-      Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+  private final Set<Plan> openPlans = Collections.newSetFromMap(new IdentityHashMap<>());
 
-  private final Map<String, QueryParser.Plan> planCache =
-      new LinkedHashMap<String, QueryParser.Plan>(64, 0.75f, true) {
+  private final Map<String, Plan> planCache =
+      new LinkedHashMap<String, Plan>(64, 0.75f, true) {
         @Override
-        protected boolean removeEldestEntry(Map.Entry<String, QueryParser.Plan> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<String, Plan> eldest) {
           return size() > 256;
         }
       };
   @Nullable private String describedSql;
   private List<Object> describedParameters = Collections.emptyList();
-  @Nullable private QueryParser.Plan describedPlan;
+  @Nullable private Plan describedPlan;
   // Savepoints: accepted inside a transaction; ROLLBACK TO can only be honored while nothing was
   // written since the savepoint, as ScalarDB has no partial rollback
   // Each savepoint with the transaction's write count when it was set, innermost first
-  private final java.util.Deque<Map.Entry<String, Integer>> savepoints =
-      new java.util.ArrayDeque<>();
+  private final Deque<Map.Entry<String, Integer>> savepoints = new ArrayDeque<>();
   private int writes; // write statements run in this transaction, failed ones included
   // Whether every write so far was a plain INSERT: a conflict at commit then means an existing key
   private boolean onlyInserts = true;
-  private static final java.util.regex.Pattern ON_CONFLICT =
-      java.util.regex.Pattern.compile(
-          "\\bON\\s+CONFLICT\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
-  private static final java.util.Set<String> WRITES =
-      new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
-  private static final java.util.regex.Pattern SAVEPOINT_NAME =
-      java.util.regex.Pattern.compile(
+  private static final Pattern ON_CONFLICT =
+      Pattern.compile("\\bON\\s+CONFLICT\\b", Pattern.CASE_INSENSITIVE);
+  private static final Set<String> WRITES =
+      new HashSet<>(Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
+  private static final Pattern SAVEPOINT_NAME =
+      Pattern.compile(
           "(?is)(?:SAVEPOINT\\s+|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");
   // Session settings: what SET stored, over the server's defaults; SHOW reads them
   private final Map<String, String> settings = new LinkedHashMap<>();
   private final Map<String, String> defaults = new LinkedHashMap<>();
 
-  private static final java.util.regex.Pattern READ_ONLY =
-      java.util.regex.Pattern.compile("(?i)\\bREAD\\s+ONLY\\b");
-  private static final java.util.regex.Pattern READ_WRITE =
-      java.util.regex.Pattern.compile("(?i)\\bREAD\\s+WRITE\\b");
-  private static final java.util.regex.Pattern ISOLATION =
-      java.util.regex.Pattern.compile(
+  private static final Pattern READ_ONLY = Pattern.compile("(?i)\\bREAD\\s+ONLY\\b");
+  private static final Pattern READ_WRITE = Pattern.compile("(?i)\\bREAD\\s+WRITE\\b");
+  private static final Pattern ISOLATION =
+      Pattern.compile(
           "(?i)\\bISOLATION\\s+LEVEL\\s+(READ\\s+UNCOMMITTED|READ\\s+COMMITTED|REPEATABLE\\s+READ|SERIALIZABLE)\\b");
-  private static final java.util.regex.Pattern SET_TRANSACTION =
-      java.util.regex.Pattern.compile(
-          "(?is)SET\\s+(SESSION\\s+CHARACTERISTICS\\s+AS\\s+)?TRANSACTION\\s+(.+)");
-  private static final java.util.regex.Pattern BEGIN_WORD =
-      java.util.regex.Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
+  private static final Pattern SET_TRANSACTION =
+      Pattern.compile("(?is)SET\\s+(SESSION\\s+CHARACTERISTICS\\s+AS\\s+)?TRANSACTION\\s+(.+)");
+  private static final Pattern BEGIN_WORD =
+      Pattern.compile("(?is)^\\s*(?:BEGIN|START)(?:\\s+(?:WORK|TRANSACTION))?");
   // The most rows a read-then-write statement may write; 0 means no limit
   static final String MAX_ROWS_PER_WRITE = "scalardb.max_rows_per_write";
   // SET ROLE and SET SESSION AUTHORIZATION, in every spelling, including RESET
-  private static final java.util.regex.Pattern SET_IDENTITY =
-      java.util.regex.Pattern.compile(
+  private static final Pattern SET_IDENTITY =
+      Pattern.compile(
           "(?is)^\\s*(?:SET|RESET)\\s+(?:(?:SESSION|LOCAL)\\s+)?(?:ROLE\\b|SESSION\\s+AUTHORIZATION|SESSION_AUTHORIZATION\\b)");
 
   @Nullable private Authenticator.Identity identity; // the authenticated user, if any
@@ -160,10 +166,10 @@ public class QueryProcessor {
   }
 
   // pg_settings.source of the settings not SET in the session; absent: "default"
-  private final Map<String, String> sources = new java.util.HashMap<>();
+  private final Map<String, String> sources = new HashMap<>();
 
-  private static final java.util.regex.Pattern SET_VALUE =
-      java.util.regex.Pattern.compile(
+  private static final Pattern SET_VALUE =
+      Pattern.compile(
           "(?is)SET\\s+(?:(SESSION|LOCAL)\\s+)?(?:([\\w.]+)\\s*(?:=|TO)\\s*(.+)|TIME\\s+ZONE\\s+(.+))");
   // SET LOCAL: the values to restore when the transaction ends (null: the setting was absent)
   private final Map<String, String> localSaved = new LinkedHashMap<>();
@@ -172,11 +178,10 @@ public class QueryProcessor {
   // if a client relies on it
   private Map<String, String> settingsAtBegin = new LinkedHashMap<>();
   private String zoneName = "";
-  private java.time.ZoneId zone = java.time.ZoneOffset.UTC;
-  private static final java.util.regex.Pattern RESET_NAME =
-      java.util.regex.Pattern.compile("(?is)RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)");
-  private static final java.util.regex.Pattern SHOW_NAME =
-      java.util.regex.Pattern.compile("(?is)SHOW\\s+(.+)");
+  private ZoneId zone = ZoneOffset.UTC;
+  private static final Pattern RESET_NAME =
+      Pattern.compile("(?is)RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)");
+  private static final Pattern SHOW_NAME = Pattern.compile("(?is)SHOW\\s+(.+)");
 
   /** The stored key of a setting named as in SHOW, matched without regard to case; null if none. */
   @Nullable private String settingKey(String name) {
@@ -208,7 +213,7 @@ public class QueryProcessor {
           "Unsupported: SET ROLE and SET SESSION AUTHORIZATION, since an authenticated session runs"
               + " as the user it logged in as");
     }
-    java.util.regex.Matcher set = SET_VALUE.matcher(QueryParser.trimStatement(sql));
+    Matcher set = SET_VALUE.matcher(QueryParser.trimStatement(sql));
     if (set.matches()) {
       boolean local = "LOCAL".equalsIgnoreCase(set.group(1));
       if (local && !inTransaction()) {
@@ -317,7 +322,7 @@ public class QueryProcessor {
   }
 
   @Nullable private String resetOrDiscard(String sql) {
-    java.util.regex.Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
+    Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
     if (reset.matches()) {
       if (reset.group(1).equalsIgnoreCase("ALL")) {
         settings.clear();
@@ -352,24 +357,24 @@ public class QueryProcessor {
   private static final Pattern POSIX_ZONE =
       Pattern.compile("(?i)^(?:UTC|GMT)?([+-])(\\d{1,2})(?::(\\d{2}))?$");
 
-  static java.time.ZoneId zoneOf(String name) {
+  static ZoneId zoneOf(String name) {
     String text = name.trim();
-    java.util.regex.Matcher m = INTERVAL_ZONE.matcher(text);
+    Matcher m = INTERVAL_ZONE.matcher(text);
     if (m.matches()) {
       return offset(m.group(1), false);
     }
     if (NUMERIC_ZONE.matcher(text).matches()) {
-      return java.time.ZoneOffset.ofTotalSeconds((int) Math.round(Double.parseDouble(text) * 3600));
+      return ZoneOffset.ofTotalSeconds((int) Math.round(Double.parseDouble(text) * 3600));
     }
     if (POSIX_ZONE.matcher(text).matches()) {
       return offset(text.replaceFirst("(?i)^(UTC|GMT)", ""), true);
     }
     try {
-      return java.time.ZoneId.of(name, java.time.ZoneId.SHORT_IDS);
-    } catch (java.time.DateTimeException e) {
+      return ZoneId.of(name, ZoneId.SHORT_IDS);
+    } catch (DateTimeException e) {
       try {
-        return java.time.ZoneId.of(name.toUpperCase(Locale.ROOT), java.time.ZoneId.SHORT_IDS);
-      } catch (java.time.DateTimeException again) {
+        return ZoneId.of(name.toUpperCase(Locale.ROOT), ZoneId.SHORT_IDS);
+      } catch (DateTimeException again) {
         throw new PgException.Argument(
             "22023", "invalid value for parameter \"TimeZone\": \"" + name + "\"");
       }
@@ -377,15 +382,15 @@ public class QueryProcessor {
   }
 
   /** {@code [+-]hh[:mm]} as an offset; a POSIX spec counts the other way round. */
-  private static java.time.ZoneOffset offset(String text, boolean posix) {
-    java.util.regex.Matcher m = Pattern.compile("^([+-]?)(\\d{1,2})(?::(\\d{2}))?$").matcher(text);
+  private static ZoneOffset offset(String text, boolean posix) {
+    Matcher m = Pattern.compile("^([+-]?)(\\d{1,2})(?::(\\d{2}))?$").matcher(text);
     if (!m.matches()) {
       throw new PgException.Argument(
           "22023", "invalid value for parameter \"TimeZone\": \"" + text + "\"");
     }
     int sign = (m.group(1).equals("-") ? -1 : 1) * (posix ? -1 : 1);
     int minutes = m.group(3) == null ? 0 : Integer.parseInt(m.group(3));
-    return java.time.ZoneOffset.ofHoursMinutes(sign * Integer.parseInt(m.group(2)), sign * minutes);
+    return ZoneOffset.ofHoursMinutes(sign * Integer.parseInt(m.group(2)), sign * minutes);
   }
 
   /** Puts the session's TimeZone on this thread before a statement runs. */
@@ -405,8 +410,8 @@ public class QueryProcessor {
   }
 
   /** SHOW name, or SHOW ALL, as a constant result. */
-  private QueryParser.Plan show(String sql) {
-    java.util.regex.Matcher m = SHOW_NAME.matcher(QueryParser.trimStatement(sql));
+  private Plan show(String sql) {
+    Matcher m = SHOW_NAME.matcher(QueryParser.trimStatement(sql));
     if (!m.matches()) {
       throw new IllegalArgumentException("Invalid SQL: " + sql);
     }
@@ -425,15 +430,14 @@ public class QueryProcessor {
         row.put("description", known == null ? null : known[5]);
         rows.add(row);
       }
-      return QueryParser.Plan.constant(
-          java.util.Arrays.asList("name", "setting", "description"), rows, "SHOW");
+      return Plan.constant(Arrays.asList("name", "setting", "description"), rows, "SHOW");
     }
     String key = settingKey(m.group(1));
     if (key == null) {
       throw new PgException.Argument(
           "42704", "unrecognized configuration parameter \"" + m.group(1).trim() + "\"");
     }
-    return QueryParser.Plan.constant(
+    return Plan.constant(
         Collections.singletonList(key),
         Collections.singletonList(Collections.<String, Object>singletonMap(key, all.get(key))),
         "SHOW");
@@ -451,22 +455,22 @@ public class QueryProcessor {
   public static final String WARNING = "WARNING: ";
 
   private Rows warning(String message) {
-    Rows rows = new Rows(null, QueryParser.Cursor.EMPTY);
+    Rows rows = new Rows(null, Plan.Cursor.EMPTY);
     rows.notices =
         Collections.singletonList(message.startsWith(WARNING) ? message : WARNING + message);
     return rows;
   }
 
   public final class Rows implements Iterator<Map<String, Object>>, AutoCloseable {
-    @Nullable private final QueryParser.Plan plan;
-    private final QueryParser.Cursor cursor;
+    @Nullable private final Plan plan;
+    private final Plan.Cursor cursor;
     @Nullable private Map<String, Object> pending;
     private boolean exhausted;
     private int count;
 
     private List<String> notices = Collections.emptyList();
 
-    private Rows(@Nullable QueryParser.Plan plan, QueryParser.Cursor cursor) {
+    private Rows(@Nullable Plan plan, Plan.Cursor cursor) {
       this.plan = plan;
       this.cursor = cursor;
       if (plan != null) {
@@ -524,7 +528,7 @@ public class QueryProcessor {
     }
 
     /**
-     * @throws QueryParser.ReadFailure if a ScalarDB read fails; the cause is the original exception
+     * @throws Plan.ReadFailure if a ScalarDB read fails; the cause is the original exception
      */
     @Override
     public boolean hasNext() {
@@ -586,7 +590,7 @@ public class QueryProcessor {
         out.add(rows.next());
       }
       return out;
-    } catch (QueryParser.ReadFailure e) {
+    } catch (Plan.ReadFailure e) {
       throw e.cause();
     }
   }
@@ -601,8 +605,7 @@ public class QueryProcessor {
 
   private void startStatement() {
     applyZone();
-    java.time.Instant now =
-        inTransaction() && transactionStart != null ? transactionStart : java.time.Instant.now();
+    Instant now = inTransaction() && transactionStart != null ? transactionStart : Instant.now();
     Evaluator.startStatement(now, millis(current("statement_timeout")));
     Evaluator.setSettings(sessionSettings);
   }
@@ -629,9 +632,9 @@ public class QueryProcessor {
         transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
         pending = true;
         settingsAtBegin = new LinkedHashMap<>(settings);
-        transactionStart = java.time.Instant.now();
+        transactionStart = Instant.now();
         lastCommandTag = word.equals("START") ? "START TRANSACTION" : "BEGIN";
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return new Rows(null, Plan.Cursor.EMPTY);
       case "COMMIT":
       case "END":
         if (!inTransaction()) {
@@ -642,7 +645,7 @@ public class QueryProcessor {
         if (aborted) {
           // As in PostgreSQL, COMMIT of an aborted transaction rolls it back
           rollback();
-          return new Rows(null, QueryParser.Cursor.EMPTY);
+          return new Rows(null, Plan.Cursor.EMPTY);
         }
         boolean committed = false;
         try {
@@ -657,14 +660,14 @@ public class QueryProcessor {
           if (onlyInserts
               && writes > 0
               && String.valueOf(e.getMessage()).contains("DB-CORE-20013")) {
-            throw new QueryParser.UniqueViolationException(e);
+            throw new Plan.UniqueViolationException(e);
           }
           throw e;
         } finally {
           endTransaction(committed);
         }
         lastCommandTag = "COMMIT";
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return new Rows(null, Plan.Cursor.EMPTY);
       case "ROLLBACK":
       case "ABORT":
         if (SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql)).matches()
@@ -686,23 +689,22 @@ public class QueryProcessor {
           }
           aborted = false;
           lastCommandTag = "ROLLBACK";
-          return new Rows(null, QueryParser.Cursor.EMPTY);
+          return new Rows(null, Plan.Cursor.EMPTY);
         }
         boolean active = inTransaction();
         rollback();
         return active
-            ? new Rows(null, QueryParser.Cursor.EMPTY)
+            ? new Rows(null, Plan.Cursor.EMPTY)
             : warning("there is no transaction in progress");
       case "SAVEPOINT":
         if (!inTransaction()) {
           throw new PgException.State("25P01", "SAVEPOINT can only be used in transaction blocks");
         }
-        java.util.regex.Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
+        Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
         savepoints.push(
-            new java.util.AbstractMap.SimpleImmutableEntry<>(
-                sp.matches() ? sp.group(1) : "", writes));
+            new AbstractMap.SimpleImmutableEntry<>(sp.matches() ? sp.group(1) : "", writes));
         lastCommandTag = "SAVEPOINT";
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return new Rows(null, Plan.Cursor.EMPTY);
       case "RELEASE":
         if (!inTransaction()) {
           throw new PgException.State(
@@ -713,11 +715,11 @@ public class QueryProcessor {
           // releases the savepoints set after it too
         }
         lastCommandTag = "RELEASE";
-        return new Rows(null, QueryParser.Cursor.EMPTY);
+        return new Rows(null, Plan.Cursor.EMPTY);
       case "SET":
         {
           // on the trimmed text, as the other statement patterns: no backtracking tail (todo 029)
-          java.util.regex.Matcher tx = SET_TRANSACTION.matcher(QueryParser.trimStatement(sql));
+          Matcher tx = SET_TRANSACTION.matcher(QueryParser.trimStatement(sql));
           if (tx.matches()) {
             if (tx.group(1) != null) {
               sessionTransactionDefaults(tx.group(2)); // SET SESSION CHARACTERISTICS AS ...
@@ -731,7 +733,7 @@ public class QueryProcessor {
               transactionCharacteristics(tx.group(2));
             }
             lastCommandTag = "SET";
-            return new Rows(null, QueryParser.Cursor.EMPTY);
+            return new Rows(null, Plan.Cursor.EMPTY);
           }
         }
       // fall through
@@ -740,10 +742,10 @@ public class QueryProcessor {
         // Session settings are recorded for SHOW; only the write cap changes behavior
         String warning = setting(sql);
         lastCommandTag = firstWord(sql).equals("DISCARD") ? "DISCARD ALL" : firstWord(sql);
-        return warning == null ? new Rows(null, QueryParser.Cursor.EMPTY) : warning(warning);
+        return warning == null ? new Rows(null, Plan.Cursor.EMPTY) : warning(warning);
       case "SHOW":
         {
-          QueryParser.Plan plan = show(sql);
+          Plan plan = show(sql);
           return new Rows(plan, plan.open(manager, identity));
         }
       default:
@@ -764,7 +766,7 @@ public class QueryProcessor {
 
   /** The innermost savepoint named in a ROLLBACK TO or RELEASE statement. */
   private Map.Entry<String, Integer> savepoint(String sql) {
-    java.util.regex.Matcher m = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
+    Matcher m = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
     String name = m.matches() ? m.group(1) : "";
     for (Map.Entry<String, Integer> s : savepoints) {
       if (s.getKey().equalsIgnoreCase(name)) {
@@ -776,7 +778,7 @@ public class QueryProcessor {
 
   /** BEGIN or SET TRANSACTION options: ISOLATION LEVEL, READ ONLY, READ WRITE. */
   private void transactionCharacteristics(String text) {
-    java.util.regex.Matcher level = ISOLATION.matcher(text);
+    Matcher level = ISOLATION.matcher(text);
     if (level.find()) {
       String requested = level.group(1).toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(requested); // throws before anything about the block changes
@@ -792,7 +794,7 @@ public class QueryProcessor {
 
   /** SET SESSION CHARACTERISTICS AS TRANSACTION ...: the defaults for later transactions. */
   private void sessionTransactionDefaults(String text) {
-    java.util.regex.Matcher level = ISOLATION.matcher(text);
+    Matcher level = ISOLATION.matcher(text);
     if (level.find()) {
       String requested = level.group(1).toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(requested);
@@ -836,13 +838,12 @@ public class QueryProcessor {
     }
   }
 
-  private static final java.util.regex.Pattern DURATION =
-      java.util.regex.Pattern.compile(
-          "(\\d+(?:\\.\\d+)?)\\s*(ms|s|min|h|d)?", java.util.regex.Pattern.CASE_INSENSITIVE);
+  private static final Pattern DURATION =
+      Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(ms|s|min|h|d)?", Pattern.CASE_INSENSITIVE);
 
   /** A statement_timeout in milliseconds, PostgreSQL's default unit; 0 (the default) for none. */
   static long millis(String value) {
-    java.util.regex.Matcher m = DURATION.matcher(value.trim().replace("'", ""));
+    Matcher m = DURATION.matcher(value.trim().replace("'", ""));
     if (!m.matches()) {
       return 0;
     }
@@ -917,8 +918,8 @@ public class QueryProcessor {
     }
   }
 
-  private static final java.util.Set<String> ENDS_TRANSACTION =
-      new java.util.HashSet<>(java.util.Arrays.asList("COMMIT", "END", "ROLLBACK", "ABORT"));
+  private static final Set<String> ENDS_TRANSACTION =
+      new HashSet<>(Arrays.asList("COMMIT", "END", "ROLLBACK", "ABORT"));
 
   private void rollback() throws TransactionException {
     try {
@@ -936,7 +937,7 @@ public class QueryProcessor {
   private Rows statement(String sql, List<Object> parameters)
       throws TransactionException, ExecutionException {
     {
-      QueryParser.Plan plan =
+      Plan plan =
           describedPlan != null
                   && sql.equals(describedSql)
                   && parameters.equals(describedParameters)
@@ -954,7 +955,7 @@ public class QueryProcessor {
         settleMetadata(lastCommandTag);
         Rows rows =
             plan.getOutputColumns().isEmpty()
-                ? new Rows(null, QueryParser.Cursor.EMPTY)
+                ? new Rows(null, Plan.Cursor.EMPTY)
                 : new Rows(plan, plan.open(manager, identity)); // what the DDL reports
         rows.notices = plan.notices;
         return rows;
@@ -990,10 +991,10 @@ public class QueryProcessor {
           return new Rows(plan, plan.report());
         }
         return plan.getOutputColumns().isEmpty()
-            ? new Rows(null, QueryParser.Cursor.EMPTY)
+            ? new Rows(null, Plan.Cursor.EMPTY)
             : new Rows(plan, plan.returned());
       }
-      QueryParser.Cursor cursor =
+      Plan.Cursor cursor =
           inTransaction() ? plan.open(active(), identity) : plan.open(manager, identity);
       return new Rows(plan, cursor);
     }
@@ -1061,7 +1062,7 @@ public class QueryProcessor {
         {
           // the labels and OIDs of the RowDescription come from the described plan: without this
           // they were the previous statement's, and the client rejected the rows (todo 004)
-          QueryParser.Plan plan = show(sql);
+          Plan plan = show(sql);
           describedSql = null; // SHOW is answered afresh, never from this plan
           describedPlan = plan;
           for (String name : plan.getOutputColumns()) {
@@ -1070,7 +1071,7 @@ public class QueryProcessor {
           return columns;
         }
       default:
-        QueryParser.Plan plan = plan(sql, parameters);
+        Plan plan = plan(sql, parameters);
         describedSql = sql;
         describedParameters = new ArrayList<>(parameters);
         describedPlan = plan;
@@ -1086,14 +1087,14 @@ public class QueryProcessor {
   /**
    * The cached plan for the statement, rebound to the values, or a new one (cached if it can be).
    */
-  private QueryParser.Plan plan(String sql, List<Object> parameters) throws ExecutionException {
+  private Plan plan(String sql, List<Object> parameters) throws ExecutionException {
     if (parser.metadataChanged()) {
       planCache.clear(); // another session (or this one) changed a table
     }
     // An unqualified table resolves through search_path, so a plan is only valid under the path
     // it was made with
     String key = current("search_path") + '\u0000' + sql;
-    QueryParser.Plan plan = planCache.get(key);
+    Plan plan = planCache.get(key);
     if (plan != null && !openPlans.contains(plan)) {
       plan.rebind(parameters);
       return plan;
@@ -1129,8 +1130,7 @@ public class QueryProcessor {
     parser.setMaxScaledPrecision(digits);
   }
 
-  private static final java.util.regex.Pattern SETTING_NAME =
-      java.util.regex.Pattern.compile("[A-Za-z_][\\w.]*");
+  private static final Pattern SETTING_NAME = Pattern.compile("[A-Za-z_][\\w.]*");
 
   // current_setting and set_config read and write the settings SHOW and SET do
   private final Evaluator.Settings sessionSettings =

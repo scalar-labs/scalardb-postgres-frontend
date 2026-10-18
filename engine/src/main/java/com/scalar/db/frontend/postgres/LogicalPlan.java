@@ -20,7 +20,7 @@ import net.sf.jsqlparser.statement.select.Select;
  * the ones before it, and its clauses as bound expressions (every column qualified with its
  * source). The {@link Optimizer} rewrites it in place: it moves conjuncts out of {@link #where} and
  * {@link Join#on} into ScalarDB conditions, keyed lookups, and hash-join keys. The physical planner
- * then turns it into a {@link QueryParser.Plan}.
+ * then turns it into a {@link Plan}.
  */
 final class LogicalPlan {
   /** A FROM item: a ScalarDB table, a catalog table, a table function, or a subquery. */
@@ -28,7 +28,7 @@ final class LogicalPlan {
     final String qualifier;
     final List<String> columns;
     @Nullable final QueryParser.Target target; // a ScalarDB table
-    @Nullable final QueryParser.Plan derived; // a subquery in FROM
+    @Nullable final Plan derived; // a subquery in FROM
     boolean lateral; // LATERAL: the subquery may reference the sources before it, runs per row
     @Nullable String catalogTable; // a catalog table or table function, with its rows
     @Nullable List<Map<String, Object>> catalogRows;
@@ -50,7 +50,7 @@ final class LogicalPlan {
         String qualifier,
         List<String> columns,
         @Nullable QueryParser.Target target,
-        @Nullable QueryParser.Plan derived) {
+        @Nullable Plan derived) {
       this.qualifier = qualifier;
       this.columns = columns;
       this.target = target;
@@ -119,7 +119,7 @@ final class LogicalPlan {
   boolean withTies; // FETCH FIRST n ROWS WITH TIES: rows tying with the n-th under ORDER BY too
   boolean correlated; // reads columns of an enclosing query: evaluated per outer row
   int offset;
-  final Map<Select, QueryParser.Plan> subplans = new HashMap<>();
+  final Map<Select, Plan> subplans = new HashMap<>();
 
   /**
    * True if an outer join may null-extend the rows of {@code s}: as the right side of a LEFT or

@@ -154,7 +154,7 @@ final class Evaluator {
         new Context(null, Collections.emptyMap(), null, Collections.emptyList());
 
     @Nullable final Map<String, Object> outer;
-    final Map<Select, QueryParser.Plan> subplans;
+    final Map<Select, Plan> subplans;
     @Nullable final Catalog catalog;
     final List<Object> parameters; // the statement's $n values, 1-based
     final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
@@ -165,7 +165,7 @@ final class Evaluator {
 
     Context(
         @Nullable Map<String, Object> outer,
-        Map<Select, QueryParser.Plan> subplans,
+        Map<Select, Plan> subplans,
         @Nullable Catalog catalog,
         List<Object> parameters) {
       this(
@@ -180,7 +180,7 @@ final class Evaluator {
 
     Context(
         @Nullable Map<String, Object> outer,
-        Map<Select, QueryParser.Plan> subplans,
+        Map<Select, Plan> subplans,
         @Nullable Catalog catalog,
         List<Object> parameters,
         Map<String, com.scalar.db.io.DataType> types,
@@ -214,7 +214,7 @@ final class Evaluator {
      * when the subquery is correlated, so its rows differ per outer row.
      */
     @Nullable InSet inSet(Select select, List<Map<String, Object>> group) {
-      QueryParser.Plan plan = subplans.get(select);
+      Plan plan = subplans.get(select);
       if (plan == null || plan.correlated) {
         return null;
       }
@@ -227,7 +227,7 @@ final class Evaluator {
     }
 
     List<Map<String, Object>> subquery(Select select, List<Map<String, Object>> group) {
-      QueryParser.Plan plan = subplans.get(select);
+      Plan plan = subplans.get(select);
       if (plan == null) {
         throw new PgException.Argument("0A000", "Unsupported subquery: " + select);
       }

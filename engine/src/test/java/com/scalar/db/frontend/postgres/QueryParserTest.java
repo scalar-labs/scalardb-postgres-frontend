@@ -156,7 +156,7 @@ public class QueryParserTest {
   @Test
   public void parse_SelectOnPartitionWithClusteringOrder_ShouldPushDownRangeOrderAndLimit()
       throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT * FROM ns.t WHERE id = 1 AND seq > -2 AND price < 3.5 "
                 + "ORDER BY seq DESC LIMIT 10 OFFSET 2");
@@ -192,7 +192,7 @@ public class QueryParserTest {
             .addPartitionKey("id")
             .build();
     when(admin.getTableMetadata(NS, "e")).thenReturn(encrypted);
-    QueryParser.Plan plan = parser.parse("SELECT v FROM e WHERE id = 1 AND ssn = 'x' AND v > 0");
+    Plan plan = parser.parse("SELECT v FROM e WHERE id = 1 AND ssn = 'x' AND v > 0");
     assertThat(plan.getOperations())
         .containsExactly(
             Get.newBuilder()
@@ -246,8 +246,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectWithOrCondition_ShouldFilterInMemory() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("SELECT name FROM t WHERE id = 1 AND (seq = 1 OR UPPER(name) = 'B')");
+    Plan plan = parser.parse("SELECT name FROM t WHERE id = 1 AND (seq = 1 OR UPPER(name) = 'B')");
 
     assertThat(plan.getOperations())
         .containsExactly(
@@ -271,8 +270,7 @@ public class QueryParserTest {
         .thenReturn(java.util.Optional.of(map(1, 1, "a", 1.5, true)))
         .thenReturn(java.util.Optional.empty());
     doReturn(scanner).when(transaction).getScanner(any());
-    QueryParser.Plan plan =
-        parser.parse("SELECT active, nosuchfn(max(name)) FROM t GROUP BY active");
+    Plan plan = parser.parse("SELECT active, nosuchfn(max(name)) FROM t GROUP BY active");
 
     assertThatThrownBy(() -> plan.execute(transaction))
         .hasMessageContaining("Unsupported function");
@@ -281,7 +279,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectWithAggregates_ShouldGroupInMemory() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT active, COUNT(*) AS n, SUM(price) AS total FROM t GROUP BY active "
                 + "HAVING COUNT(*) > 1 ORDER BY n DESC, active");
@@ -310,7 +308,7 @@ public class QueryParserTest {
   @Test
   public void parse_SelectWithExpressionsDistinctAndOffset_ShouldSortAndSliceInMemory()
       throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("SELECT DISTINCT id, price * 2 AS p FROM t ORDER BY p DESC LIMIT 2 OFFSET 1");
 
     assertThat(plan.getOperations())
@@ -329,7 +327,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_LeftJoin_ShouldPushDownPerTableAndJoinInMemory() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.name, b.name AS other FROM t a LEFT JOIN t b "
                 + "ON a.id = b.id AND b.seq = 2 WHERE a.seq = 1 ORDER BY a.name");
@@ -362,7 +360,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectWithSubqueries_ShouldEvaluateInMemory() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT x.name FROM t x WHERE x.price > (SELECT AVG(price) FROM t) "
                 + "AND EXISTS (SELECT 1 FROM t y WHERE y.id = x.id AND y.seq <> x.seq) "
@@ -392,7 +390,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectFromDerivedTable_ShouldEvaluateInMemory() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT s.n, COUNT(*) AS c FROM (SELECT name AS n, id FROM t WHERE price > 1) s "
                 + "GROUP BY s.n ORDER BY c DESC, n");
@@ -408,7 +406,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectWithScalarFunctionsCaseAndCast_ShouldEvaluateInMemory() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT UPPER(name) AS u, LENGTH(name) AS l, COALESCE(price, 0) AS p, "
                 + "CASE WHEN active THEN 'y' ELSE 'n' END AS c, CAST(seq AS TEXT) || '!' AS s, "
@@ -524,7 +522,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectWithoutFrom_ShouldReturnOneRow() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT 1 AS one, 'a' || 'b' AS ab, NOW() IS NOT NULL");
+    Plan plan = parser.parse("SELECT 1 AS one, 'a' || 'b' AS ab, NOW() IS NOT NULL");
 
     assertThat(plan.getOperations()).isEmpty();
     assertThat(plan.getOutputColumns()).containsExactly("one", "ab", "?column?");
@@ -534,7 +532,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_ScalarAndDateFunctions_ShouldMatchPostgres() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT position('e' in 'abcde'), greatest(1, NULL, 3), least(2, 5), sign(-4),"
                 + " reverse('abc'), 2 ^ 3, EXTRACT(YEAR FROM DATE '2024-02-29'),"
@@ -563,7 +561,7 @@ public class QueryParserTest {
         .thenReturn(
             Arrays.asList(
                 map(1, 1, "a", 1.5, true), map(1, 2, "b", 2.5, false), map(1, 3, "c", 1.0, true)));
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT active AS on_sale, count(*) FILTER (WHERE price > 1.2) AS pricey,"
                 + " bool_or(price > 2) AS any_dear, string_agg(name, '|' ORDER BY name DESC) AS names"
@@ -578,8 +576,8 @@ public class QueryParserTest {
   @Test
   public void constant_WithRepeatedLabels_ShouldKeepThemAndKeyRowsByUniqueNames() {
     // psql's \\d asks a catalog query with "pubname, NULL, NULL"; the fallback answers it empty
-    QueryParser.Plan plan =
-        QueryParser.Plan.constant(
+    Plan plan =
+        Plan.constant(
             Arrays.asList("pubname", "?column?", "?column?"), Collections.emptyList(), "SELECT");
 
     assertThat(plan.getColumnLabels()).containsExactly("pubname", "?column?", "?column?");
@@ -588,7 +586,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_LagWithNullOffset_ShouldReturnNull() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT x, lag(x, NULL) OVER (ORDER BY x) AS l FROM (VALUES (1), (2)) AS v(x)");
 
@@ -627,7 +625,7 @@ public class QueryParserTest {
 
   @Test
   public void label_ShouldFollowPostgresColumnNaming() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT id, t.name, COUNT(*), count(name), UPPER(name), CAST(price AS INT),"
                 + " CAST(1.5 AS INTEGER), '7'::bigint, CASE WHEN active THEN 1 END, id + 1,"
@@ -760,7 +758,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_Explain_ShouldDescribePushdownAndInMemorySteps() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "EXPLAIN SELECT c.name, COUNT(*) AS n FROM t c JOIN t o ON c.id = o.id "
                 + "WHERE o.price > 2 AND (c.seq = 1 OR c.seq = 2) AND c.id = 1 "
@@ -870,7 +868,7 @@ public class QueryParserTest {
   public void parse_PsqlListTablesQuery_ShouldAnswerFromMetadata() throws Exception {
     // psql \dt public.*, verbatim: OPERATOR(pg_catalog.~), COLLATE, regex, ORDER BY ordinals;
     // the connected namespace is shown as schema public
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT n.nspname as \"Schema\", c.relname as \"Name\", "
                 + "CASE c.relkind WHEN 'r' THEN 'table' WHEN 'i' THEN 'index' END as \"Type\", "
@@ -1064,7 +1062,7 @@ public class QueryParserTest {
   @Test
   public void parse_CatalogQueryBeyondEngine_ShouldFailLikeAnyOther() throws Exception {
     // a UNION over catalog tables runs for real
-    QueryParser.Plan union =
+    Plan union =
         parser.parse(
             "SELECT pubname FROM pg_catalog.pg_publication p WHERE p.puballtables "
                 + "UNION SELECT pubname FROM pg_catalog.pg_publication ORDER BY 1");
@@ -1169,7 +1167,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_CommaJoinOnPartitionKey_ShouldLookUpPerOuterRow() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.name, b.name AS other FROM t a, t b WHERE b.id = a.id AND b.seq = 2 "
                 + "AND b.price > 0");
@@ -1192,7 +1190,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_JoinOnNonKeyColumns_ShouldUseHashJoin() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.name, b.name AS other FROM t a JOIN t b ON a.price = b.price AND a.id < b.id");
 
@@ -1237,8 +1235,8 @@ public class QueryParserTest {
     org.mockito.Mockito.doReturn(scanner).when(transaction).getScanner(any());
 
     // "active" is filtered in memory (NOT), so the LIMIT cannot be pushed down
-    QueryParser.Plan plan = parser.parse("SELECT name FROM t WHERE NOT active LIMIT 2");
-    try (QueryParser.Cursor cursor = plan.open(transaction)) {
+    Plan plan = parser.parse("SELECT name FROM t WHERE NOT active LIMIT 2");
+    try (Plan.Cursor cursor = plan.open(transaction)) {
       assertThat(cursor.next()).isEqualTo(map("name", "n1"));
       assertThat(cursor.next()).isEqualTo(map("name", "n3"));
       assertThat(cursor.next()).isNull();
@@ -1250,7 +1248,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_ShouldBindThenOptimizeIntoLogicalPlan() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.name, b.name AS other FROM t a JOIN t b ON b.id = a.id AND b.seq = 2 "
                 + "WHERE a.price > 1 AND a.name <> b.name");
@@ -1274,7 +1272,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_CreateTable_ShouldBuildMetadataFromKeysAndOptions() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "CREATE TABLE ns.o (customer_id int, order_id bigint, item text, "
                 + "amount double precision, paid boolean, PRIMARY KEY (customer_id, order_id)) "
@@ -1381,7 +1379,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_InListOnPartitionKey_ShouldLookUpEachValue() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("SELECT name FROM t WHERE id IN (2, 1, 2, NULL) AND seq = 1 AND price > 0");
 
     assertThat(parser.explain(plan))
@@ -1410,7 +1408,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_OrOnOneTable_ShouldPushDisjunctionToScalarDb() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT name FROM t WHERE (price > 5 OR active = TRUE AND seq < 3) AND name LIKE 'a%'");
 
@@ -1464,7 +1462,7 @@ public class QueryParserTest {
             map(2, 1, "b", 1.0, true),
             map(3, 1, "c", 1.0, true)));
 
-    QueryParser.Plan union =
+    Plan union =
         parser.parse(
             "SELECT name FROM t WHERE id = 1 UNION SELECT name FROM t WHERE id = 2 "
                 + "ORDER BY 1 DESC LIMIT 5");
@@ -1521,7 +1519,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_UpdateByScan_ShouldReadThenUpdateEachRowUnderTheCap() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("UPDATE t SET price = price * 2, active = FALSE WHERE id = 1 AND NOT active");
 
     assertThat(plan.getWrite()).isNotNull();
@@ -1547,7 +1545,7 @@ public class QueryParserTest {
                     .build()));
 
     // the cap is checked before anything is written
-    QueryParser.Plan all = parser.parse("UPDATE t SET active = TRUE WHERE id = 1");
+    Plan all = parser.parse("UPDATE t SET active = TRUE WHERE id = 1");
     assertThatThrownBy(() -> all.executeWrite(transaction, 1))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("max_rows_per_write");
@@ -1656,7 +1654,7 @@ public class QueryParserTest {
   @Test
   public void parse_DecimalLiteralAgainstIntegerColumn_ShouldCompareInMemory() throws Exception {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 1, "b", 2.5, false)));
-    QueryParser.Plan plan = parser.parse("SELECT id FROM t WHERE id > 1.5 AND id < 2.5");
+    Plan plan = parser.parse("SELECT id FROM t WHERE id > 1.5 AND id < 2.5");
     assertThat(parser.explain(plan).get(0)).doesNotContain("partitionKey");
     assertThat(plan.execute(transaction)).containsExactly(map("id", 2));
     // text that is not a number still fails as PostgreSQL does
@@ -1692,7 +1690,7 @@ public class QueryParserTest {
   @Test
   public void parse_CreateTableWithConstraintsAndModifiers_ShouldNoticeWhatIsNotEnforced()
       throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "CREATE TABLE n (id INT NOT NULL, v INT NOT NULL CHECK (v > 0), u INT UNIQUE,"
                 + " d INT DEFAULT NULL, c CHAR(5), m NUMERIC(10,2), s SMALLINT, f FLOAT(10),"
@@ -1726,7 +1724,7 @@ public class QueryParserTest {
     assertThat(metadata.getValue().getColumnDataType("m")).isEqualTo(DataType.BIGINT);
     assertThat(parser.parse("CREATE TABLE p (id INT, PRIMARY KEY (id))").notices).isEmpty();
     // DEC(5,1) is the same type, though the parser keeps its modifiers apart from its name
-    QueryParser.Plan dec = parser.parse("CREATE TABLE q (id INT, d DEC(5,1), PRIMARY KEY (id))");
+    Plan dec = parser.parse("CREATE TABLE q (id INT, d DEC(5,1), PRIMARY KEY (id))");
     assertThat(dec.notices).isEmpty();
     dec.getDdl().run();
     verify(admin).createTable(eq(NS), eq("q"), metadata.capture(), eq(false));
@@ -1980,7 +1978,7 @@ public class QueryParserTest {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 2, "b", 2.5, false)));
 
     // two joined rows match the same target row: PostgreSQL writes it once
-    QueryParser.Plan update =
+    Plan update =
         parser.parse(
             "UPDATE t SET name = v.n FROM (VALUES (1.5, 'x'), (1.5, 'y')) AS v(p, n)"
                 + " WHERE t.price = v.p");
@@ -1998,8 +1996,7 @@ public class QueryParserTest {
                     .textValue("name", "x")
                     .build()));
 
-    QueryParser.Plan delete =
-        parser.parse("DELETE FROM t USING (VALUES (2.5)) AS v(p) WHERE t.price = v.p");
+    Plan delete = parser.parse("DELETE FROM t USING (VALUES (2.5)) AS v(p) WHERE t.price = v.p");
     assertThat(delete.executeWrite(transaction, 10)).isEqualTo(1);
     verify(transaction)
         .mutate(
@@ -2016,7 +2013,7 @@ public class QueryParserTest {
   public void parse_DeleteByScanAndInsertSelect_ShouldReadThenMutate() throws Exception {
     stubTable(Arrays.asList(map(1, 2, "a", 1.5, true), map(2, 2, "b", 2.5, false)));
 
-    QueryParser.Plan delete = parser.parse("DELETE FROM t WHERE seq = 2");
+    Plan delete = parser.parse("DELETE FROM t WHERE seq = 2");
     assertThat(parser.explain(delete))
         .containsExactly(
             "Delete ns.t: one ScalarDB Delete per row read",
@@ -2039,7 +2036,7 @@ public class QueryParserTest {
                     .clusteringKey(Key.ofBigInt("seq", 2))
                     .build()));
 
-    QueryParser.Plan copy =
+    Plan copy =
         parser.parse(
             "INSERT INTO t (id, seq, name, price, active) "
                 + "SELECT id + 10, seq, UPPER(name), price, active FROM t WHERE id = 1");
@@ -2104,7 +2101,7 @@ public class QueryParserTest {
   public void parse_Cte_ShouldPlanEachReferenceAsASubquery() throws Exception {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
 
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "WITH cheap AS (SELECT id, seq, price FROM t WHERE id = 1 AND price < 1),"
                 + " v(k, label) AS (VALUES (2, 'two'), (3, 'three'))"
@@ -2134,7 +2131,7 @@ public class QueryParserTest {
     stubTable(Collections.singletonList(map(1, 1, "a", 1.5, true)));
 
     // the plain EXCLUDED form is a ScalarDB Upsert
-    QueryParser.Plan upsert =
+    Plan upsert =
         parser.parse(
             "INSERT INTO t (id, seq, name) VALUES (1, 1, 'z')"
                 + " ON CONFLICT (id, seq) DO UPDATE SET name = EXCLUDED.name");
@@ -2150,7 +2147,7 @@ public class QueryParserTest {
     assertThat(upsert.commandTag(0)).isEqualTo("INSERT 0 1");
 
     // otherwise each row is looked up first
-    QueryParser.Plan merge =
+    Plan merge =
         parser.parse(
             "INSERT INTO t (id, seq, name, price, active) VALUES (1, 1, 'z', 9.0, TRUE),"
                 + " (3, 3, 'new', 1.0, FALSE)"
@@ -2190,7 +2187,7 @@ public class QueryParserTest {
                     .booleanValue("active", false)
                     .build()));
 
-    QueryParser.Plan skip =
+    Plan skip =
         parser.parse(
             "INSERT INTO t (id, seq, name) VALUES (1, 1, 'dup'), (5, 5, 'n')"
                 + " ON CONFLICT DO NOTHING");
@@ -2215,14 +2212,14 @@ public class QueryParserTest {
   public void parse_Returning_ShouldYieldTheRowsLeftByTheWrite() throws Exception {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
 
-    QueryParser.Plan update =
+    Plan update =
         parser.parse("UPDATE t SET price = price * 2 WHERE id = 1 RETURNING seq, price AS p");
     assertThat(update.getOutputColumns()).containsExactly("seq", "p");
     assertThat(update.execute(transaction))
         .containsExactly(map("seq", 1L, "p", 3.0), map("seq", 2L, "p", 1.0));
 
     // a keyed DELETE with RETURNING reads the row first (with a Get)
-    QueryParser.Plan delete = parser.parse("DELETE FROM t WHERE id = 1 AND seq = 2 RETURNING *");
+    Plan delete = parser.parse("DELETE FROM t WHERE id = 1 AND seq = 2 RETURNING *");
     assertThat(parser.explain(delete))
         .containsExactly(
             "Delete ns.t: one ScalarDB Delete per row read",
@@ -2232,7 +2229,7 @@ public class QueryParserTest {
     assertThat(delete.execute(transaction))
         .containsExactly(map("id", 1, "seq", 2L, "name", "b", "price", 0.5, "active", false));
 
-    QueryParser.Plan insert =
+    Plan insert =
         parser.parse(
             "INSERT INTO t (id, seq, name) VALUES (7, 7, 'g') RETURNING id * 2 AS d, name");
     assertThat(insert.execute(transaction)).containsExactly(map("d", 14, "name", "g"));
@@ -2243,7 +2240,7 @@ public class QueryParserTest {
   public void parse_RightFullUsingAndNaturalJoins_ShouldNullExtendEitherSide() throws Exception {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(2, 1, "b", 2.5, false)));
 
-    QueryParser.Plan right =
+    Plan right =
         parser.parse(
             "SELECT t.name, v.k FROM t RIGHT JOIN (VALUES (1), (3)) AS v(k) ON v.k = t.id"
                 + " ORDER BY v.k");
@@ -2252,7 +2249,7 @@ public class QueryParserTest {
         .containsExactly(map("name", "a", "k", 1L), map("name", null, "k", 3L));
 
     // FULL JOIN ... USING: the merged column comes out once, from whichever side has it
-    QueryParser.Plan full =
+    Plan full =
         parser.parse(
             "SELECT * FROM (VALUES (1, 'x'), (3, 'z')) AS v(id, tag) FULL JOIN t USING (id)"
                 + " ORDER BY id");
@@ -2301,7 +2298,7 @@ public class QueryParserTest {
                 null));
 
     // NATURAL JOIN: the common column is unambiguous and the lookup still applies
-    QueryParser.Plan natural =
+    Plan natural =
         parser.parse("SELECT id, name, tag FROM (VALUES (2, 'y')) AS v(id, tag) NATURAL JOIN t");
     assertThat(parser.explain(natural))
         .anyMatch(
@@ -2312,7 +2309,7 @@ public class QueryParserTest {
         .containsExactly(map("id", 2L, "name", "b", "tag", "y"));
 
     // a WHERE condition on the null-extended side stays after the join
-    QueryParser.Plan where =
+    Plan where =
         parser.parse(
             "SELECT v.k FROM t RIGHT JOIN (VALUES (1), (3)) AS v(k) ON v.k = t.id"
                 + " WHERE t.name IS NULL");
@@ -2323,7 +2320,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_SelectForUpdate_ShouldPlanLikeAPlainSelect() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT name FROM t WHERE id = 1 AND seq = 2 FOR UPDATE");
+    Plan plan = parser.parse("SELECT name FROM t WHERE id = 1 AND seq = 2 FOR UPDATE");
 
     // Locks are not taken: Consensus Commit validates the read at commit time instead
     assertThat(plan.getOperations())
@@ -2341,8 +2338,8 @@ public class QueryParserTest {
   public void parse_WithParameters_ShouldPlanLikeLiteralsAndReuseTheParsedStatement()
       throws Exception {
     String sql = "SELECT name FROM t WHERE id = $1 AND seq = $2 AND price > $3";
-    QueryParser.Plan first = parser.parse(sql, Arrays.asList(1L, 2L, 0.5));
-    QueryParser.Plan second = parser.parse(sql, Arrays.asList(3L, 4L, 1.5));
+    Plan first = parser.parse(sql, Arrays.asList(1L, 2L, 0.5));
+    Plan second = parser.parse(sql, Arrays.asList(3L, 4L, 1.5));
 
     assertThat(first.getOperations())
         .containsExactly(
@@ -2416,7 +2413,7 @@ public class QueryParserTest {
   @Test
   public void parse_CacheablePlan_ShouldRebindToOtherValues() throws Exception {
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("SELECT name FROM t WHERE id = $1 AND price > $2", Arrays.asList(1L, 1.0));
 
     assertThat(plan.isCacheable()).isTrue();
@@ -2445,7 +2442,7 @@ public class QueryParserTest {
                 .build());
 
     // DML binds its values when the mutations are built
-    QueryParser.Plan insert =
+    Plan insert =
         parser.parse(
             "INSERT INTO t (id, seq, name) VALUES ($1, $2, $3)", Arrays.asList(1L, 1L, "x"));
     assertThat(insert.isCacheable()).isTrue();
@@ -2494,7 +2491,7 @@ public class QueryParserTest {
     TestScanners.stub(manager);
     when(manager.scan(any())).thenReturn(rows); // the stub ignores conditions: every row comes back
 
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.seq, b.name FROM t a JOIN t b ON b.id = a.id AND b.seq = a.seq"
                 + " WHERE a.id = 1");
@@ -2549,7 +2546,7 @@ public class QueryParserTest {
               return java.util.Optional.of(looked.get((int) seq - 1));
             });
 
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT a.seq, b.name FROM t a JOIN t b ON b.id = a.seq AND b.seq = a.seq"
                 + " WHERE a.id = 1");
@@ -2658,10 +2655,10 @@ public class QueryParserTest {
     java.util.concurrent.ExecutorService sessions =
         java.util.concurrent.Executors.newFixedThreadPool(2);
     try {
-      QueryParser.Plan a = new QueryParser(admin, NS).parse(sql);
+      Plan a = new QueryParser(admin, NS).parse(sql);
       java.util.concurrent.Future<?> first = sessions.submit(() -> a.execute(hanging));
       assertThat(held.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
-      QueryParser.Plan b = new QueryParser(admin, NS).parse(sql);
+      Plan b = new QueryParser(admin, NS).parse(sql);
       assertThat(
               sessions
                   .submit(() -> b.execute(manager))
@@ -2705,8 +2702,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_Between_ShouldPushBothBoundsDown() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("SELECT name FROM t WHERE id = 1 AND price BETWEEN 1 AND 2");
+    Plan plan = parser.parse("SELECT name FROM t WHERE id = 1 AND price BETWEEN 1 AND 2");
     String explain = String.join("\n", parser.explain(plan));
     assertThat(explain).doesNotContain("Filter");
     assertThat(explain).contains("price >= 1.0", "price <= 2.0");
@@ -2724,7 +2720,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_RankingWindowFunctions_ShouldComputeOverPartitions() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT id, seq, row_number() OVER (PARTITION BY id ORDER BY price DESC) AS rn, "
                 + "rank() OVER (ORDER BY price) AS r, dense_rank() OVER (ORDER BY price) AS dr, "
@@ -2748,7 +2744,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_ValueAndAggregateWindowFunctions_ShouldUseFrames() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT seq, lag(name) OVER w AS prev, lead(name, 2, '-') OVER w AS next2, "
                 + "first_value(name) OVER w AS f, last_value(name) OVER w AS l, "
@@ -2781,7 +2777,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_WindowOverGroups_ShouldRankTheGroups() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT active, count(*) AS n, rank() OVER (ORDER BY count(*) DESC) AS r, "
                 + "sum(count(*)) OVER () AS total FROM t GROUP BY active ORDER BY r");
@@ -2801,7 +2797,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_WindowFunctionInWhere_ShouldFail() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT id FROM t WHERE row_number() OVER () = 1");
+    Plan plan = parser.parse("SELECT id FROM t WHERE row_number() OVER () = 1");
     when(transaction.scan(any())).thenReturn(Collections.singletonList(map(1, 1, "a", 1.0, true)));
 
     assertThatThrownBy(() -> plan.execute(transaction))
@@ -2810,7 +2806,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_RecursiveCteWithoutTable_ShouldIterateUntilTheStepIsEmpty() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4) "
                 + "SELECT i, i * 10 AS t FROM n");
@@ -2829,7 +2825,7 @@ public class QueryParserTest {
   @Test
   public void execute_RecursiveCteOverTable_ShouldWalkTheChainAndDropRepeats() throws Exception {
     // price points at the parent id: 3 -> 2 -> 1 -> 3 is a cycle that UNION stops
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "WITH RECURSIVE r AS (SELECT id, price FROM t WHERE id = 3 "
                 + "UNION SELECT t.id, t.price FROM r JOIN t ON t.id = CAST(r.price AS INT)) "
@@ -2843,7 +2839,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_WithRecursiveOnAPlainUnion_ShouldNotIterate() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("WITH RECURSIVE u AS (SELECT 1 AS x UNION ALL SELECT 2) SELECT x FROM u");
 
     assertThat(plan.execute(transaction)).containsExactly(map("x", 1L), map("x", 2L));
@@ -2851,7 +2847,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_DecimalLiterals_ShouldFollowPostgresNumericRules() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT 2500 * 1.5 AS a, 7.0 / 2 AS b, 7 / 2 AS c, 1.5 + 2.25 AS d, "
                 + "CAST(2.345 AS NUMERIC(10, 2)) AS e, round(2.5) AS f, -1.5 AS g, "
@@ -2874,7 +2870,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_AveragesAndSums_ShouldBeNumericUnlessADoubleIsInvolved() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT avg(seq) AS a, sum(seq) AS b, avg(price) AS c, sum(price) AS d, "
                 + "price * 1.5 AS e FROM t GROUP BY price * 1.5");
@@ -2893,8 +2889,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_DistinctOn_ShouldKeepTheFirstRowPerKeyInOrderByOrder() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("SELECT DISTINCT ON (id) id, seq FROM t ORDER BY id, seq DESC");
+    Plan plan = parser.parse("SELECT DISTINCT ON (id) id, seq FROM t ORDER BY id, seq DESC");
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
@@ -2908,7 +2903,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_Rollup_ShouldGroupByEveryPrefix() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse("SELECT id, active, count(*) AS n FROM t GROUP BY ROLLUP (id, active)");
     when(transaction.scan(any()))
         .thenReturn(
@@ -2947,7 +2942,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_EscapeString_ShouldProcessBackslashes() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT E'a\\nb' AS s, length(E'\\x41\\101\\u0042') AS n, E'it\\'s' AS q, "
                 + "'a\\nb' AS plain");
@@ -3397,7 +3392,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_Intervals_ShouldFollowPostgresArithmeticAndText() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT interval '1 year 2 months 3 days 04:05:06.5' AS a, interval '90 minutes' AS b, "
                 + "interval '1.5 days' AS c, interval '1 day' * 2.5 AS d, "
@@ -3435,7 +3430,7 @@ public class QueryParserTest {
 
   @Test
   public void execute_ConstantExpressionCondition_ShouldBePushedDownWhenOpened() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT seq FROM t WHERE price > 10 - 8.5");
+    Plan plan = parser.parse("SELECT seq FROM t WHERE price > 10 - 8.5");
     List<Scan> scans = new ArrayList<>();
     when(transaction.scan(any()))
         .thenAnswer(
@@ -3465,8 +3460,7 @@ public class QueryParserTest {
         Arrays.asList(
             map(1, 1, "a", 1.0, true), map(2, 1, "b", 2.0, true), map(3, 1, "c", 3.0, true)));
 
-    QueryParser.Plan plan =
-        parser.parse("SELECT id FROM t WHERE id = ANY(ARRAY[1, 3]) ORDER BY id");
+    Plan plan = parser.parse("SELECT id FROM t WHERE id = ANY(ARRAY[1, 3]) ORDER BY id");
     assertThat(plan.execute(transaction)).containsExactly(map("id", 1), map("id", 3));
     assertThat(String.join("\n", parser.explain(plan))).contains("Lookup");
     // a bound parameter in PostgreSQL's array text, as drivers send it
@@ -3549,7 +3543,7 @@ public class QueryParserTest {
 
   @Test
   public void parse_OutputOids_ShouldBeInferredForComputedAndReturningColumns() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "SELECT count(*) AS c, avg(price) AS a, sum(id) AS s, id * 2 AS d, name || 'x' AS t, "
                 + "CAST(price AS int) AS i, price > 1 AS b, now() AS n, array_agg(name) AS arr, "

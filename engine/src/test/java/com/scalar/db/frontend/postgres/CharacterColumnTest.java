@@ -95,7 +95,7 @@ public class CharacterColumnTest {
 
   @Test
   public void createTable_ShouldRecordTheDeclarations() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "CREATE TABLE q (id INT PRIMARY KEY, c CHAR(5), b CHARACTER, v VARCHAR(7),"
                 + " s SMALLINT, t VARCHAR)");
@@ -131,7 +131,7 @@ public class CharacterColumnTest {
 
   @Test
   public void select_ShouldDescribeTheDeclaredTypes() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT c, v, s FROM w");
+    Plan plan = parser.parse("SELECT c, v, s FROM w");
     assertThat(plan.execute(transaction)).extracting(r -> r.get("c")).containsExactly("ab", "abc");
     assertThat(plan.outputOids()).containsExactly(1042, 1043, 21);
     assertThat(plan.outputTypmods()).containsExactly(9, 11, -1);

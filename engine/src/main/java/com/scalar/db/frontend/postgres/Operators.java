@@ -22,7 +22,7 @@ import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.OrderByElement;
 
-/** The operators a {@link QueryParser.Plan} is built from. */
+/** The operators a {@link Plan} is built from. */
 final class Operators {
   /** Prefix of the hidden columns an Aggregate adds so a Sort can order by an aggregate. */
   private static final String ORDER_KEY = "$order";
@@ -128,7 +128,7 @@ final class Operators {
     private final List<String> columns;
     private final boolean stream;
     @Nullable private List<Map<String, Object>> cache;
-    @Nullable private QueryParser.Cursor rows;
+    @Nullable private Plan.Cursor rows;
     private Iterator<Map<String, Object>> cached = NONE;
 
     Scan(Operation operation, String qualifier, List<String> columns, boolean stream) {
@@ -163,7 +163,7 @@ final class Operators {
     public void close() {
       cached = NONE;
       if (rows != null) {
-        QueryParser.Cursor open = rows;
+        Plan.Cursor open = rows;
         rows = null;
         open.close();
       }
@@ -182,11 +182,11 @@ final class Operators {
 
   /** A first table bound to the enclosing query's row by key: read once per open. */
   static final class Lookup extends Base {
-    private final QueryParser.Source source;
-    private final QueryParser.Plan plan;
+    private final Plan.Source source;
+    private final Plan plan;
     private Iterator<Map<String, Object>> rows = NONE;
 
-    Lookup(QueryParser.Source source, QueryParser.Plan plan) {
+    Lookup(Plan.Source source, Plan plan) {
       this.source = source;
       this.plan = plan;
     }
@@ -267,10 +267,10 @@ final class Operators {
 
   static final class Filter extends Unary {
     private final List<Expression> conditions;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Evaluator.Context ctx = Evaluator.Context.EMPTY;
 
-    Filter(Operator input, List<Expression> conditions, QueryParser.Plan plan) {
+    Filter(Operator input, List<Expression> conditions, Plan plan) {
       super(input);
       this.conditions = conditions;
       this.plan = plan;
@@ -294,7 +294,7 @@ final class Operators {
 
     @Override
     public String describe() {
-      return "Filter " + QueryParser.text(conditions);
+      return "Filter " + QueryParser.conjunctionText(conditions);
     }
   }
 
@@ -313,7 +313,7 @@ final class Operators {
     private final List<String> names;
     @Nullable private final List<Expression> expressions;
     private final boolean keepInput;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Evaluator.Context ctx = Evaluator.Context.EMPTY;
 
     Project(
@@ -321,7 +321,7 @@ final class Operators {
         List<String> names,
         @Nullable List<Expression> expressions,
         boolean keepInput,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(input);
       this.names = names;
       this.expressions = expressions;
@@ -363,10 +363,10 @@ final class Operators {
    */
   static final class Window extends Unary {
     private final List<Windows.Spec> windows;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Iterator<Map<String, Object>> out = NONE;
 
-    Window(Operator input, List<Windows.Spec> windows, QueryParser.Plan plan) {
+    Window(Operator input, List<Windows.Spec> windows, Plan plan) {
       super(input);
       this.windows = windows;
       this.plan = plan;
@@ -464,7 +464,7 @@ final class Operators {
     private final int limit;
     private final List<OrderByElement> orderBy;
     private final List<String> names;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Evaluator.Context ctx = Evaluator.Context.EMPTY;
     private int skipped;
     private int emitted;
@@ -476,7 +476,7 @@ final class Operators {
         int limit,
         List<OrderByElement> orderBy,
         List<String> names,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(input);
       this.offset = offset;
       this.limit = limit;
@@ -569,10 +569,10 @@ final class Operators {
   static final class Sort extends Unary {
     private final List<OrderByElement> orderBy;
     private final List<String> names;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Iterator<Map<String, Object>> sorted = NONE;
 
-    Sort(Operator input, List<OrderByElement> orderBy, List<String> names, QueryParser.Plan plan) {
+    Sort(Operator input, List<OrderByElement> orderBy, List<String> names, Plan plan) {
       super(input);
       this.orderBy = orderBy;
       this.names = names;
@@ -659,10 +659,10 @@ final class Operators {
   static final class Distinct extends Unary {
     private final List<String> names;
     private final List<Expression> on; // DISTINCT ON (...): keep the first row per key
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Iterator<Map<String, Object>> distinct = NONE;
 
-    Distinct(Operator input, List<String> names, List<Expression> on, QueryParser.Plan plan) {
+    Distinct(Operator input, List<String> names, List<Expression> on, Plan plan) {
       super(input);
       this.names = names;
       this.on = on;
@@ -706,7 +706,7 @@ final class Operators {
 
     @Override
     public String describe() {
-      return on.isEmpty() ? "Distinct" : "Distinct ON " + QueryParser.text(on);
+      return on.isEmpty() ? "Distinct" : "Distinct ON " + QueryParser.conjunctionText(on);
     }
   }
 
@@ -726,7 +726,7 @@ final class Operators {
     private final List<Expression> expressions;
     private final List<OrderByElement> orderBy;
     private final List<Windows.Spec> windows;
-    private final QueryParser.Plan plan;
+    private final Plan plan;
     private Iterator<Map<String, Object>> groups = NONE;
 
     Aggregate(
@@ -738,7 +738,7 @@ final class Operators {
         List<Expression> expressions,
         List<OrderByElement> orderBy,
         List<Windows.Spec> windows,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(input);
       this.groupBy = groupBy;
       this.groupingSets = groupingSets;
@@ -870,7 +870,7 @@ final class Operators {
           + names
           + (groupingSets != null
               ? " GROUPING SETS " + groupingSets
-              : groupBy == null ? "" : " GROUP BY " + QueryParser.text(groupBy))
+              : groupBy == null ? "" : " GROUP BY " + QueryParser.conjunctionText(groupBy))
           + (having == null ? "" : " HAVING " + having)
           + (windows.isEmpty() ? "" : " WINDOW " + Windows.describe(windows));
     }
@@ -885,8 +885,8 @@ final class Operators {
     // ponytail: a cycle under UNION ALL never ends on its own; cap the result instead
     static final int MAX_ROWS = 1_000_000;
 
-    private final QueryParser.Plan anchor;
-    private final QueryParser.Plan step;
+    private final Plan anchor;
+    private final Plan step;
     private final List<Map<String, Object>> working;
     private final List<String> names;
     private final boolean all;
@@ -898,8 +898,8 @@ final class Operators {
     private long produced;
 
     RecursiveUnion(
-        QueryParser.Plan anchor,
-        QueryParser.Plan step,
+        Plan anchor,
+        Plan step,
         List<Map<String, Object>> working,
         List<String> names,
         boolean all) {
@@ -931,7 +931,7 @@ final class Operators {
     }
 
     /** Runs a member plan to completion and renames its rows to the CTE's columns. */
-    private List<Map<String, Object>> run(QueryParser.Plan plan, Execution execution) {
+    private List<Map<String, Object>> run(Plan plan, Execution execution) {
       Operator root = plan.root();
       root.open(execution);
       List<String> from = plan.getOutputColumns();
@@ -1025,7 +1025,7 @@ final class Operators {
     private final Operator left;
     private final Operator right;
     private final List<String> names;
-    final List<QueryParser.Plan> members;
+    final List<Plan> members;
     @Nullable private Execution execution;
     private boolean leftDone;
     private boolean rightOpened;
@@ -1038,7 +1038,7 @@ final class Operators {
         Operator left,
         Operator right,
         List<String> names,
-        List<QueryParser.Plan> members) {
+        List<Plan> members) {
       this.kind = kind;
       this.all = all;
       this.left = left;
@@ -1145,13 +1145,13 @@ final class Operators {
    * A subquery in FROM: its plan's tree, with the output columns re-keyed as {@code alias.column}.
    */
   static final class Rekey extends Base {
-    final QueryParser.Plan derived;
+    final Plan derived;
     private final String qualifier;
 
     private final Map<String, String> rename = new HashMap<>();
 
     /** {@code columns} names the subquery's output columns positionally, as a column list does. */
-    Rekey(QueryParser.Plan derived, String qualifier, List<String> columns) {
+    Rekey(Plan derived, String qualifier, List<String> columns) {
       this.derived = derived;
       this.qualifier = qualifier;
       List<String> outputs = derived.getOutputColumns();
@@ -1197,13 +1197,13 @@ final class Operators {
   /** Pulls from the left; for each left row, joins it with the candidate rows of the right side. */
   abstract static class Join extends Base {
     final Operator left;
-    final QueryParser.Source right;
+    final Plan.Source right;
     final List<Expression> on;
     final LogicalPlan.Join.Kind kind;
     final boolean leftOuter; // unmatched left rows come out with null right columns
     final boolean rightOuter; // unmatched right rows come out last, with null left columns
     private final List<String> leftColumns; // the left side's keys, for that null extension
-    final QueryParser.Plan plan;
+    final Plan plan;
     @Nullable private Execution execution;
     Evaluator.Context ctx = Evaluator.Context.EMPTY;
     @Nullable private Map<String, Object> current;
@@ -1215,11 +1215,11 @@ final class Operators {
 
     Join(
         Operator left,
-        QueryParser.Source right,
+        Plan.Source right,
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        QueryParser.Plan plan) {
+        Plan plan) {
       this.left = left;
       this.right = right;
       this.on = on;
@@ -1402,11 +1402,11 @@ final class Operators {
 
     LookupJoin(
         Operator left,
-        QueryParser.Source right,
+        Plan.Source right,
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(left, right, on, kind, leftColumns, plan);
     }
 
@@ -1510,7 +1510,7 @@ final class Operators {
           + QueryParser.describeLookup(right)
           + " AS "
           + right.qualifier
-          + (on.isEmpty() ? "" : " ON " + QueryParser.text(on));
+          + (on.isEmpty() ? "" : " ON " + QueryParser.conjunctionText(on));
     }
   }
 
@@ -1525,13 +1525,13 @@ final class Operators {
     HashJoin(
         Operator left,
         Operator rightOperator,
-        QueryParser.Source right,
+        Plan.Source right,
         List<Expression> hashLeft,
         List<Expression> hashRight,
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(left, right, on, kind, leftColumns, plan);
       this.rightOperator = rightOperator;
       this.hashLeft = hashLeft;
@@ -1609,7 +1609,7 @@ final class Operators {
             .append(" = ")
             .append(hashRight.get(k));
       }
-      return sb.append(on.isEmpty() ? "" : " AND " + QueryParser.text(on)).toString();
+      return sb.append(on.isEmpty() ? "" : " AND " + QueryParser.conjunctionText(on)).toString();
     }
   }
 
@@ -1617,15 +1617,15 @@ final class Operators {
   /** LATERAL: the right subquery runs once per left row, which it may reference. */
   static final class LateralJoin extends Join {
     private final Map<String, String> rename = new HashMap<>(); // output name -> column name
-    private final QueryParser.Plan derived; // the right side: a subquery, run per left row
+    private final Plan derived; // the right side: a subquery, run per left row
 
     LateralJoin(
         Operator left,
-        QueryParser.Source right,
+        Plan.Source right,
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(left, right, on, kind, leftColumns, plan);
       if (rightOuter) {
         throw new PgException.Argument("0A000", "RIGHT and FULL JOIN LATERAL are not supported");
@@ -1669,7 +1669,7 @@ final class Operators {
           + " join "
           + right.qualifier
           + " (subquery per left row)"
-          + (on.isEmpty() ? "" : " ON " + QueryParser.text(on));
+          + (on.isEmpty() ? "" : " ON " + QueryParser.conjunctionText(on));
     }
 
     @Override
@@ -1685,11 +1685,11 @@ final class Operators {
     NestedLoopJoin(
         Operator left,
         Operator rightOperator,
-        QueryParser.Source right,
+        Plan.Source right,
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        QueryParser.Plan plan) {
+        Plan plan) {
       super(left, right, on, kind, leftColumns, plan);
       this.rightOperator = rightOperator;
     }
@@ -1730,7 +1730,7 @@ final class Operators {
     public String describe() {
       return kind()
           + "Nested Loop Join"
-          + (on.isEmpty() ? " (no condition)" : " ON " + QueryParser.text(on));
+          + (on.isEmpty() ? " (no condition)" : " ON " + QueryParser.conjunctionText(on));
     }
   }
 }

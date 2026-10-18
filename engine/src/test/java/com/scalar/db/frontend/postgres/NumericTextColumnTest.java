@@ -97,8 +97,7 @@ public class NumericTextColumnTest {
 
   @Test
   public void createTable_ShouldStoreAsTextAndRefuseKeys() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("CREATE TABLE q (id INT PRIMARY KEY, a NUMERIC, b DECIMAL(30,10))");
+    Plan plan = parser.parse("CREATE TABLE q (id INT PRIMARY KEY, a NUMERIC, b DECIMAL(30,10))");
     assertThat(plan.notices).noneMatch(n -> n.startsWith("NUMERIC"));
     plan.getDdl().run();
     org.mockito.ArgumentCaptor<TableMetadata> metadata =
@@ -143,7 +142,7 @@ public class NumericTextColumnTest {
 
   @Test
   public void select_ShouldCompareAndOrderAsNumbersInMemory() throws Exception {
-    QueryParser.Plan plan = parser.parse("SELECT k, b, c FROM u WHERE b > 5 ORDER BY b");
+    Plan plan = parser.parse("SELECT k, b, c FROM u WHERE b > 5 ORDER BY b");
     // NaN is above every number, as in PostgreSQL
     assertThat(plan.execute(transaction)).extracting(r -> r.get("k")).containsExactly(1, 2, 4);
     assertThat(executed)

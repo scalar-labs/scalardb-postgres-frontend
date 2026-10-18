@@ -346,13 +346,15 @@ public class PostgresServerTest {
   @Test
   public void binary_ShouldDecodeNumericParameters() {
     // 1234.5678: two base-10000 groups, weight 0, positive, scale 4
-    assertThat(PostgresServer.binary(1700, numeric(2, 0, 0, 4, 1234, 5678))).isEqualTo("1234.5678");
+    assertThat(PostgresServer.decodeBinary(1700, numeric(2, 0, 0, 4, 1234, 5678)))
+        .isEqualTo("1234.5678");
     // -0.05: one group (0500) at weight -1, negative, scale 2
-    assertThat(PostgresServer.binary(1700, numeric(1, -1, 0x4000, 2, 500))).isEqualTo("-0.05");
+    assertThat(PostgresServer.decodeBinary(1700, numeric(1, -1, 0x4000, 2, 500)))
+        .isEqualTo("-0.05");
     // 12000000: one group (1200) at weight 1, scale 0
-    assertThat(PostgresServer.binary(1700, numeric(1, 1, 0, 0, 1200))).isEqualTo("12000000");
-    assertThat(PostgresServer.binary(1700, numeric(0, 0, 0, 2))).isEqualTo("0.00");
-    assertThat(PostgresServer.binary(1700, numeric(0, 0, 0xC000, 0))).isEqualTo("NaN");
+    assertThat(PostgresServer.decodeBinary(1700, numeric(1, 1, 0, 0, 1200))).isEqualTo("12000000");
+    assertThat(PostgresServer.decodeBinary(1700, numeric(0, 0, 0, 2))).isEqualTo("0.00");
+    assertThat(PostgresServer.decodeBinary(1700, numeric(0, 0, 0xC000, 0))).isEqualTo("NaN");
   }
 
   private static byte[] numeric(int groups, int weight, int sign, int scale, int... digits) {
@@ -379,12 +381,12 @@ public class PostgresServerTest {
   @Test
   public void binary_ShouldRoundTripUuidAndJsonb() {
     String uuid = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
-    byte[] raw = PostgresServer.binary(2950, uuid);
+    byte[] raw = PostgresServer.encodeBinary(2950, uuid);
     assertThat(raw).hasSize(16);
-    assertThat(PostgresServer.binary(2950, raw)).isEqualTo(uuid);
-    byte[] jsonb = PostgresServer.binary(3802, Json.cast("{\"b\":1,\"a\":2}", true));
+    assertThat(PostgresServer.decodeBinary(2950, raw)).isEqualTo(uuid);
+    byte[] jsonb = PostgresServer.encodeBinary(3802, Json.cast("{\"b\":1,\"a\":2}", true));
     assertThat(jsonb[0]).isEqualTo((byte) 1);
-    assertThat(PostgresServer.binary(3802, jsonb)).isEqualTo("{\"a\": 2, \"b\": 1}");
+    assertThat(PostgresServer.decodeBinary(3802, jsonb)).isEqualTo("{\"a\": 2, \"b\": 1}");
   }
 
   @Test
@@ -393,32 +395,33 @@ public class PostgresServerTest {
     java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(20 + 8 + 4 + 8);
     b.putInt(1).putInt(1).putInt(23).putInt(3).putInt(1);
     b.putInt(4).putInt(1).putInt(-1).putInt(4).putInt(3);
-    assertThat(PostgresServer.binary(1007, b.array())).isEqualTo("{1,NULL,3}");
+    assertThat(PostgresServer.decodeBinary(1007, b.array())).isEqualTo("{1,NULL,3}");
     // text[] {"a b",c}
     byte[] ab = "a b".getBytes(java.nio.charset.StandardCharsets.UTF_8);
     java.nio.ByteBuffer t = java.nio.ByteBuffer.allocate(20 + 4 + ab.length + 4 + 1);
     t.putInt(1).putInt(0).putInt(25).putInt(2).putInt(1);
     t.putInt(ab.length).put(ab).putInt(1).put((byte) 'c');
-    assertThat(PostgresServer.binary(1009, t.array())).isEqualTo("{\"a b\",c}");
+    assertThat(PostgresServer.decodeBinary(1009, t.array())).isEqualTo("{\"a b\",c}");
     assertThat(PostgresServer.typed("{1,2}", 1007)).isEqualTo("{1,2}");
   }
 
   @Test
   public void binary_ShouldEncodeNumericLikePostgres() {
-    assertThat(PostgresServer.binary(1700, new java.math.BigDecimal("1234.5678")))
+    assertThat(PostgresServer.encodeBinary(1700, new java.math.BigDecimal("1234.5678")))
         .isEqualTo(numeric(2, 0, 0, 4, 1234, 5678));
-    assertThat(PostgresServer.binary(1700, new java.math.BigDecimal("-0.05")))
+    assertThat(PostgresServer.encodeBinary(1700, new java.math.BigDecimal("-0.05")))
         .isEqualTo(numeric(1, -1, 0x4000, 2, 500));
-    assertThat(PostgresServer.binary(1700, new java.math.BigDecimal("12000000")))
+    assertThat(PostgresServer.encodeBinary(1700, new java.math.BigDecimal("12000000")))
         .isEqualTo(numeric(1, 1, 0, 0, 1200));
-    assertThat(PostgresServer.binary(1700, new java.math.BigDecimal("2500.0")))
+    assertThat(PostgresServer.encodeBinary(1700, new java.math.BigDecimal("2500.0")))
         .isEqualTo(numeric(1, 0, 0, 1, 2500));
-    assertThat(PostgresServer.binary(1700, new java.math.BigDecimal("0.00")))
+    assertThat(PostgresServer.encodeBinary(1700, new java.math.BigDecimal("0.00")))
         .isEqualTo(numeric(0, 0, 0, 2));
     // decoding what was encoded gives the text back
     for (String s : new String[] {"3.5000000000000000", "-180414.25", "0.0001", "1000"}) {
       assertThat(
-              PostgresServer.binary(1700, PostgresServer.binary(1700, new java.math.BigDecimal(s))))
+              PostgresServer.decodeBinary(
+                  1700, PostgresServer.encodeBinary(1700, new java.math.BigDecimal(s))))
           .isEqualTo(s);
     }
     assertThat(PostgresServer.typed("1.5", 0)).isEqualTo(new java.math.BigDecimal("1.5"));
@@ -428,39 +431,40 @@ public class PostgresServerTest {
 
   @Test
   public void binary_ShouldEncodeLikePostgres() {
-    assertThat(PostgresServer.binary(23, 7)).containsExactly(0, 0, 0, 7);
-    assertThat(PostgresServer.binary(20, 1L)).containsExactly(0, 0, 0, 0, 0, 0, 0, 1);
-    assertThat(PostgresServer.binary(16, true)).containsExactly(1);
-    assertThat(PostgresServer.binary(701, 1.5)).containsExactly(0x3f, 0xf8, 0, 0, 0, 0, 0, 0);
-    assertThat(PostgresServer.binary(1082, java.time.LocalDate.of(2000, 1, 3)))
+    assertThat(PostgresServer.encodeBinary(23, 7)).containsExactly(0, 0, 0, 7);
+    assertThat(PostgresServer.encodeBinary(20, 1L)).containsExactly(0, 0, 0, 0, 0, 0, 0, 1);
+    assertThat(PostgresServer.encodeBinary(16, true)).containsExactly(1);
+    assertThat(PostgresServer.encodeBinary(701, 1.5)).containsExactly(0x3f, 0xf8, 0, 0, 0, 0, 0, 0);
+    assertThat(PostgresServer.encodeBinary(1082, java.time.LocalDate.of(2000, 1, 3)))
         .containsExactly(0, 0, 0, 2);
-    assertThat(PostgresServer.binary(1114, java.time.LocalDateTime.of(2000, 1, 1, 0, 0, 1)))
+    assertThat(PostgresServer.encodeBinary(1114, java.time.LocalDateTime.of(2000, 1, 1, 0, 0, 1)))
         .containsExactly(0, 0, 0, 0, 0, 0x0f, 0x42, 0x40);
-    assertThat(PostgresServer.binary(25, "ab")).containsExactly('a', 'b');
+    assertThat(PostgresServer.encodeBinary(25, "ab")).containsExactly('a', 'b');
     // time: microseconds since midnight; timestamptz: microseconds since 2000-01-01 UTC; bytea: raw
-    assertThat(PostgresServer.binary(1083, java.time.LocalTime.of(0, 0, 1)))
+    assertThat(PostgresServer.encodeBinary(1083, java.time.LocalTime.of(0, 0, 1)))
         .containsExactly(0, 0, 0, 0, 0, 0x0f, 0x42, 0x40);
-    assertThat(PostgresServer.binary(1184, java.time.Instant.parse("2000-01-01T00:00:01Z")))
+    assertThat(PostgresServer.encodeBinary(1184, java.time.Instant.parse("2000-01-01T00:00:01Z")))
         .containsExactly(0, 0, 0, 0, 0, 0x0f, 0x42, 0x40);
-    assertThat(PostgresServer.binary(17, java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xde, 1})))
+    assertThat(
+            PostgresServer.encodeBinary(17, java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xde, 1})))
         .containsExactly(0xde, 1);
-    assertThat(PostgresServer.binary(17, (Object) new byte[] {7})).containsExactly(7);
+    assertThat(PostgresServer.encodeBinary(17, new byte[] {7})).containsExactly(7);
   }
 
   @Test
   public void text_Floats_ShouldUsePostgresFormat() {
-    assertThat(PostgresServer.text(2500.0)).isEqualTo("2500");
-    assertThat(PostgresServer.text(0.1)).isEqualTo("0.1");
-    assertThat(PostgresServer.text(-0.0)).isEqualTo("-0");
-    assertThat(PostgresServer.text(1e14)).isEqualTo("100000000000000");
-    assertThat(PostgresServer.text(1e15)).isEqualTo("1e+15");
-    assertThat(PostgresServer.text(1.5e-5)).isEqualTo("1.5e-05");
-    assertThat(PostgresServer.text(0.0001)).isEqualTo("0.0001");
-    assertThat(PostgresServer.text(Double.NaN)).isEqualTo("NaN");
-    assertThat(PostgresServer.text(Double.NEGATIVE_INFINITY)).isEqualTo("-Infinity");
-    assertThat(PostgresServer.text(100000f)).isEqualTo("100000");
-    assertThat(PostgresServer.text(1e6f)).isEqualTo("1e+06");
-    assertThat(PostgresServer.text(0.1f)).isEqualTo("0.1");
+    assertThat(PostgresServer.wireText(2500.0)).isEqualTo("2500");
+    assertThat(PostgresServer.wireText(0.1)).isEqualTo("0.1");
+    assertThat(PostgresServer.wireText(-0.0)).isEqualTo("-0");
+    assertThat(PostgresServer.wireText(1e14)).isEqualTo("100000000000000");
+    assertThat(PostgresServer.wireText(1e15)).isEqualTo("1e+15");
+    assertThat(PostgresServer.wireText(1.5e-5)).isEqualTo("1.5e-05");
+    assertThat(PostgresServer.wireText(0.0001)).isEqualTo("0.0001");
+    assertThat(PostgresServer.wireText(Double.NaN)).isEqualTo("NaN");
+    assertThat(PostgresServer.wireText(Double.NEGATIVE_INFINITY)).isEqualTo("-Infinity");
+    assertThat(PostgresServer.wireText(100000f)).isEqualTo("100000");
+    assertThat(PostgresServer.wireText(1e6f)).isEqualTo("1e+06");
+    assertThat(PostgresServer.wireText(0.1f)).isEqualTo("0.1");
   }
 
   @Test
@@ -1939,14 +1943,15 @@ public class PostgresServerTest {
 
   @Test
   public void binary_ShouldEncodeIntervalOidAndEveryKnownArray() {
-    byte[] interval = PostgresServer.binary(1186, Interval.parse("1 mon 2 days 00:00:03"));
+    byte[] interval = PostgresServer.encodeBinary(1186, Interval.parse("1 mon 2 days 00:00:03"));
     java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(interval);
     assertThat(b.getLong()).isEqualTo(3_000_000L); // microseconds, days, months
     assertThat(b.getInt()).isEqualTo(2);
     assertThat(b.getInt()).isEqualTo(1);
-    assertThat(PostgresServer.binary(26, 1259L)).containsExactly(0, 0, 4, (byte) 0xEB);
+    assertThat(PostgresServer.encodeBinary(26, 1259L)).containsExactly(0, 0, 4, (byte) 0xEB);
     // name[]: an array header then the element bytes, not the text {a,b}
-    assertThat(PostgresServer.binary(1003, Arrays.asList("a", "b")).length).isEqualTo(20 + 2 * 5);
+    assertThat(PostgresServer.encodeBinary(1003, Arrays.asList("a", "b")).length)
+        .isEqualTo(20 + 2 * 5);
   }
 
   @Test

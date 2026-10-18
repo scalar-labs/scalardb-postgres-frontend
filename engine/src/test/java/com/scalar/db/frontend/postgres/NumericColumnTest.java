@@ -129,15 +129,14 @@ public class NumericColumnTest {
 
   @Test
   public void select_ShouldReturnExactValuesDescribedAsNumeric() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("SELECT p, a, a * 2 AS twice FROM m WHERE k = 1 ORDER BY p");
+    Plan plan = parser.parse("SELECT p, a, a * 2 AS twice FROM m WHERE k = 1 ORDER BY p");
     assertThat(plan.execute(transaction))
         .extracting(r -> r.get("a"))
         .containsExactly(new BigDecimal("19.90"), new BigDecimal("0.05"));
     assertThat(plan.outputOids()).containsExactly(1700, 1700, 1700);
     assertThat(plan.outputTypmods()).containsExactly(NUMERIC_10_2, NUMERIC_10_2, -1);
     // through a subquery as well
-    QueryParser.Plan derived = parser.parse("SELECT s.a FROM (SELECT a FROM m) s");
+    Plan derived = parser.parse("SELECT s.a FROM (SELECT a FROM m) s");
     assertThat(derived.outputOids()).containsExactly(1700);
     assertThat(derived.outputTypmods()).containsExactly(NUMERIC_10_2);
   }
@@ -166,8 +165,7 @@ public class NumericColumnTest {
 
   @Test
   public void updateReturning_ShouldWriteScaledAndReturnNumeric() throws Exception {
-    QueryParser.Plan plan =
-        parser.parse("UPDATE m SET a = a * 100 WHERE k = 1 AND p = 1 RETURNING a");
+    Plan plan = parser.parse("UPDATE m SET a = a * 100 WHERE k = 1 AND p = 1 RETURNING a");
     assertThat(plan.execute(transaction))
         .extracting(r -> r.get("a"))
         .containsExactly(new BigDecimal("1990.00"));
@@ -228,7 +226,7 @@ public class NumericColumnTest {
 
   @Test
   public void keyedDeleteRebound_ToValuesNoRowHolds_ShouldDeleteNothing() throws Exception {
-    QueryParser.Plan plan =
+    Plan plan =
         parser.parse(
             "DELETE FROM m WHERE k = $1 AND p = $2 AND a = $3", Arrays.asList(1L, "1", "19.90"));
     assertThat(plan.isCacheable()).isTrue();

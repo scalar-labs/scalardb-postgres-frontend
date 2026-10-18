@@ -239,7 +239,7 @@ public class ColumnMapTest {
    * Runs an INSERT, UPDATE or DELETE as a session does; the rows written, -1 for a plain insert.
    */
   private int write(String sql) throws Exception {
-    QueryParser.Plan plan = parser.parse(sql);
+    Plan plan = parser.parse(sql);
     if (plan.getWrite() != null) {
       return plan.executeWrite(transaction, 100);
     }
@@ -538,7 +538,7 @@ public class ColumnMapTest {
 
   @Test
   public void setupCommand_ShouldCreateTheTableAndReportOnlyTheTag() throws Exception {
-    QueryParser.Plan plan = parser.parse("create frontend metadata tables if not exists");
+    Plan plan = parser.parse("create frontend metadata tables if not exists");
     assertThat(plan.getOutputColumns()).isEmpty(); // no authentication: no properties to print
     Optional.ofNullable(plan.getDdl()).get().run();
     verify(admin).createTable(TypeStore.NAMESPACE, TypeStore.TABLE, TypeStore.METADATA, true);
