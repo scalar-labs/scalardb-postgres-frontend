@@ -4118,9 +4118,25 @@ final class Evaluator {
                           + Json.text(m.getValue(), false)));
       return new Json.Value(object, false, members.toString());
     }
+    // count(t.*): t's whole row, which is NULL in a row an outer join extended with NULLs for t
+    // ponytail: such a row is told by all of t's columns being NULL; exact for a ScalarDB table,
+    // whose key is never NULL, but a derived table's own all-NULL row is not counted either
+    String wholeRow =
+        params != null
+                && params.size() == 1
+                && params.get(0) instanceof net.sf.jsqlparser.statement.select.AllTableColumns
+            ? QueryParser.unquote(
+                    ((net.sf.jsqlparser.statement.select.AllTableColumns) params.get(0))
+                        .getTable()
+                        .getName())
+                + "."
+            : null;
     List<Object> values = new ArrayList<>();
     for (Map<String, Object> row : group) {
       Object v = star ? row : eval(params.get(0), Collections.singletonList(row), ctx);
+      if (wholeRow != null && nullExtended(row, wholeRow)) {
+        v = null;
+      }
       if (v != null
           || name.equals("ARRAY_AGG")
           || name.endsWith("JSON_AGG")
@@ -4140,6 +4156,20 @@ final class Evaluator {
             ? eval(params.get(1), group.subList(0, 1), ctx)
             : null;
     return aggregateValues(name, values, delimiter, f);
+  }
+
+  /** Whether every column of the source with this prefix ({@code t.}) is NULL in the row. */
+  private static boolean nullExtended(Map<String, Object> row, String prefix) {
+    boolean any = false;
+    for (Map.Entry<String, Object> e : row.entrySet()) {
+      if (e.getKey().startsWith(prefix)) {
+        any = true;
+        if (e.getValue() != null) {
+          return false;
+        }
+      }
+    }
+    return any;
   }
 
   /** Applies an aggregate to the non-null values collected over its rows or window frame. */

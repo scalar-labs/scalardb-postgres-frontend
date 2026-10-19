@@ -884,6 +884,15 @@ public class QueryParserTest {
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("Schema", "public", "Name", "t", "Type", "table", "Owner", "scalardb"));
+    // count(c.*) skips a row the outer join extended with NULLs for c; count(*) counts it
+    assertThat(
+            parser
+                .parse(
+                    "SELECT count(c.*) AS c, count(*) AS n FROM pg_catalog.pg_namespace n"
+                        + " LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND false"
+                        + " WHERE n.nspname = 'public'")
+                .execute(transaction))
+        .containsExactly(map("c", 0L, "n", 1L));
     assertThat(
             parser
                 .parse(
