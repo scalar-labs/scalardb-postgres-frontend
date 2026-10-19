@@ -117,8 +117,6 @@ final class Catalog {
       null,
       "Shows whether datetimes are integer based."
     },
-    // ponytail: intervals are written in the postgres style whatever this says; honor it if a
-    // client reads intervals after setting iso_8601 (ActiveRecord does)
     {
       "IntervalStyle",
       "postgres",

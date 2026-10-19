@@ -61,6 +61,19 @@ final class Interval implements Comparable<Interval> {
       ago = true;
       s = s.substring(0, s.length() - 4).trim();
     }
+    if (s.startsWith("-") && "sql_standard".equalsIgnoreCase(Evaluator.intervalStyle())) {
+      // there a leading minus with no other sign negates every field: '-1 2:03:04' is -1 days
+      // -02:03:04
+      Matcher t = TOKEN.matcher(s);
+      boolean more = false;
+      for (boolean first = true; t.find(); first = false) {
+        more |= !first && (t.group().startsWith("-") || t.group().startsWith("+"));
+      }
+      if (!more) {
+        s = s.substring(1);
+        ago = !ago;
+      }
+    }
     long months = 0;
     long days = 0;
     BigDecimal micros = BigDecimal.ZERO;
@@ -378,5 +391,123 @@ final class Interval implements Comparable<Interval> {
       sb.append('s'); // PostgreSQL pluralizes everything but exactly 1
     }
     return value < 0;
+  }
+
+  /**
+   * As written in the session's IntervalStyle: postgres, postgres_verbose, sql_standard, iso_8601.
+   */
+  String text(String style) {
+    long year = months / 12;
+    long mon = months % 12;
+    long hour = micros / 3_600_000_000L;
+    long min = micros / 60_000_000L % 60;
+    long sec = micros / MICROS_PER_SECOND % 60;
+    long fsec = micros % MICROS_PER_SECOND;
+    StringBuilder sb = new StringBuilder();
+    switch (style.toLowerCase(Locale.ROOT)) {
+      case "iso_8601":
+        if (months == 0 && days == 0 && micros == 0) {
+          return "PT0S";
+        }
+        sb.append('P');
+        iso(sb, year, 'Y');
+        iso(sb, mon, 'M');
+        iso(sb, days, 'D');
+        if (micros != 0) {
+          sb.append('T');
+        }
+        iso(sb, hour, 'H');
+        iso(sb, min, 'M');
+        if (sec != 0 || fsec != 0) {
+          seconds(sb.append(sec < 0 || fsec < 0 ? "-" : ""), sec, fsec, false).append('S');
+        }
+        return sb.toString();
+      case "postgres_verbose":
+        // as PostgreSQL's AddVerboseIntPart: the first nonzero field's sign becomes "ago"
+        sb.append('@');
+        Boolean before = null;
+        long[] values = {year, mon, days, hour, min};
+        String[] units = {"year", "mon", "day", "hour", "min"};
+        for (int i = 0; i < values.length; i++) {
+          long value = values[i];
+          if (value == 0) {
+            continue;
+          }
+          if (before == null) {
+            before = value < 0;
+            value = Math.abs(value);
+          } else if (before) {
+            value = -value;
+          }
+          sb.append(' ').append(value).append(' ').append(units[i]).append(value == 1 ? "" : "s");
+        }
+        if (sec != 0 || fsec != 0) {
+          sb.append(' ');
+          if (sec < 0 || (sec == 0 && fsec < 0)) {
+            if (before == null) {
+              before = true;
+            } else if (!before) {
+              sb.append('-');
+            }
+          } else if (before != null && before) {
+            sb.append('-');
+          }
+          seconds(sb, sec, fsec, false).append(Math.abs(sec) != 1 || fsec != 0 ? " secs" : " sec");
+        } else if (before == null) {
+          sb.append(" 0");
+        }
+        return sb.append(before != null && before ? " ago" : "").toString();
+      case "sql_standard":
+        {
+          boolean negative = months < 0 || days < 0 || micros < 0;
+          boolean positive = months > 0 || days > 0 || micros > 0;
+          boolean yearMonth = months != 0;
+          boolean dayTime = days != 0 || micros != 0;
+          if (!negative && !positive) {
+            return "0";
+          }
+          if (negative && positive || yearMonth && dayTime) {
+            // mixed signs or both kinds: every part signed, as PostgreSQL writes it
+            sb.append(year < 0 || mon < 0 ? '-' : '+')
+                .append(Math.abs(year))
+                .append('-')
+                .append(Math.abs(mon))
+                .append(' ')
+                .append(days < 0 ? '-' : '+')
+                .append(Math.abs((long) days))
+                .append(' ')
+                .append(micros < 0 ? '-' : '+')
+                .append(Math.abs(hour))
+                .append(String.format(":%02d:", Math.abs(min)));
+            return seconds(sb, sec, fsec, true).toString();
+          }
+          sb.append(negative ? "-" : "");
+          if (yearMonth) {
+            return sb.append(Math.abs(year)).append('-').append(Math.abs(mon)).toString();
+          }
+          if (days != 0) {
+            sb.append(Math.abs((long) days)).append(' ');
+          }
+          sb.append(Math.abs(hour)).append(String.format(":%02d:", Math.abs(min)));
+          return seconds(sb, sec, fsec, true).toString();
+        }
+      default:
+        return toString();
+    }
+  }
+
+  private static void iso(StringBuilder sb, long value, char unit) {
+    if (value != 0) {
+      sb.append(value).append(unit);
+    }
+  }
+
+  /** PostgreSQL's AppendSeconds: unsigned whole seconds, two digits if filled, then a fraction. */
+  private static StringBuilder seconds(StringBuilder sb, long sec, long fsec, boolean fill) {
+    sb.append(fill ? String.format("%02d", Math.abs(sec)) : String.valueOf(Math.abs(sec)));
+    if (fsec != 0) {
+      sb.append(String.format(".%06d", Math.abs(fsec)).replaceAll("0+$", ""));
+    }
+    return sb;
   }
 }

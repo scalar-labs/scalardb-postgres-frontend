@@ -152,6 +152,27 @@ public class HelpersTest {
   @CsvSource(
       delimiter = '|',
       value = {
+        "0|iso_8601|PT0S",
+        "-1 days +02:03:04|iso_8601|P-1DT2H3M4S",
+        "-0.7 seconds|iso_8601|PT-0.7S",
+        "0|postgres_verbose|@ 0",
+        "-1 days +02:00:00|postgres_verbose|@ 1 day -2 hours ago",
+        "0.7 seconds|postgres_verbose|@ 0.7 secs",
+        "-1 second|postgres_verbose|@ 1 sec ago",
+        "0|sql_standard|0",
+        "1 year 2 mons|sql_standard|1-2",
+        "-1 days -02:03:04.5|sql_standard|-1 2:03:04.5",
+        "-1 days +02:03:04|sql_standard|+0-0 -1 +2:03:04",
+        "1 mon 1 sec|sql_standard|+0-1 +0 +0:00:01"
+      })
+  public void intervalText_ShouldWriteEachIntervalStyle(String input, String style, String output) {
+    assertThat(Interval.parse(input).text(style)).isEqualTo(output);
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      delimiter = '|',
+      value = {
         "1 day 1 day|22007",
         "1 hour 02:00:00|22007",
         "1 2|22007",

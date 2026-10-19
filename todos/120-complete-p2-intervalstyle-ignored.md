@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "120"
 tags: [types, interval, wrong-result, regress-suite]
@@ -30,9 +30,10 @@ client that parses the style it asked for reads them wrongly.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF for them.
 
 ## Work Log
 
 - 2026-10-19: Filed while closing todo 111.
+- 2026-10-19: Interval output follows IntervalStyle (postgres_verbose, sql_standard, iso_8601 written as EncodeInterval does); sql_standard's leading minus negates every field on input; SET of an unknown style fails with 22023. Compared live with PostgreSQL 18 (Docker's PG16 was unresponsive; interval output is the same since 8.4): 128 style/value cases match, except '- 1 day 2 hours' (a space after the sign), which is refused with 22007.

@@ -748,6 +748,13 @@ final class Evaluator {
     return SETTINGS.get();
   }
 
+  /** The session's IntervalStyle, which interval output and sql_standard input follow. */
+  static String intervalStyle() {
+    Settings settings = settings();
+    String style = settings == null ? null : settings.get("IntervalStyle");
+    return style == null ? "postgres" : style;
+  }
+
   /** Gives this thread the session it serves, once, at startup. */
   static void setSession(Catalog.Activity session) {
     SESSION.set(session);
@@ -2332,7 +2339,7 @@ final class Evaluator {
       return ((BigDecimal) v).toPlainString();
     }
     if (v instanceof Interval) {
-      return v.toString();
+      return ((Interval) v).text(intervalStyle());
     }
     if (v instanceof Catalog.Int2Vector) {
       return v.toString(); // pg_index.indkey prints as "1 2"

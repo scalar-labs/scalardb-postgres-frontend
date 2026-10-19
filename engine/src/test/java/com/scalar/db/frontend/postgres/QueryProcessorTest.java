@@ -2,6 +2,7 @@ package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
@@ -575,6 +576,17 @@ public class QueryProcessorTest {
     assertThatThrownBy(() -> processor.execute("SET DateStyle = 'ISO, YMD, DMY'"))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
+    // IntervalStyle: one of PostgreSQL's four, and sql_standard's leading minus negates every field
+    assertThatThrownBy(() -> processor.execute("SET IntervalStyle = bogus"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
+    processor.execute("SET IntervalStyle = SQL_Standard");
+    assertThat(processor.execute("SELECT interval '-1 2:03:04' AS i, interval '-1 +2:03:04' AS j"))
+        .extracting(row -> row.get("i").toString(), row -> row.get("j").toString())
+        .containsExactly(tuple("-1 days -02:03:04", "-1 days +02:03:04"));
+    assertThat(processor.execute("SHOW IntervalStyle"))
+        .containsExactly(Collections.singletonMap("IntervalStyle", "sql_standard"));
+    processor.execute("RESET IntervalStyle");
     // as PostgreSQL: a name it does not know fails, unless it is a custom dotted one
     for (String sql :
         new String[] {

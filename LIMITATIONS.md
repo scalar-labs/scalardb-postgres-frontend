@@ -245,8 +245,7 @@ at the end of this section.
   transaction's `SET`s, though `ROLLBACK TO SAVEPOINT` does not. `statement_timeout` and
   a cancel request (psql's Ctrl-C, JDBC's `Statement.cancel()`) stop a statement with `57014`, as in
   PostgreSQL; `lock_timeout` is accepted but has nothing to time, since nothing waits for a lock.
-  `IntervalStyle` is accepted (ActiveRecord sets `iso_8601`), but intervals are always printed in
-  the `postgres` style. A setting name the frontend does not have fails with `42704`, as in
+  `IntervalStyle` shapes how intervals are printed, as in PostgreSQL. A setting name the frontend does not have fails with `42704`, as in
   PostgreSQL, unless it is a custom dotted name such as `myapp.x`.
 - **`SELECT ... FOR UPDATE` / `FOR SHARE` take no lock.** ScalarDB is optimistic: the statement
   is accepted, and a concurrent writer is found out at commit time (`40001`), not blocked.

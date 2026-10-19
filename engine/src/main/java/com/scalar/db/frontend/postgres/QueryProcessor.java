@@ -295,6 +295,14 @@ public class QueryProcessor {
     if ("DateStyle".equals(key)) {
       value = dateStyle(value, current("DateStyle"));
     }
+    if ("IntervalStyle".equals(key)) {
+      String style = value.trim().replace("'", "").toLowerCase(Locale.ROOT);
+      if (!style.matches("postgres|postgres_verbose|sql_standard|iso_8601")) {
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"IntervalStyle\": \"" + value + "\"");
+      }
+      value = style;
+    }
     if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
       value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(value);
