@@ -2614,6 +2614,16 @@ class QueryParser {
             found = s;
           }
         }
+        if (found != null && found.mergedOuter.contains(name)) {
+          // ponytail: the left copy is NULL where only the right side has the row; refused rather
+          // than read wrong (todo 072)
+          throw new PgException.Argument(
+              "0A000",
+              "Unsupported: the column \""
+                  + name
+                  + "\" merged by a RIGHT or FULL JOIN USING; qualify it or use COALESCE of both"
+                  + " sides");
+        }
       }
       if (found == null) {
         if (outer != null) {
@@ -2870,7 +2880,7 @@ class QueryParser {
                   : j.isRight()
                       ? LogicalPlan.Join.Kind.RIGHT
                       : j.isLeft() ? LogicalPlan.Join.Kind.LEFT : LogicalPlan.Join.Kind.INNER));
-      usingConditions.add(usingConditions(j, plan.sources, i + 1));
+      usingConditions.add(usingConditions(j, plan.sources, i + 1, plan.joins.get(i).kind));
     }
     Scope scope = new Scope(plan.sources, outer);
 
@@ -3635,7 +3645,7 @@ class QueryParser {
    * has it. The column is recorded as merged on the right source.
    */
   private static List<Expression> usingConditions(
-      Join j, List<LogicalPlan.Source> sources, int index) {
+      Join j, List<LogicalPlan.Source> sources, int index, LogicalPlan.Join.Kind kind) {
     LogicalPlan.Source right = sources.get(index);
     List<String> columns = new ArrayList<>();
     if (j.isNatural()) {
@@ -3663,6 +3673,20 @@ class QueryParser {
       }
       if (left == null || !right.columns.contains(c)) {
         throw new IllegalArgumentException("USING column must exist on both sides: " + c);
+      }
+      if (left.mergedOuter.contains(c)) {
+        // ponytail: the merged value (COALESCE of both sides) is not carried through joins; refused
+        // rather than matched on one side's copy
+        throw new PgException.Argument(
+            "0A000",
+            "Unsupported: joining USING ("
+                + c
+                + ") after a RIGHT or FULL JOIN USING ("
+                + c
+                + "); join ON COALESCE(...) instead");
+      }
+      if (kind == LogicalPlan.Join.Kind.RIGHT || kind == LogicalPlan.Join.Kind.FULL) {
+        left.mergedOuter.add(c);
       }
       right.merged.put(c, left.qualifier);
       conditions.add(

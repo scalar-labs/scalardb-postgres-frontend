@@ -884,6 +884,21 @@ public class QueryParserTest {
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("Schema", "public", "Name", "t", "Type", "table", "Owner", "scalardb"));
+    // a column a RIGHT or FULL JOIN USING merged is refused where only one side's copy would be
+    // read; after INNER or LEFT the left copy is the merged value
+    for (String sql :
+        new String[] {
+          "SELECT oid FROM pg_catalog.pg_am a FULL JOIN pg_catalog.pg_am b USING (oid)",
+          "SELECT 1 FROM pg_catalog.pg_am a RIGHT JOIN pg_catalog.pg_am b USING (oid)"
+              + " JOIN pg_catalog.pg_am c USING (oid)"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
+    parser.parse("SELECT oid FROM pg_catalog.pg_am a LEFT JOIN pg_catalog.pg_am b USING (oid)");
+    parser.parse("SELECT * FROM pg_catalog.pg_am a FULL JOIN pg_catalog.pg_am b USING (oid)");
     // an alias's column list renames the table's first columns; more names than columns is 42P10
     assertThat(
             parser

@@ -217,6 +217,9 @@ at the end of this section.
   fail with a clear error.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
+- **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified
+  (`a.x`, `b.x`) or as `COALESCE(a.x, b.x)`; an unqualified reference to it, and a further `USING` join
+  on it, are refused with `0A000`. After INNER and LEFT joins it works as in PostgreSQL.
 - **Ordered-set aggregates are refused** (`percentile_cont`, `percentile_disc`, `mode` and the hypothetical
   `rank`/`percent_rank`/`cume_dist` with `WITHIN GROUP`), with `0A000`.
 - **Array column types are refused** (`int[]`, `text[][]` in CREATE TABLE and ADD COLUMN), with `0A000`:

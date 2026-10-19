@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "072"
 tags: [join, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ After `a FULL JOIN b USING (k)`, the column `k` is `COALESCE(a.k, b.k)`. A furth
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done by refusing the wrong cases. After a RIGHT or FULL JOIN USING, the merged column is COALESCE of both sides, but the frontend bound it to the left copy (NULL where only the right side has the row): a later USING join matched on that copy, and an unqualified reference read it (SELECT name ... returned NULLs, WHERE name = 'cc' found nothing). Both are now refused with 0A000 (LogicalPlan.Source.mergedOuter); SELECT *, qualified columns and COALESCE work, and INNER/LEFT chains, where the left copy is the merged value, work as before. Live: five shapes match PostgreSQL 16 or refuse. LIMITATIONS lists it; QueryParserTest covers it. Carrying the merged value through the join operators would lift the refusal.
