@@ -1206,7 +1206,11 @@ public class PostgresServerTest {
       }
       assertThat(roles)
           .containsExactly(
-              "bob true true", "carol false true", "leads false false", "readers false false");
+              "bob true true",
+              "carol false true",
+              "leads false false",
+              "readers false false",
+              "scalardb true false"); // the tables' owner, which nobody logs in as
       List<String> grants = new ArrayList<>();
       try (ResultSet rs =
           statement.executeQuery(
@@ -1316,12 +1320,38 @@ public class PostgresServerTest {
       try (ResultSet rs = statement.executeQuery(DP)) {
         assertThat(rs.next()).isTrue();
         assertThat(rs.getString(2)).isEqualTo("t");
-        assertThat(rs.getString(4)).isEqualTo("bob=a*r*w*/scalardb\nreaders=rd/scalardb");
+        // the owner first, as PostgreSQL lists it
+        assertThat(rs.getString(4))
+            .isEqualTo("scalardb=arwdD/scalardb\nbob=a*r*w*/scalardb\nreaders=rd/scalardb");
         assertThat(rs.next()).isFalse();
       }
       // \dn+: who may create tables in the schema
       assertThat(psql(statement, "schemas"))
           .containsExactly("public|scalardb|readers=C/scalardb|null");
+      // has_table_privilege reads the same grants: any listed privilege, a superuser holds all
+      try (ResultSet rs =
+          statement.executeQuery(
+              "SELECT has_table_privilege('readers', 't', 'select'),"
+                  + " has_table_privilege('readers', 't', 'INSERT, TRUNCATE'),"
+                  + " has_table_privilege('bob', 't'::regclass, 'INSERT WITH GRANT OPTION'),"
+                  + " has_table_privilege('readers', 't', 'DELETE WITH GRANT OPTION'),"
+                  + " has_table_privilege('root', 'public.t', 'TRUNCATE')")) {
+        assertThat(rs.next()).isTrue();
+        assertThat(
+                List.of(
+                    rs.getBoolean(1),
+                    rs.getBoolean(2),
+                    rs.getBoolean(3),
+                    rs.getBoolean(4),
+                    rs.getBoolean(5)))
+            .containsExactly(true, false, true, false, true);
+      }
+      assertThatThrownBy(
+              () -> statement.executeQuery("SELECT has_table_privilege('bob', 't', 'READ')"))
+          .hasMessageContaining("unrecognized privilege type: \"READ\"");
+      assertThatThrownBy(
+              () -> statement.executeQuery("SELECT has_table_privilege('nobody', 't', 'SELECT')"))
+          .hasMessageContaining("role \"nobody\" does not exist");
     }
   }
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Privileges under Cluster authentication
+
+The catalog answers were checked as a ScalarDB Cluster user with `SELECT` on one table. They are the same
+as the superuser's, as in PostgreSQL, whose catalog every user can read; no user sees another's grants
+wrongly. Two changes:
+- **The table owner.** Tables are owned by `scalardb`, which `pg_roles` now lists in cluster mode too, as
+  a superuser nobody can log in as. Before, the owner and the grantor in every ACL named a role that did
+  not exist there. `\dp` now lists the owner's entry first, as PostgreSQL does.
+- **`has_table_privilege`.** It now answers from the same grants: directly, through roles, or to
+  PUBLIC. Before, it failed as unsupported.
+
 ### json and jsonb columns keep their type
 
 A `json` or `jsonb` column used to become plain `text`: `\d` showed `text`, a `jsonb` value was stored as

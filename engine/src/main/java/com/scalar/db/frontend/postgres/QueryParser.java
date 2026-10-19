@@ -1451,7 +1451,8 @@ class QueryParser {
     catalog.invalidate();
   }
 
-  private static final Pattern ACLS = Pattern.compile("(?i)\\b(relacl|nspacl)\\b");
+  private static final Pattern ACLS =
+      Pattern.compile("(?i)\\b(relacl|nspacl|has_table_privilege)\\b");
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");

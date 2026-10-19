@@ -1,0 +1,73 @@
+psql:/private/tmp/claude-501/-Users-hiroyuki-Dropbox-Docs-git-scalardb-postgres-frontend/f4d0757e-7867-452c-8770-ab47e46ff189/scratchpad/c62/priv.sql:1: ERROR:  permission denied for tablespace pg_global
+                                 アクセス権限
+ スキーマ | 名前  |  タイプ  |       アクセス権限        | 列の権限 | ポリシー 
+----------+-------+----------+---------------------------+----------+----------
+ public   | items | テーブル | postgres=arwdDxt/postgres+|          | 
+          |       |          | carol=r/postgres          |          | 
+(1 行)
+
+                           アクセス権限
+ スキーマ |  名前  |  タイプ  | アクセス権限 | 列の権限 | ポリシー 
+----------+--------+----------+--------------+----------+----------
+ sales    | orders | テーブル |              |          | 
+(1 行)
+
+                                       ロール一覧
+ ロール名 |                                     属性                                     
+----------+------------------------------------------------------------------------------
+ carol    | 
+ postgres | スーパーユーザー, ロール作成可, DB作成可, レプリケーション可, RLS のバイパス
+
+ current_user | session_user 
+--------------+--------------
+ carol        | carol
+(1 行)
+
+ items_sel | items_ins | orders_sel | sales_usage | db_connect 
+-----------+-----------+------------+-------------+------------
+ t         | f         | f          | t           | t
+(1 行)
+
+ c_items | c_orders 
+---------+----------
+ t       | f
+(1 行)
+
+ rolname  | rolsuper | rolcanlogin 
+----------+----------+-------------
+ carol    | f        | t
+ postgres | t        | t
+(2 行)
+
+ relname |                    relacl                    
+---------+----------------------------------------------
+ items   | {postgres=arwdDxt/postgres,carol=r/postgres}
+ orders  | 
+(2 行)
+
+ table_schema | table_name | privilege_type | grantee 
+--------------+------------+----------------+---------
+ public       | items      | SELECT         | carol
+(1 行)
+
+ grantee | table_name | privilege_type 
+---------+------------+----------------
+ carol   | items      | SELECT
+(1 行)
+
+      nspname       
+--------------------
+ information_schema
+ public
+ sales
+(3 行)
+
+  datname  
+-----------
+ audit
+ orm
+ postgres
+ template0
+ template1
+(5 行)
+

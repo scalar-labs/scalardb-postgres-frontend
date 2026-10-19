@@ -101,6 +101,16 @@ audit	pg_catalog	has_database_privilege_2253	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N
 audit	pg_catalog	has_database_privilege_2253	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
 audit	pg_catalog	has_database_privilege_2255	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
 audit	pg_catalog	has_database_privilege_2255	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_table_privilege_1924	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_table_privilege_1924	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_table_privilege_1924	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	has_table_privilege_1925	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_table_privilege_1925	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_table_privilege_1925	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	has_table_privilege_1926	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_table_privilege_1926	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_table_privilege_1927	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_table_privilege_1927	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
 audit	pg_catalog	json_agg_3175	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
 audit	pg_catalog	json_array_elements_3955	1	IN	NO	NO	from_json	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	1	\N
 audit	pg_catalog	json_array_elements_3955	2	OUT	NO	NO	value	json	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	json	\N	\N	\N	\N	2	\N

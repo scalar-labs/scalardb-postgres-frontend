@@ -36,7 +36,7 @@
 1367	23	SELECT character_length('a'::bpchar)
 1369	23	SELECT character_length('a'::text)
 2649	1184	SELECT clock_timestamp()
-1216	25	SELECT col_description(1259::oid, 2::int4)
+1216	25	SELECT col_description(10::oid, 2::int4)
 3058	25	SELECT concat(2::int4)
 3059	25	SELECT concat_ws('a'::text, 2::int4)
 2147	20	SELECT count(2::int4)
@@ -60,7 +60,7 @@
 2309	701	SELECT floor(1.5::float8)
 3539	25	SELECT format('a'::text, 2::int4)
 3540	25	SELECT format('a'::text)
-1081	25	SELECT format_type(1259::oid, 2::int4)
+1081	25	SELECT format_type(10::oid, 2::int4)
 3432	2950	SELECT gen_random_uuid()
 1066	23	SELECT generate_series(2::int4, 2::int4, 2::int4)
 1067	23	SELECT generate_series(2::int4, 2::int4)
@@ -71,8 +71,12 @@
 1191	23	SELECT generate_subscripts(ARRAY[1,2]::int4[], 1::int4, true)
 1192	23	SELECT generate_subscripts(ARRAY[1,2]::int4[], 1::int4)
 1039	19	SELECT getdatabaseencoding()
-2253	16	SELECT has_database_privilege(1259::oid, 1259::oid, 'CONNECT'::text)
-2255	16	SELECT has_database_privilege(1259::oid, 'CONNECT'::text)
+2253	16	SELECT has_database_privilege(10::oid, 10::oid, 'CONNECT'::text)
+2255	16	SELECT has_database_privilege(10::oid, 'CONNECT'::text)
+1924	16	SELECT has_table_privilege(10::oid, 'pg_class'::text, 'SELECT'::text)
+1925	16	SELECT has_table_privilege(10::oid, 10::oid, 'SELECT'::text)
+1926	16	SELECT has_table_privilege('pg_class'::text, 'SELECT'::text)
+1927	16	SELECT has_table_privilege(10::oid, 'SELECT'::text)
 3175	114	SELECT json_agg(2::int4)
 3955	114	SELECT json_array_elements('[1,2]'::json)
 3969	25	SELECT json_array_elements_text('[1,2]'::json)
@@ -81,8 +85,8 @@
 3199	114	SELECT json_build_array()
 3200	114	SELECT json_build_object(2::int4, 2::int4)
 3201	114	SELECT json_build_object()
-3951	114	SELECT json_extract_path('{"a":[1,2]}'::json, 'day'::text)
-3953	25	SELECT json_extract_path_text('{"a":[1,2]}'::json, 'day'::text)
+3951	114	SELECT json_extract_path('{"a":[1,2]}'::json, 'a'::text)
+3953	25	SELECT json_extract_path_text('{"a":[1,2]}'::json, 'a'::text)
 3197	114	SELECT json_object_agg(2::int4, 2::int4)
 3968	25	SELECT json_typeof('{"a":[1,2]}'::json)
 3267	3802	SELECT jsonb_agg(2::int4)
@@ -118,7 +122,7 @@
 2115	20	SELECT max(2::int8)
 2116	23	SELECT max(2::int4)
 2117	21	SELECT max(2::int2)
-2118	26	SELECT max(1259::oid)
+2118	26	SELECT max(10::oid)
 2119	700	SELECT max(1.5::float4)
 2120	701	SELECT max(1.5::float8)
 2122	1082	SELECT max('2024-02-29'::date)
@@ -133,7 +137,7 @@
 2131	20	SELECT min(2::int8)
 2132	23	SELECT min(2::int4)
 2133	21	SELECT min(2::int2)
-2134	26	SELECT min(1259::oid)
+2134	26	SELECT min(10::oid)
 2135	700	SELECT min(1.5::float4)
 2136	701	SELECT min(1.5::float8)
 2138	1082	SELECT min('2024-02-29'::date)
@@ -151,8 +155,8 @@
 1299	1184	SELECT now()
 3114	23	SELECT nth_value(2::int4, 2::int4) OVER ()
 3105	23	SELECT ntile(2::int4) OVER ()
-1215	25	SELECT obj_description(1259::oid, 'pg_class')
-1348	25	SELECT obj_description(1259::oid)
+1215	25	SELECT obj_description(10::oid, 'pg_class')
+1348	25	SELECT obj_description(10::oid)
 720	23	SELECT octet_length('\x0102'::bytea)
 1374	23	SELECT octet_length('a'::text)
 1375	23	SELECT octet_length('a'::bpchar)
@@ -160,39 +164,39 @@
 2026	23	SELECT pg_backend_pid()
 2561	1007	SELECT pg_blocking_pids(2::int4)
 1264	23	SELECT pg_char_to_encoding('pg_class')
-3815	16	SELECT pg_collation_is_visible(1259::oid)
+3815	16	SELECT pg_collation_is_visible(10::oid)
 2168	20	SELECT pg_database_size('audit')
-2324	20	SELECT pg_database_size(1259::oid)
+2324	20	SELECT pg_database_size(10::oid)
 1597	19	SELECT pg_encoding_to_char(2::int4)
-2081	16	SELECT pg_function_is_visible(1259::oid)
-1387	25	SELECT pg_get_constraintdef(1259::oid)
-2508	25	SELECT pg_get_constraintdef(1259::oid, true)
-1716	25	SELECT pg_get_expr(NULL::pg_node_tree, 1259::oid)
-2509	25	SELECT pg_get_expr(NULL::pg_node_tree, 1259::oid, true)
-2162	25	SELECT pg_get_function_arguments(1259::oid)
-2232	25	SELECT pg_get_function_identity_arguments(1259::oid)
-2165	25	SELECT pg_get_function_result(1259::oid)
-2098	25	SELECT pg_get_functiondef(1259::oid)
-1643	25	SELECT pg_get_indexdef(1259::oid)
-2507	25	SELECT pg_get_indexdef(1259::oid, 2::int4, true)
-3352	25	SELECT pg_get_partkeydef(1259::oid)
-1642	19	SELECT pg_get_userbyid(1259::oid)
+2081	16	SELECT pg_function_is_visible(10::oid)
+1387	25	SELECT pg_get_constraintdef(10::oid)
+2508	25	SELECT pg_get_constraintdef(10::oid, true)
+1716	25	SELECT pg_get_expr(NULL::pg_node_tree, 10::oid)
+2509	25	SELECT pg_get_expr(NULL::pg_node_tree, 10::oid, true)
+2162	25	SELECT pg_get_function_arguments(10::oid)
+2232	25	SELECT pg_get_function_identity_arguments(10::oid)
+2165	25	SELECT pg_get_function_result(10::oid)
+2098	25	SELECT pg_get_functiondef(10::oid)
+1643	25	SELECT pg_get_indexdef(10::oid)
+2507	25	SELECT pg_get_indexdef(10::oid, 2::int4, true)
+3352	25	SELECT pg_get_partkeydef(10::oid)
+1642	19	SELECT pg_get_userbyid(10::oid)
 2998	20	SELECT pg_indexes_size('pg_class'::regclass)
-2083	16	SELECT pg_opclass_is_visible(1259::oid)
-2082	16	SELECT pg_operator_is_visible(1259::oid)
-3829	16	SELECT pg_opfamily_is_visible(1259::oid)
+2083	16	SELECT pg_opclass_is_visible(10::oid)
+2082	16	SELECT pg_operator_is_visible(10::oid)
+3829	16	SELECT pg_opfamily_is_visible(10::oid)
 3425	2205	SELECT pg_partition_ancestors('pg_class'::regclass)
 6121	16	SELECT pg_relation_is_publishable('pg_class'::regclass)
 2325	20	SELECT pg_relation_size('pg_class'::regclass)
 2288	25	SELECT pg_size_pretty(2::int8)
 3166	25	SELECT pg_size_pretty(1.5::numeric)
-1928	20	SELECT pg_stat_get_numscans(1259::oid)
-2079	16	SELECT pg_table_is_visible(1259::oid)
+1928	20	SELECT pg_stat_get_numscans(10::oid)
+2079	16	SELECT pg_table_is_visible(10::oid)
 2997	20	SELECT pg_table_size('pg_class'::regclass)
 3778	25	SELECT pg_tablespace_location(1663::oid)
-2322	20	SELECT pg_tablespace_size(1259::oid)
+2322	20	SELECT pg_tablespace_size(10::oid)
 2286	20	SELECT pg_total_relation_size('pg_class'::regclass)
-2080	16	SELECT pg_type_is_visible(1259::oid)
+2080	16	SELECT pg_type_is_visible(10::oid)
 1619	2206	SELECT pg_typeof(2::int4)
 1346	701	SELECT pow(1.5::float8, 1.5::float8)
 1738	1700	SELECT pow(1.5::numeric, 1.5::numeric)
@@ -214,7 +218,7 @@
 876	25	SELECT rtrim('a'::text, 'a'::text)
 882	25	SELECT rtrim('a'::text)
 2078	25	SELECT set_config('search_path'::text, 'a'::text, true)
-1993	25	SELECT shobj_description(1259::oid, 'pg_class')
+1993	25	SELECT shobj_description(10::oid, 'pg_class')
 1706	1700	SELECT sign(1.5::numeric)
 2310	701	SELECT sign(1.5::float8)
 1344	701	SELECT sqrt(1.5::float8)
@@ -346,12 +350,12 @@ o591	701	SELECT 1.5::float8 OPERATOR(pg_catalog.+) 1.5::float8
 o592	701	SELECT 1.5::float8 OPERATOR(pg_catalog.-) 1.5::float8
 o593	701	SELECT 1.5::float8 OPERATOR(pg_catalog./) 1.5::float8
 o594	701	SELECT 1.5::float8 OPERATOR(pg_catalog.*) 1.5::float8
-o607	16	SELECT 1259::oid OPERATOR(pg_catalog.=) 1259::oid
-o608	16	SELECT 1259::oid OPERATOR(pg_catalog.<>) 1259::oid
-o609	16	SELECT 1259::oid OPERATOR(pg_catalog.<) 1259::oid
-o610	16	SELECT 1259::oid OPERATOR(pg_catalog.>) 1259::oid
-o611	16	SELECT 1259::oid OPERATOR(pg_catalog.<=) 1259::oid
-o612	16	SELECT 1259::oid OPERATOR(pg_catalog.>=) 1259::oid
+o607	16	SELECT 10::oid OPERATOR(pg_catalog.=) 10::oid
+o608	16	SELECT 10::oid OPERATOR(pg_catalog.<>) 10::oid
+o609	16	SELECT 10::oid OPERATOR(pg_catalog.<) 10::oid
+o610	16	SELECT 10::oid OPERATOR(pg_catalog.>) 10::oid
+o611	16	SELECT 10::oid OPERATOR(pg_catalog.<=) 10::oid
+o612	16	SELECT 10::oid OPERATOR(pg_catalog.>=) 10::oid
 o620	16	SELECT 1.5::float4 OPERATOR(pg_catalog.=) 1.5::float4
 o621	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<>) 1.5::float4
 o622	16	SELECT 1.5::float4 OPERATOR(pg_catalog.<) 1.5::float4
@@ -621,8 +625,8 @@ o3285	3802	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.-) 'a'::text
 o3286	3802	SELECT '[1,2]'::jsonb OPERATOR(pg_catalog.-) 2::int4
 o3477	25	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->>) 'a'::text
 o3481	25	SELECT '{"a":[1,2]}'::jsonb OPERATOR(pg_catalog.->>) 2::int4
-o3962	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->) 'day'::text
-o3963	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->>) 'day'::text
+o3962	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->) 'a'::text
+o3963	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->>) 'a'::text
 o3964	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->) 2::int4
 o3965	25	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.->>) 2::int4
 o3966	114	SELECT '{"a":[1,2]}'::json OPERATOR(pg_catalog.#>) ARRAY['a','b']::text[]
@@ -661,24 +665,24 @@ c10034	16	SELECT 2::int4::boolean
 c10037	26	SELECT 2::int8::oid
 c10038	26	SELECT 2::int2::oid
 c10039	26	SELECT 2::int4::oid
-c10040	20	SELECT 1259::oid::bigint
-c10041	23	SELECT 1259::oid::integer
-c10042	24	SELECT 1259::oid::regproc
+c10040	20	SELECT 10::oid::bigint
+c10041	23	SELECT 10::oid::integer
+c10042	24	SELECT 10::oid::regproc
 c10044	24	SELECT 2::int8::regproc
 c10045	24	SELECT 2::int2::regproc
 c10046	24	SELECT 2::int4::regproc
-c10051	2202	SELECT 1259::oid::regprocedure
+c10051	2202	SELECT 10::oid::regprocedure
 c10053	2202	SELECT 2::int8::regprocedure
 c10054	2202	SELECT 2::int2::regprocedure
 c10055	2202	SELECT 2::int4::regprocedure
-c10074	2205	SELECT 1259::oid::regclass
+c10074	2205	SELECT 10::oid::regclass
 c10075	26	SELECT 'pg_class'::regclass::oid
 c10076	2205	SELECT 2::int8::regclass
 c10077	2205	SELECT 2::int2::regclass
 c10078	2205	SELECT 2::int4::regclass
 c10079	20	SELECT 'pg_class'::regclass::bigint
 c10080	23	SELECT 'pg_class'::regclass::integer
-c10088	2206	SELECT 1259::oid::regtype
+c10088	2206	SELECT 10::oid::regtype
 c10089	26	SELECT 'int4'::regtype::oid
 c10090	2206	SELECT 2::int8::regtype
 c10091	2206	SELECT 2::int2::regtype
@@ -686,7 +690,7 @@ c10092	2206	SELECT 2::int4::regtype
 c10093	20	SELECT 'int4'::regtype::bigint
 c10094	23	SELECT 'int4'::regtype::integer
 c10109	2205	SELECT 'pg_class'::text::regclass
-c10118	4089	SELECT 1259::oid::regnamespace
+c10118	4089	SELECT 10::oid::regnamespace
 c10120	4089	SELECT 2::int8::regnamespace
 c10121	4089	SELECT 2::int2::regnamespace
 c10122	4089	SELECT 2::int4::regnamespace

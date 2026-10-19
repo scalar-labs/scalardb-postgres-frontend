@@ -1,0 +1,107 @@
+                             テーブル空間一覧
+    名前    |  所有者  | 場所 | アクセス権限 | オプション | サイズ | 説明 
+------------+----------+------+--------------+------------+--------+------
+ pg_default | postgres |      |              |            | 37 MB  | 
+ pg_global  | postgres |      |              |            | 589 kB | 
+(2 行)
+
+                                 アクセス権限
+ スキーマ | 名前  |  タイプ  |       アクセス権限        | 列の権限 | ポリシー 
+----------+-------+----------+---------------------------+----------+----------
+ public   | items | テーブル | postgres=arwdDxt/postgres+|          | 
+          |       |          | carol=r/postgres          |          | 
+(1 行)
+
+                           アクセス権限
+ スキーマ |  名前  |  タイプ  | アクセス権限 | 列の権限 | ポリシー 
+----------+--------+----------+--------------+----------+----------
+ sales    | orders | テーブル |              |          | 
+(1 行)
+
+                                       ロール一覧
+ ロール名 |                                     属性                                     
+----------+------------------------------------------------------------------------------
+ carol    | 
+ postgres | スーパーユーザー, ロール作成可, DB作成可, レプリケーション可, RLS のバイパス
+
+ current_user | session_user 
+--------------+--------------
+ postgres     | postgres
+(1 行)
+
+ items_sel | items_ins | orders_sel | sales_usage | db_connect 
+-----------+-----------+------------+-------------+------------
+ t         | t         | t          | t           | t
+(1 行)
+
+ c_items | c_orders 
+---------+----------
+ t       | f
+(1 行)
+
+ rolname  | rolsuper | rolcanlogin 
+----------+----------+-------------
+ carol    | f        | t
+ postgres | t        | t
+(2 行)
+
+ relname |                    relacl                    
+---------+----------------------------------------------
+ items   | {postgres=arwdDxt/postgres,carol=r/postgres}
+ orders  | 
+(2 行)
+
+ table_schema | table_name | privilege_type | grantee  
+--------------+------------+----------------+----------
+ public       | items      | SELECT         | carol
+ public       | items      | DELETE         | postgres
+ public       | items      | INSERT         | postgres
+ public       | items      | REFERENCES     | postgres
+ public       | items      | SELECT         | postgres
+ public       | items      | TRIGGER        | postgres
+ public       | items      | TRUNCATE       | postgres
+ public       | items      | UPDATE         | postgres
+ sales        | orders     | DELETE         | postgres
+ sales        | orders     | INSERT         | postgres
+ sales        | orders     | REFERENCES     | postgres
+ sales        | orders     | SELECT         | postgres
+ sales        | orders     | TRIGGER        | postgres
+ sales        | orders     | TRUNCATE       | postgres
+ sales        | orders     | UPDATE         | postgres
+(15 行)
+
+ grantee  | table_name | privilege_type 
+----------+------------+----------------
+ carol    | items      | SELECT
+ postgres | items      | DELETE
+ postgres | items      | INSERT
+ postgres | items      | REFERENCES
+ postgres | items      | SELECT
+ postgres | items      | TRIGGER
+ postgres | items      | TRUNCATE
+ postgres | items      | UPDATE
+ postgres | orders     | DELETE
+ postgres | orders     | INSERT
+ postgres | orders     | REFERENCES
+ postgres | orders     | SELECT
+ postgres | orders     | TRIGGER
+ postgres | orders     | TRUNCATE
+ postgres | orders     | UPDATE
+(15 行)
+
+      nspname       
+--------------------
+ information_schema
+ public
+ sales
+(3 行)
+
+  datname  
+-----------
+ audit
+ orm
+ postgres
+ template0
+ template1
+(5 行)
+

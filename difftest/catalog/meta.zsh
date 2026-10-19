@@ -1,10 +1,12 @@
 #!/bin/zsh
 # meta.zsh < meta.txt: run each psql meta-command on native PostgreSQL and the frontend; print
 # command | native | frontend | the catalog fallbacks the frontend's log shows for it (FE_LOG)
+# Each side's user, password and sslmode: NATIVE_USER/_PASSWORD, FE_USER/_PASSWORD/_SSLMODE (todo 062)
 export LANG=C LC_ALL=C
 FE_LOG=${FE_LOG:-${0:a:h}/fe.log}
-N=(psql -X -h 127.0.0.1 -p ${NATIVE_PORT:-15499} -U postgres -d audit)
-F=(psql -X -h 127.0.0.1 -p ${FE_PORT:-15473} -U postgres -d audit)
+[[ -f $FE_LOG ]] || FE_LOG=/dev/null
+N=(env PGPASSWORD=${NATIVE_PASSWORD:-} psql -X -h 127.0.0.1 -p ${NATIVE_PORT:-15499} -U ${NATIVE_USER:-postgres} -d audit)
+F=(env PGPASSWORD=${FE_PASSWORD:-} PGSSLMODE=${FE_SSLMODE:-prefer} psql -X -h 127.0.0.1 -p ${FE_PORT:-15473} -U ${FE_USER:-postgres} -d audit)
 summ() { # output -> rows count, 0, or ERR: msg
   local out=$1 err
   err=$(print -r -- "$out" | grep -m1 -E '^(ERROR|psql:.*ERROR|FATAL)' | sed -E 's/^psql:[^E]*//' | cut -c1-80)

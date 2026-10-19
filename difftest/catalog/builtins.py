@@ -33,7 +33,7 @@ RESOURCES = ROOT / "engine/src/main/resources/com/scalar/db/frontend/postgres"
 TEST_RESOURCES = ROOT / "engine/src/test/resources"
 
 # sample values per argument type OID, the likeliest first
-TEXTS = ["'a'", "'day'", "'pg_class'", "'search_path'", "'1'", "'{\"a\":1}'", "'UTC'", "'a,b'", "'CONNECT'"]
+TEXTS = ["'a'", "'day'", "'pg_class'", "'search_path'", "'1'", "'{\"a\":1}'", "'UTC'", "'a,b'", "'CONNECT'", "'SELECT'"]
 SAMPLES = {
     16: ["true"],
     17: ["'\\x0102'::bytea"],
@@ -44,7 +44,8 @@ SAMPLES = {
     22: ["'1 2'::int2vector"],
     23: ["2::int4", "1::int4", "0::int4"],
     25: [t + "::text" for t in TEXTS],
-    26: ["1259::oid", "2::oid", "23::oid", "1663::oid", "1259"],
+    # 10 first: the bootstrap superuser on both servers (postgres; the frontend's scalardb)
+    26: ["10::oid", "1259::oid", "2::oid", "23::oid", "1663::oid", "1259"],
     194: ["NULL::pg_node_tree"],
     114: ["'{\"a\":[1,2]}'::json", "'[1,2]'::json"],
     700: ["1.5::float4"],

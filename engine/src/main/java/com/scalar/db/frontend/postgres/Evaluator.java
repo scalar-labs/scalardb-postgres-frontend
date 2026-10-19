@@ -3875,6 +3875,27 @@ final class Evaluator {
           return Collections.emptyList();
         case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
           return true;
+        case "HAS_TABLE_PRIVILEGE":
+          {
+            // (table, privilege) for the session's user, or (user, table, privilege); each by
+            // name or OID
+            if (args.contains(null) || ctx.catalog == null) {
+              return null;
+            }
+            Catalog catalog = ctx.catalog;
+            int t = args.size() - 2;
+            String role =
+                t == 0
+                    ? catalog.user
+                    : args.get(0) instanceof Number
+                        ? catalog.roleName(num(args, 0).longValue())
+                        : text(args.get(0));
+            long relation =
+                args.get(t) instanceof Number
+                    ? num(args, t).longValue()
+                    : catalog.relationOid(text(args.get(t)));
+            return catalog.tablePrivilege(role, relation, text(args.get(t + 1)));
+          }
         case "PG_TYPE_IS_VISIBLE":
         case "PG_OPERATOR_IS_VISIBLE":
         case "PG_OPCLASS_IS_VISIBLE":

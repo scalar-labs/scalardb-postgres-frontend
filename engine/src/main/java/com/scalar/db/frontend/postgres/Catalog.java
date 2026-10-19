@@ -927,6 +927,88 @@ final class Catalog {
         : oid == OWNER_OID ? OWNER : "unknown (OID=" + oid + ")"; // the tables' owner
   }
 
+  /**
+   * has_table_privilege: whether the role holds any of the listed privileges ({@code "SELECT,
+   * INSERT"}, in any case, each possibly {@code WITH GRANT OPTION}) on the relation, as a
+   * superuser, as its owner, or through its ACL, directly, through a role it is a member of, or as
+   * PUBLIC; null for an OID no relation has, as PostgreSQL answers.
+   */
+  @Nullable Boolean tablePrivilege(String role, long relation, String privileges) {
+    List<String> wanted = new ArrayList<>(); // an ACL letter, with * when grantable is asked for
+    for (String p : privileges.split(",")) {
+      String name = p.trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
+      boolean grantable = name.endsWith(" WITH GRANT OPTION");
+      name = grantable ? name.substring(0, name.length() - 18).trim() : name;
+      int i =
+          Arrays.asList("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+              .indexOf(name);
+      if (i < 0) {
+        throw new PgException.Argument(
+            "22023", "unrecognized privilege type: \"" + p.trim() + "\"");
+      }
+      wanted.add("rawdDxt".charAt(i) + (grantable ? "*" : ""));
+    }
+    Map<String, Object> table = rowOf("pg_class", relation);
+    if (table == null) {
+      return null;
+    }
+    if (!clusterUsers && (role.equals(user) || role.equals(OWNER))) {
+      return true; // without Cluster, every session is the ScalarDB user, which may do anything
+    }
+    Map<String, Object> self = null;
+    for (Map<String, Object> r : rowsOf("pg_roles")) {
+      if (role.equals(r.get("x.rolname"))) {
+        self = r;
+      }
+    }
+    if (self == null) {
+      throw new PgException.Argument("42704", "role \"" + role + "\" does not exist");
+    }
+    if (Boolean.TRUE.equals(self.get("x.rolsuper"))
+        || Objects.equals(self.get("x.oid"), table.get("x.relowner"))) {
+      return true;
+    }
+    // the role and every role it is a member of, through members' members
+    java.util.Set<Object> held = new java.util.HashSet<>(Collections.singleton(self.get("x.oid")));
+    for (boolean grown = true; grown; ) {
+      grown = false;
+      for (Map<String, Object> m : rowsOf("pg_auth_members")) {
+        if (held.contains(m.get("x.member"))) {
+          grown |= held.add(m.get("x.roleid"));
+        }
+      }
+    }
+    java.util.Set<String> names = new java.util.HashSet<>(Collections.singleton("")); // PUBLIC
+    for (Map<String, Object> r : rowsOf("pg_roles")) {
+      if (held.contains(r.get("x.oid"))) {
+        names.add(String.valueOf(r.get("x.rolname")));
+      }
+    }
+    Object acl = table.get("x.relacl");
+    for (Object item : acl instanceof List ? (List<?>) acl : Collections.emptyList()) {
+      String s = String.valueOf(item);
+      int eq = s.indexOf('=');
+      if (eq >= 0 && names.contains(s.substring(0, eq))) {
+        String letters = s.substring(eq + 1, s.indexOf('/', eq));
+        for (String w : wanted) {
+          int at = letters.indexOf(w.charAt(0));
+          if (at >= 0 && (w.length() == 1 || letters.startsWith("*", at + 1))) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  private List<Map<String, Object>> rowsOf(String table) {
+    try {
+      return rows("pg_catalog", table, "x");
+    } catch (ExecutionException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   /** pg_relation_is_publishable: a user table is, an index or a catalog is not; null if none. */
   @Nullable Boolean publishable(long oid) {
     Map<String, Object> relation = rowOf("pg_class", oid);
@@ -1310,7 +1392,9 @@ final class Catalog {
   final String database;
   String user = OWNER; // the connecting user, for current_user
   TypeStore typeStore = TypeStore.NONE; // the declared types of columns
-  boolean clusterUsers; // pg_roles lists Cluster's users and roles, not the OWNER placeholder
+  boolean
+      clusterUsers; // pg_roles lists Cluster's users and roles, and OWNER as a role nobody logs in
+  // as
   private boolean acls; // pg_class.relacl holds Cluster's grants: one call per grantee and table
   private boolean aclsLoaded;
   @Nullable private Map<String, List<Map<String, Object>>> tables;
@@ -2528,6 +2612,9 @@ final class Catalog {
         items.add(item);
       }
     }
+    if (!items.isEmpty()) {
+      items.add(0, OWNER + "=arwdD/" + OWNER); // the owner's, which PostgreSQL lists first
+    }
     return items.isEmpty() ? null : items;
   }
 
@@ -2561,6 +2648,12 @@ final class Catalog {
     List<AuthAdmin.User> users = admin.getUsers();
     List<AuthAdmin.Role> roles = admin.getRoles();
     Map<String, Long> oids = new HashMap<>();
+    // the tables' owner and the grantor in their ACLs: no Cluster user, so nobody logs in as it
+    // ponytail: a Cluster user or role named scalardb would hide it; rename OWNER if one appears
+    if (users.stream().noneMatch(u -> u.getName().equals(OWNER))
+        && roles.stream().noneMatch(r -> r.getName().equals(OWNER))) {
+      role(t, OWNER_OID, OWNER, true, false);
+    }
     for (AuthAdmin.User u : users) {
       oids.put(u.getName(), oid);
       role(t, oid++, u.getName(), u.isSuperuser(), true);

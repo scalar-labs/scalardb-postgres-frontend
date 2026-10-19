@@ -1,0 +1,75 @@
+                             テーブル空間一覧
+    名前    |  所有者  | 場所 | アクセス権限 | オプション | サイズ | 説明 
+------------+----------+------+--------------+------------+--------+------
+ pg_default | scalardb |      |              |            |        | 
+ pg_global  | scalardb |      |              |            |        | 
+(2 行)
+
+                                アクセス権限
+ スキーマ | 名前  |  タイプ  |      アクセス権限       | 列の権限 | ポリシー 
+----------+-------+----------+-------------------------+----------+----------
+ public   | items | テーブル | scalardb=arwdD/scalardb+|          | 
+          |       |          | carol=r/scalardb        |          | 
+(1 行)
+
+                           アクセス権限
+ スキーマ |  名前  |  タイプ  | アクセス権限 | 列の権限 | ポリシー 
+----------+--------+----------+--------------+----------+----------
+ sales    | orders | テーブル |              |          | 
+(1 行)
+
+                            ロール一覧
+          ロール名          |                 属性                 
+----------------------------+--------------------------------------
+ admin                      | スーパーユーザー
+ alice                      | 
+ bob                        | 
+ carol                      | 
+ scalardb                   | スーパーユーザー, ログインできません
+ scalardb_postgres_frontend | 
+
+ current_user | session_user 
+--------------+--------------
+ admin        | admin
+(1 行)
+
+psql:/private/tmp/claude-501/-Users-hiroyuki-Dropbox-Docs-git-scalardb-postgres-frontend/f4d0757e-7867-452c-8770-ab47e46ff189/scratchpad/c62/priv.sql:6: ERROR:  Unsupported function: has_schema_privilege('sales', 'USAGE')
+ c_items | c_orders 
+---------+----------
+ t       | f
+(1 行)
+
+          rolname           | rolsuper | rolcanlogin 
+----------------------------+----------+-------------
+ admin                      | t        | t
+ alice                      | f        | t
+ bob                        | f        | t
+ carol                      | f        | t
+ scalardb                   | t        | f
+ scalardb_postgres_frontend | f        | t
+(6 行)
+
+ relname |                    relacl                     
+---------+-----------------------------------------------
+ items   | {scalardb=arwdD/scalardb,carol=r/scalardb}
+ items   | {scalardb=arwdD/scalardb,alice=arwd/scalardb}
+ orders  | 
+(3 行)
+
+psql:/private/tmp/claude-501/-Users-hiroyuki-Dropbox-Docs-git-scalardb-postgres-frontend/f4d0757e-7867-452c-8770-ab47e46ff189/scratchpad/c62/priv.sql:10: ERROR:  relation "information_schema.table_privileges" does not exist
+psql:/private/tmp/claude-501/-Users-hiroyuki-Dropbox-Docs-git-scalardb-postgres-frontend/f4d0757e-7867-452c-8770-ab47e46ff189/scratchpad/c62/priv.sql:11: ERROR:  relation "information_schema.role_table_grants" does not exist
+      nspname       
+--------------------
+ authdemo
+ information_schema
+ public
+ sales
+(4 行)
+
+ datname  
+----------
+ audit
+ authdemo
+ sales
+(3 行)
+
