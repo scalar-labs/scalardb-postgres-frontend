@@ -44,9 +44,6 @@ public final class Main {
       properties.load(in);
     }
     resolvePlaceholders(properties);
-    // ScalarDB caches table metadata for 60 s by default; a short cache lets sessions wait out DDL
-    // on an existing table (see PostgresServer#configure) instead of missing it for a minute
-    properties.putIfAbsent(DatabaseConfig.METADATA_CACHE_EXPIRATION_TIME_SECS, "1");
     // ScalarDB fetches 10 rows per round trip by default: under network latency, a scan of a few
     // hundred rows then costs tens of round trips (bench/README.md); 1000 rows is still small
     properties.putIfAbsent(DatabaseConfig.SCAN_FETCH_SIZE, "1000");

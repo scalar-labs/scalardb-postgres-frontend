@@ -39,9 +39,9 @@ name still works as a qualifier.
 Two things the runs taught about the frontend itself. ScalarDB caches table metadata and its admin
 does not refresh the cache, so a table dropped and recreated with other columns (two test suites
 sharing a name, or `ALTER TABLE ADD COLUMN` followed by an insert) was rejected with DB-CORE-10017
-until the cache expired: the frontend now sets `scalar.db.metadata.cache_expiration_time_secs` to 1
-unless the properties file sets it, and answers DROP/ALTER/index DDL only after that second has
-passed. And a failed statement inside a transaction left the ORM's ROLLBACK reporting "No active
+until the cache expired. Run these with `scalar.db.metadata.cache_expiration_time_secs=1` in the
+properties file: with a cache that short the frontend answers DROP/ALTER/index DDL only after it has
+expired. And a failed statement inside a transaction left the ORM's ROLLBACK reporting "No active
 transaction" instead of the real error; COMMIT and ROLLBACK outside a transaction are now no-ops, as
 in PostgreSQL, and statement failures are logged at INFO.
 

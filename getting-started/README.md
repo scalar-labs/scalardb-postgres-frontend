@@ -68,14 +68,17 @@ The same file takes the frontend's own settings, all optional:
 | `scalar.db.postgres.ssl.require` | `true` with `auth` on | Refuse clients that do not use TLS |
 | `scalar.db.postgres.metadata_user`, `scalar.db.postgres.metadata_password` | `scalardb_postgres_frontend`, none | With `auth` on, the service user that reads and writes the declared types of columns (`NUMERIC(p,s)`, `VARCHAR(n)`, ...); `CREATE FRONTEND METADATA TABLES`, run once as a superuser, creates it and prints both |
 
-Two ScalarDB settings get different defaults from the frontend, unless the file sets them:
-`scalar.db.metadata.cache_expiration_time_secs` is `1` (not 60), so sessions see DDL from others
-quickly, and `scalar.db.scan_fetch_size` is `1000` (not 10), so a scan fetches 1000 rows per round
-trip to the database instead of 10. Against ScalarDB Cluster the nodes run the reads and cache table
-metadata themselves: set `scalar.db.metadata.cache_expiration_time_secs=1` on the nodes too, or after
-`ALTER TABLE` on an existing table, reads keep using the old columns for up to a minute. If the file
-sets the cache above 5 seconds, sessions do not wait it out after such DDL: the statement answers with
-a NOTICE saying how long the change takes to apply.
+One ScalarDB setting gets a different default from the frontend, unless the file sets it:
+`scalar.db.scan_fetch_size` is `1000` (not 10), so a scan fetches 1000 rows per round trip to the
+database instead of 10.
+
+The sample file sets `scalar.db.metadata.cache_expiration_time_secs=1`. ScalarDB caches table metadata
+for that long (60 s by default) and does not refresh it after DDL. With 5 seconds or less, the frontend
+answers `ALTER TABLE`, `DROP TABLE` and index DDL only once the cache has expired, so the next statement,
+as a migration tool or ORM sends it, sees the change; each such statement takes that long. With a longer
+cache it answers at once, with a NOTICE saying when the change takes effect. Against ScalarDB Cluster
+the nodes run the reads and cache table metadata themselves: set the same value on the nodes, or after
+`ALTER TABLE` on an existing table, reads keep using the old columns until their cache expires.
 
 The frontend also enforces fixed limits that protect it from a single client:
 

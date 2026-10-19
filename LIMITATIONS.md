@@ -130,10 +130,17 @@ at the end of this section.
 - **Inside a transaction, a query that scans rows the transaction already wrote fails**
   (`DB-CORE-10106`). This is a ScalarDB limitation; reads by primary key work.
 - **DDL inside a transaction takes effect at once** and is not undone by `ROLLBACK`.
+- **DDL on an existing table takes effect only when ScalarDB's table metadata cache expires.** ScalarDB
+  caches table metadata for `scalar.db.metadata.cache_expiration_time_secs` (60 s by default) and does
+  not refresh it after DDL, so for that long after `ALTER TABLE`, `DROP TABLE` or an index change,
+  statements use the old definition: an insert into a new column fails with `DB-CORE-10017`. The
+  statement answers with a NOTICE saying so. Migration tools and ORMs that use a change on the next
+  statement need the cache set to 5 s or less (the sample configuration sets 1); the frontend then
+  answers such DDL only after the cache has expired, which takes that long per statement.
 - **Against ScalarDB Cluster, the nodes' metadata cache must be as short as the frontend's.** The nodes
-  cache table metadata for 60 s by default, so after `ALTER TABLE` on an existing table reads keep using
-  the old columns (`DB-CORE-30040`, column not found) until it expires; set
-  `scalar.db.metadata.cache_expiration_time_secs=1` on the nodes.
+  run the reads and writes with their own cache, so after `ALTER TABLE` on an existing table they keep
+  using the old columns (`DB-CORE-30040`, column not found) until it expires; set
+  `scalar.db.metadata.cache_expiration_time_secs` to the same value on the nodes and the frontend.
 - **`SAVEPOINT` is accepted, but `ROLLBACK TO SAVEPOINT` works only while nothing was written
   since the savepoint.** After a write it fails, and that error aborts the whole transaction, so
   the writes before the savepoint are lost too when the transaction ends.
