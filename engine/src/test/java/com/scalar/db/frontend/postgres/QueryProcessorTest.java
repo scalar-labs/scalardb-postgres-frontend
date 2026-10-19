@@ -197,6 +197,22 @@ public class QueryProcessorTest {
     processor.execute("RESET TIME ZONE");
     assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
         .containsExactly(Collections.singletonMap("t", "2024-01-01 00:00:00+00"));
+    // real is single precision: a cast rounds to it, an unknown literal next to it is real, and
+    // real op real stays real
+    String[][] reals = {
+      {"4567890123456789::int8::float4", "4.56789e+15"},
+      {"'7.8'::real * '-10'", "-78"},
+      {"'0.1'::real + '0.2'::real", "0.3"},
+      {"-'0.1'::real", "-0.1"},
+      {"'7.8'::real * 2", "15.600000381469727"},
+      {"'324.78'::real > '324.78'", "false"}
+    };
+    for (String[] r : reals) {
+      assertThat(processor.execute("SELECT (" + r[0] + ")::text AS v"))
+          .containsExactly(Collections.singletonMap("v", r[1]));
+    }
+    assertThatThrownBy(() -> processor.execute("SELECT '2147483647'::float4::int4"))
+        .hasMessageContaining("integer out of range"); // 2147483648 as a real
     // a time with an offset is refused, not read as a timestamptz
     for (String sql :
         Arrays.asList(

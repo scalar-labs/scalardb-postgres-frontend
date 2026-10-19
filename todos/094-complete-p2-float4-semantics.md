@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "094"
 tags: [types, float, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ A cast to real must round to single precision, and real op unknown-literal is re
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: A cast to real (real, float4, float(1-24)) rounds to float, failing 22003 out of range; an unknown literal next to a real is a real, in arithmetic and comparisons; real op real is real (computed in double, rounded once); -real stays real; sum(real) is the exact sum rounded once to real, avg reads a real's exact value; a real prints its shortest round-trip digits (JDK 17's Float.toString can give more). regress: float4 DIFF 7 -> 1 (the remaining one follows from the harness's primary key on f1, which refuses the UPDATE), PG_ERR 1 -> 0; int8, int2, int4, aggregates, numeric each fix one or two; no new DIFF or PG_ERR in float4, float8, int2, int4, int8, aggregates or numeric. Still an error: 'inf' as real input.

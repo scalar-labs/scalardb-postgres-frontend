@@ -1956,7 +1956,37 @@ final class Evaluator {
     }
   }
 
+  /**
+   * A float's shortest digits that read back as it, as PostgreSQL prints a real; Float.toString
+   * before JDK 19 can give more (4.5678899E15 for 4.56789e+15).
+   */
+  private static BigDecimal shortest(float f) {
+    BigDecimal exact = new BigDecimal(f);
+    for (int p = 1; ; p++) {
+      BigDecimal b = exact.round(new java.math.MathContext(p, java.math.RoundingMode.HALF_EVEN));
+      if (b.floatValue() == f) {
+        return b;
+      }
+    }
+  }
+
+  /** A double rounded to real, which fails as PostgreSQL's float8 to float4 does. */
+  private static float real(double d) {
+    float f = (float) d;
+    if (Float.isInfinite(f) && !Double.isInfinite(d)) {
+      throw new ArithmeticException("value out of range: overflow");
+    }
+    if (f == 0 && d != 0) {
+      throw new ArithmeticException("value out of range: underflow");
+    }
+    return f;
+  }
+
   private static Object coerce(String s, Object target) {
+    if (target instanceof Float) {
+      return java.util.Objects.requireNonNull(
+          cast("real", s)); // real = '324.78' compares in single precision
+    }
     if (target instanceof Integer || target instanceof Long || target instanceof Short) {
       // a quoted literal next to an integer is integer input: '0x10', '1_000'; 22003 beyond range
       String type = target instanceof Long ? "bigint" : "integer";
@@ -2203,6 +2233,9 @@ final class Evaluator {
     if (v instanceof Interval) {
       return ((Interval) v).negate();
     }
+    if (v instanceof Float) {
+      return -(Float) v;
+    }
     if (v instanceof Number) {
       return -((Number) v).doubleValue();
     }
@@ -2410,9 +2443,8 @@ final class Evaluator {
     if (d == 0) {
       return 1 / d < 0 ? "-0" : "0";
     }
-    // Float.toString keeps a float's shortest digits; widening to double first would not
     BigDecimal b =
-        new BigDecimal(maxPlainExponent == 6 ? Float.toString((float) d) : Double.toString(d))
+        (maxPlainExponent == 6 ? shortest((float) d) : new BigDecimal(Double.toString(d)))
             .stripTrailingZeros();
     int exponent = b.precision() - b.scale() - 1;
     if (exponent >= -4 && exponent < maxPlainExponent) {
@@ -2526,6 +2558,9 @@ final class Evaluator {
     }
     double a = ((Number) l).doubleValue();
     double b = ((Number) r).doubleValue();
+    // real op real is real, computed in double and rounded once: a double holds two floats' sum,
+    // difference, product or quotient closely enough that the rounding is float's own
+    boolean real = l instanceof Float && r instanceof Float;
     double v;
     if (e instanceof Addition) {
       v = a + b;
@@ -2536,6 +2571,7 @@ final class Evaluator {
     } else {
       v = e instanceof Modulo ? a % b : a / b;
     }
+    v = real ? (float) v : v;
     // PostgreSQL's float checks: an infinite result from finite operands, or zero from non-zero
     // ones
     if (Double.isInfinite(v) && !Double.isInfinite(a) && !Double.isInfinite(b)) {
@@ -2548,7 +2584,7 @@ final class Evaluator {
             : e instanceof Division && !Double.isInfinite(b))) {
       throw new ArithmeticException("value out of range: underflow");
     }
-    return v;
+    return real ? (Object) (float) v : v;
   }
 
   /**
@@ -3205,7 +3241,12 @@ final class Evaluator {
         return d;
       }
       if (t.contains("float") || t.contains("double") || t.equals("real")) {
-        return v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
+        double d = v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
+        boolean real =
+            t.equals("real")
+                || t.equals("float4")
+                || (t.startsWith("float(") && QueryParser.typeArguments(t)[0] <= 24);
+        return real ? (Object) real(d) : d;
       }
       if (t.equals("\"char\"") && v instanceof Number) {
         // an integer to "char" is the byte of that code; past ASCII it is not text in UTF8
@@ -4359,13 +4400,18 @@ final class Evaluator {
         double nonFinite = 0; // NaN and Infinity propagate as in floating-point addition
         boolean integral = true;
         boolean floating = false; // a double or float input makes the result a double
+        boolean reals = true; // sum(real) is real
         boolean negativeZero = true; // floating-point addition gives -0 only from -0 inputs
         for (Object v : values) {
           if (!(v instanceof Number)) {
             throw new IllegalArgumentException(name + " requires numeric values: " + f);
           }
+          reals &= v instanceof Float;
           if (isFinite(v)) {
-            sum = sum.add(new BigDecimal(v.toString()));
+            // a real's own value, which avg (in double precision) reads, not its shortest digits
+            sum =
+                sum.add(
+                    v instanceof Float ? new BigDecimal((Float) v) : new BigDecimal(v.toString()));
           } else {
             nonFinite += ((Number) v).doubleValue();
           }
@@ -4382,6 +4428,15 @@ final class Evaluator {
           return floating
               ? (Object) (finiteSum(sum) / values.size()) // PostgreSQL accumulates from +0
               : divide(sum, BigDecimal.valueOf(values.size()));
+        }
+        if (reals) {
+          // the exact sum rounded once: PostgreSQL adds in scan order, which this does not depend
+          // on
+          float realSum = sum.floatValue();
+          if (Float.isInfinite(realSum)) {
+            throw new ArithmeticException("value out of range: overflow");
+          }
+          return negativeZero ? -0.0f : realSum;
         }
         if (floating) {
           return negativeZero ? -0.0 : finiteSum(sum); // sum starts from the first value
