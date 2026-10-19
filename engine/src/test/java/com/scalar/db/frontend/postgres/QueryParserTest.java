@@ -1670,6 +1670,22 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // smallint op smallint stays smallint and overflows; casts to oid keep its range
+    for (String sql :
+        new String[] {
+          "SELECT 32767::int2 + 1::int2",
+          "SELECT 4567890123456789::int8::oid",
+          "SELECT '4294967296'::oid"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql).execute(transaction))
+          .as(sql)
+          .isInstanceOf(ArithmeticException.class);
+    }
+    assertThat(
+            parser
+                .parse("SELECT 32767::int2 + 1 AS i, (-1)::int4::oid AS o, '-1'::oid AS t")
+                .execute(transaction))
+        .containsExactly(map("i", 32768, "o", 4294967295L, "t", 4294967295L));
     // array_length and array_upper take a dimension; array_to_string skips or replaces NULLs
     assertThat(
             parser

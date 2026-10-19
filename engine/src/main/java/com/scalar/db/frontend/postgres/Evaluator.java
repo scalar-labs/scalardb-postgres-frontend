@@ -162,6 +162,8 @@ final class Evaluator {
     final Map<Expression, Integer> widenings; // CASE, COALESCE, ... -> what it widens to
     // a comparison's right operand -> whether it compares as bpchar (see Evaluator.bpchar)
     final Map<Expression, Boolean> bpchars = new java.util.IdentityHashMap<>();
+    // whether an arithmetic expression is smallint op smallint, decided once from plan-time types
+    final Map<Expression, Boolean> smallints = new java.util.IdentityHashMap<>();
 
     Context(
         @Nullable Map<String, Object> outer,
@@ -2398,7 +2400,18 @@ final class Evaluator {
       } else {
         v = a / b;
       }
-      // integer op integer stays integer in PostgreSQL and fails on overflow
+      // smallint op smallint stays smallint in PostgreSQL, and integer op integer stays integer;
+      // both fail on overflow
+      if (ctx.smallints.computeIfAbsent(
+          e,
+          k ->
+              QueryParser.inferOid(e.getLeftExpression(), ctx.sources) == 21
+                  && QueryParser.inferOid(e.getRightExpression(), ctx.sources) == 21)) {
+        if (v < Short.MIN_VALUE || v > Short.MAX_VALUE) {
+          throw new ArithmeticException("smallint out of range");
+        }
+        return (int) v;
+      }
       if (isInt(l, e.getLeftExpression()) && isInt(r, e.getRightExpression())) {
         if (v < Integer.MIN_VALUE || v > Integer.MAX_VALUE) {
           throw new ArithmeticException("integer out of range");
@@ -3014,6 +3027,27 @@ final class Evaluator {
     }
     String s = text(v);
     try {
+      if (t.equals("oid")
+          && (v instanceof Number || DIGITS.matcher(s).matches() || s.trim().startsWith("-"))) {
+        // an integer's bits (-1 is 4294967295), a bigint in 0..4294967295, text in
+        // -2147483648..4294967295
+        // ponytail: a bigint within integer's range is taken as an integer, so (-1)::int8::oid
+        // wraps where PostgreSQL fails; the value carries no int4/int8 distinction here
+        long n;
+        try {
+          n = v instanceof Number ? ((Number) v).longValue() : Long.parseLong(s.trim());
+        } catch (NumberFormatException e) {
+          throw new PgException.Argument(
+              "22P02", "invalid input syntax for type oid: \"" + s + "\"");
+        }
+        if (n < Integer.MIN_VALUE || n > 0xFFFFFFFFL) {
+          throw new ArithmeticException(
+              v instanceof Number
+                  ? "OID out of range"
+                  : "value \"" + s + "\" is out of range for type oid");
+        }
+        return n < 0 ? n + 0x100000000L : n;
+      }
       if (t.equals("oid") || t.startsWith("reg")) {
         // regclass, regtype, regnamespace: an OID given as a number stays numeric
         return v instanceof Number

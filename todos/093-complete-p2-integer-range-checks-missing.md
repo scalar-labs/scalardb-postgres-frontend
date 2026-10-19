@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "093"
 tags: [types, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ on both servers.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. Evaluator.arithmetic keeps smallint op smallint as smallint (both operands typed int2 at plan time, decided once per expression in Context.smallints) and raises 22003 smallint out of range, as integer op integer already did. Casts to oid follow PostgreSQL: an integer's bits (-1 is 4294967295), a bigint in 0..4294967295 (else OID out of range), text in -2147483648..4294967295; a bigint within integer's range is taken as an integer (ponytail: (-1)::int8::oid wraps where PostgreSQL fails). Live check of 12 statements matches PostgreSQL 16; QueryParserTest covers it.
