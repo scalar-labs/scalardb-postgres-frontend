@@ -36,6 +36,7 @@ final class Json {
   private static final ObjectMapper MAPPER =
       new ObjectMapper()
           .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+          .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS) // 'true, false' is not json
           .setNodeFactory(NODES);
 
   private Json() {}
@@ -83,7 +84,31 @@ final class Json {
 
   /** {@code 'text'::jsonb} or {@code 'text'::json}. */
   static Value cast(String text, boolean binary) {
-    return new Value(parse(text), binary, binary ? null : text);
+    JsonNode node = parse(text);
+    if (binary && hasNul(node)) {
+      throw new PgException.Argument("22P05", "unsupported Unicode escape sequence");
+    }
+    return new Value(node, binary, binary ? null : text);
+  }
+
+  /** Whether a string or key holds \u0000, which jsonb cannot store. */
+  private static boolean hasNul(JsonNode node) {
+    if (node.isTextual()) {
+      return node.textValue().indexOf('\0') >= 0;
+    }
+    Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+    while (fields.hasNext()) {
+      Map.Entry<String, JsonNode> e = fields.next();
+      if (e.getKey().indexOf('\0') >= 0 || hasNul(e.getValue())) {
+        return true;
+      }
+    }
+    for (JsonNode item : node.isArray() ? node : NODES.arrayNode()) {
+      if (hasNul(item)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

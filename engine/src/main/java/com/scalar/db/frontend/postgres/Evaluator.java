@@ -2450,6 +2450,18 @@ final class Evaluator {
    * An array whose rows, if it has any, are arrays of one length all the way down, as PostgreSQL's
    * multi-dimensional arrays are; 2202E otherwise.
    */
+  /** Whether an aggregate's one argument is written as an array: a cast to one, or ARRAY[...]. */
+  private static boolean arrayArgument(Expression f) {
+    if (!(f instanceof Function) || ((Function) f).getParameters() == null) {
+      return false;
+    }
+    List<?> params = ((Function) f).getParameters();
+    Expression p = params.size() == 1 ? QueryParser.unwrap((Expression) params.get(0)) : null;
+    return p instanceof net.sf.jsqlparser.expression.ArrayConstructor
+        || p instanceof CastExpression
+            && ((CastExpression) p).getColDataType().toString().trim().endsWith("]");
+  }
+
   private static List<Object> rectangular(List<Object> array, String message) {
     boolean nested = array.stream().anyMatch(v -> v instanceof List && !(v instanceof Row));
     if (nested) {
@@ -4554,6 +4566,18 @@ final class Evaluator {
           return and;
         }
       case "ARRAY_AGG":
+        if (values.stream().anyMatch(v -> v instanceof List && !(v instanceof Row))
+            || arrayArgument(f)) {
+          // array_agg of arrays stacks them: each must be a non-empty array, as in PostgreSQL
+          for (Object v : values) {
+            if (v == null) {
+              throw new PgException.Argument("22004", "cannot accumulate null arrays");
+            }
+            if (v instanceof List && ((List<?>) v).isEmpty()) {
+              throw new PgException.Argument("2202E", "cannot accumulate empty arrays");
+            }
+          }
+        }
         return values.isEmpty()
             ? null
             : rectangular(

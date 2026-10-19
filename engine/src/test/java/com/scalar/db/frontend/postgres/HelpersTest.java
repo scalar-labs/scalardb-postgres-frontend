@@ -188,6 +188,21 @@ public class HelpersTest {
 
   @Test
   public void json_ShouldFollowJsonbSemantics() {
+    assertThatThrownBy(() -> Json.cast("true, false", false))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
+    assertThatThrownBy(() -> Json.cast("\"\\u0000\"", true))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P05"));
+    assertThat(QueryParser.parseArrayText("{a\\,b,\\NULL}")).containsExactly("a,b", "NULL");
+    for (String bad : new String[] {"{}}", "{\"a}"}) {
+      assertThatThrownBy(() -> QueryParser.parseArrayText(bad))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
+    }
+    assertThatThrownBy(() -> QueryParser.normalize("SELECT ARRAY[]"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P18"));
     assertThat(Json.contains(Json.parse("{\"a\":1,\"b\":[1,2]}"), Json.parse("{\"b\":[2]}")))
         .isTrue();
     assertThat(Json.contains(Json.parse("[1,2]"), Json.parse("[3]"))).isFalse();

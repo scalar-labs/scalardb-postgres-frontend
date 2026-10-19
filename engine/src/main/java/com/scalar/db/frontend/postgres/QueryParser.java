@@ -1115,7 +1115,12 @@ class QueryParser {
         }
         continue;
       }
-      if (c == '"') {
+      if (c == '\\' && i + 2 < s.length()) {
+        cur.append(s.charAt(++i)); // an escaped character outside quotes: {a\,b} is one element
+        wasQuoted = true;
+      } else if (c == '}') {
+        throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
+      } else if (c == '"') {
         quoted = true;
         wasQuoted = true;
       } else if (c == '{') {
@@ -1128,6 +1133,9 @@ class QueryParser {
         cur.append(c);
       }
       any = true;
+    }
+    if (quoted) {
+      throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
     }
     if (any) {
       out.add(arrayElement(cur, wasQuoted, text));
@@ -1229,13 +1237,26 @@ class QueryParser {
         outsideLiterals(
             escapeStringQuotes(sql),
             code ->
-                code.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
+                typedEmptyArrays(code)
+                    .replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
                     // JSQLParser drops NATURAL when INNER follows it (a cross join, todo 070)
                     .replaceAll("(?i)\\bNATURAL\\s+INNER\\s+JOIN\\b", "NATURAL JOIN")
                     // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
                     .replaceAll(
                         "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
                         "AS \"$1\"")));
+  }
+
+  // ARRAY[] not cast where it is written
+  private static final Pattern UNTYPED_EMPTY_ARRAY =
+      Pattern.compile("(?i)(?<!CAST\\s{0,99}\\(\\s{0,99})\\bARRAY\\s*+\\[\\s*+\\](?!\\s*::)");
+
+  /** The code, checked that an ARRAY[] has a type from a cast around it, as PostgreSQL needs. */
+  private static String typedEmptyArrays(String code) {
+    if (UNTYPED_EMPTY_ARRAY.matcher(code).find()) {
+      throw new PgException.Argument("42P18", "cannot determine type of empty array");
+    }
+    return code;
   }
 
   /**

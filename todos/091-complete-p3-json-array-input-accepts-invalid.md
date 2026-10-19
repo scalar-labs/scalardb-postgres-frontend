@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "091"
 tags: [json, arrays, validation, regress-suite]
@@ -31,9 +31,10 @@ Malformed values that PostgreSQL rejects are accepted.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: Refused as PostgreSQL does: content after a json value (22P02), \u0000 in jsonb (22P05), array_agg of an empty or NULL array (2202E, 22004), an unmatched } or an unterminated quote in array text (22P02), ARRAY[] without a cast around it (42P18). Array text now reads a backslash outside quotes as an escape ({a\,b} is one element). The json_build_object key check came with todo 088; more than 6 subscripts fails, with 42601 instead of 54000. Left: array_agg over only NULL arrays whose type the evaluator cannot see (a column of VALUES (null::int[])) still gives {NULL}. Regress vs PostgreSQL 18: json #43-44, jsonb #45-46, arrays #261-263, #373-374 SAME; no new failures.
