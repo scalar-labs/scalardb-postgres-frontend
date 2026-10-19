@@ -508,6 +508,33 @@ public class QueryProcessorTest {
     }
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
+    // as PostgreSQL: a name it does not know fails, unless it is a custom dotted one
+    for (String sql :
+        new String[] {
+          "SET nosuch = 1",
+          "SET nosuch TO DEFAULT",
+          "RESET nosuch",
+          "SELECT set_config('nosuch', '1', false)"
+        }) {
+      assertThatThrownBy(() -> processor.execute(sql))
+          .hasMessageContaining("unrecognized configuration parameter \"nosuch\"");
+    }
+    assertThatThrownBy(() -> processor.setClientDefault("nosuch", "1"))
+        .hasMessageContaining("unrecognized configuration parameter \"nosuch\"");
+    processor.execute("SET myapp.x = 1");
+    processor.setClientDefault("extra_float_digits", "3");
+    processor.execute("SET lock_timeout = 5000");
+    assertThat(processor.execute("SHOW lock_timeout"))
+        .containsExactly(Collections.singletonMap("lock_timeout", "5s"));
+    assertThat(processor.execute("SHOW myapp.x"))
+        .containsExactly(Collections.singletonMap("myapp.x", "1"));
+    // SHOW ALL lists what pg_settings does, in its order, and no custom setting
+    assertThat(processor.execute("SHOW ALL"))
+        .extracting(row -> row.get("name"))
+        .containsExactlyElementsOf(
+            processor.execute("SELECT name FROM pg_settings").stream()
+                .map(row -> row.get("name"))
+                .collect(java.util.stream.Collectors.toList()));
   }
 
   @Test

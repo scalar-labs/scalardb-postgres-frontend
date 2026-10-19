@@ -225,18 +225,31 @@ public class QueryProcessor {
       if (value.length() >= 2 && value.startsWith("'") && value.endsWith("'")) {
         value = value.substring(1, value.length() - 1).replace("''", "'");
       } else if (value.equalsIgnoreCase("DEFAULT")) {
-        String key = settingKey(name);
+        String key = knownKey(name);
         if (key != null) {
           checkChangeable(key);
           put(key, null, local);
         }
         return null;
       }
-      String key = settingKey(name);
+      String key = knownKey(name);
       put(key == null ? name : key, checkedValue(key, name, value), local);
       return null;
     }
     return resetOrDiscard(sql);
+  }
+
+  /**
+   * The stored key of a setting, null for a custom one (a dotted name such as myapp.x); as in
+   * PostgreSQL, any other name the frontend does not know fails.
+   */
+  @Nullable private String knownKey(String name) {
+    String key = settingKey(name);
+    if (key == null && name.indexOf('.') < 0) {
+      throw new PgException.Argument(
+          "42704", "unrecognized configuration parameter \"" + name + "\"");
+    }
+    return key;
   }
 
   /** SET or SET LOCAL of a setting; a null value returns it to its default. */
@@ -284,10 +297,11 @@ public class QueryProcessor {
       checkIsolation(value);
     }
     checkChangeable(key);
-    if ("statement_timeout".equals(key)) {
+    String[] known = key == null ? null : Catalog.setting(key);
+    if (known != null && "ms".equals(known[4])) { // statement_timeout, lock_timeout
       if (!DURATION.matcher(value.trim().replace("'", "")).matches()) {
         throw new PgException.Argument(
-            "22023", "invalid value for parameter \"statement_timeout\": \"" + value + "\"");
+            "22023", "invalid value for parameter \"" + key + "\": \"" + value + "\"");
       }
       value = duration(millis(value)); // as SHOW writes it: 5000 is 5s
     }
@@ -316,7 +330,7 @@ public class QueryProcessor {
    * options): a session default, checked as SET checks it.
    */
   public void setClientDefault(String name, String value) {
-    String key = settingKey(name);
+    String key = knownKey(name);
     defaults.put(key == null ? name : key, checkedValue(key, name, value));
     sources.put(key == null ? name : key, "client");
     searchPathChanged(key);
@@ -328,7 +342,7 @@ public class QueryProcessor {
       if (reset.group(1).equalsIgnoreCase("ALL")) {
         settings.clear();
       } else {
-        String key = settingKey(reset.group(1));
+        String key = knownKey(reset.group(1));
         if (key != null) {
           checkChangeable(key);
           settings.remove(key);
@@ -420,15 +434,12 @@ public class QueryProcessor {
     all.putAll(settings);
     if (m.group(1).equalsIgnoreCase("ALL")) {
       List<Map<String, Object>> rows = new ArrayList<>();
-      for (Map.Entry<String, String> e : all.entrySet()) {
-        if (e.getKey().equals("is_superuser")) {
-          continue; // as in PostgreSQL, SHOW names it but SHOW ALL does not
-        }
-        String[] known = Catalog.setting(e.getKey());
+      // as in PostgreSQL: the settings pg_settings has, by name; not is_superuser or custom ones
+      for (String[] s : Catalog.SETTINGS) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("name", e.getKey());
-        row.put("setting", e.getValue());
-        row.put("description", known == null ? null : known[5]);
+        row.put("name", s[0]);
+        row.put("setting", all.get(s[0]));
+        row.put("description", s[5]);
         rows.add(row);
       }
       return Plan.constant(Arrays.asList("name", "setting", "description"), rows, "SHOW");

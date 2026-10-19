@@ -99,6 +99,16 @@ final class Catalog {
       null,
       "Sets the default read-only status of new transactions."
     },
+    // extra_float_digits and IntervalStyle: pgjdbc and ActiveRecord set them on connect; floats are
+    // written shortest-exact, as for any value above 0
+    {
+      "extra_float_digits",
+      "1",
+      "integer",
+      "user",
+      null,
+      "Sets the number of digits displayed for floating-point values."
+    },
     {
       "integer_datetimes",
       "on",
@@ -106,6 +116,25 @@ final class Catalog {
       "internal",
       null,
       "Shows whether datetimes are integer based."
+    },
+    // ponytail: intervals are written in the postgres style whatever this says; honor it if a
+    // client reads intervals after setting iso_8601 (ActiveRecord does)
+    {
+      "IntervalStyle",
+      "postgres",
+      "enum",
+      "user",
+      null,
+      "Sets the display format for interval values."
+    },
+    // accepted with nothing to time: ScalarDB takes no locks that a statement waits for
+    {
+      "lock_timeout",
+      "0",
+      "integer",
+      "user",
+      "ms",
+      "Sets the maximum allowed duration of any wait for a lock."
     },
     {
       "max_function_args",
@@ -1824,7 +1853,7 @@ final class Catalog {
 
   /** pg_settings.setting: a value in the setting's unit, as SHOW's "5s" is 5000 in ms. */
   private static String inUnit(String[] setting, String value) {
-    // statement_timeout is the only setting with a unit
+    // statement_timeout and lock_timeout, the settings with a unit
     return setting[4] == null ? value : String.valueOf(QueryProcessor.millis(value));
   }
 
