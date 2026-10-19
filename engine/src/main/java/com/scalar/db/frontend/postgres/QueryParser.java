@@ -629,7 +629,7 @@ class QueryParser {
       // PostgreSQL compares a timestamp with a timestamptz in the session's zone
       value = LocalDateTime.ofInstant((java.time.Instant) value, Evaluator.zone());
     } else if (type == DataType.TIMESTAMPTZ && value instanceof LocalDateTime) {
-      value = ((LocalDateTime) value).atZone(Evaluator.zone()).toInstant();
+      value = Evaluator.instant((LocalDateTime) value, Evaluator.zone());
     }
     String text;
     if (value instanceof java.nio.ByteBuffer) {
@@ -6500,11 +6500,11 @@ class QueryParser {
       t = t.substring(0, t.length() - 1) + "+00:00"; // pgx and ISO 8601 write UTC as Z
     }
     if (t.length() == 10) {
-      return LocalDate.parse(t).atStartOfDay().atZone(Evaluator.zone()).toInstant();
+      return Evaluator.instant(LocalDate.parse(t).atStartOfDay(), Evaluator.zone());
     }
     return OFFSET.matcher(t).find() && t.indexOf('T') > 0
         ? offsetDateTime(t).toInstant()
-        : LocalDateTime.parse(t).atZone(Evaluator.zone()).toInstant();
+        : Evaluator.instant(LocalDateTime.parse(t), Evaluator.zone());
   }
 
   private static OffsetDateTime offsetDateTime(String t) {

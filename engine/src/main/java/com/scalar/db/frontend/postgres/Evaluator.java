@@ -296,6 +296,17 @@ final class Evaluator {
   }
 
   /**
+   * A local timestamp in a zone, as PostgreSQL resolves it: a time that occurs twice (when DST
+   * ends) takes the later, standard-time offset; one that does not occur (when DST starts) is moved
+   * forward by the gap.
+   */
+  static Instant instant(LocalDateTime local, java.time.ZoneId zone) {
+    return java.time.ZonedDateTime.ofLocal(local, zone, null)
+        .withLaterOffsetAtOverlap()
+        .toInstant();
+  }
+
+  /**
    * time input as PostgreSQL reads it: rounded half to even to microseconds. 24:00:00, given or
    * rounded to (23:59:59.9999999), is {@link LocalTime#MAX}, which prints as 24:00:00 and sorts
    * last.
@@ -2599,7 +2610,7 @@ final class Evaluator {
     }
     LocalDateTime local = asTimestamp(v);
     if (local != null) {
-      return local.atZone(z).toInstant();
+      return instant(local, z);
     }
     throw new IllegalArgumentException("AT TIME ZONE needs a timestamp: " + text(v));
   }
@@ -2740,7 +2751,7 @@ final class Evaluator {
       Object local =
           java.util.Objects.requireNonNull(
               dateTrunc(unit, LocalDateTime.ofInstant((Instant) v, zone())));
-      return ((LocalDateTime) local).atZone(zone()).toInstant();
+      return instant((LocalDateTime) local, zone());
     }
     LocalDateTime t = v instanceof LocalDate ? ((LocalDate) v).atStartOfDay() : (LocalDateTime) v;
     switch (unit.toLowerCase(Locale.ROOT)) {
@@ -3190,7 +3201,7 @@ final class Evaluator {
         return v instanceof Instant
             ? v
             : v instanceof LocalDateTime
-                ? ((LocalDateTime) v).atZone(zone()).toInstant()
+                ? instant((LocalDateTime) v, zone())
                 : QueryParser.instant(s);
       }
       if (t.startsWith("timestamp")) {

@@ -181,6 +181,17 @@ public class HelpersTest {
   }
 
   @Test
+  public void instant_ShouldResolveDstLikePostgreSql() {
+    java.time.ZoneId ny = java.time.ZoneId.of("America/New_York");
+    // 01:30 occurs twice when DST ends: the later, standard-time offset (-05)
+    assertThat(Evaluator.instant(java.time.LocalDateTime.parse("2023-11-05T01:30:00"), ny))
+        .isEqualTo(java.time.Instant.parse("2023-11-05T06:30:00Z"));
+    // 02:30 does not occur when DST starts: moved forward by the gap, to 03:30 -04
+    assertThat(Evaluator.instant(java.time.LocalDateTime.parse("2023-03-12T02:30:00"), ny))
+        .isEqualTo(java.time.Instant.parse("2023-03-12T07:30:00Z"));
+  }
+
+  @Test
   public void time_ShouldRoundToMicrosecondsAsPostgreSqlDoes() {
     // half to even; a value rounding past the last microsecond is 24:00:00
     assertThat(Evaluator.text(Evaluator.time("12:00:00.1234565"))).isEqualTo("12:00:00.123456");
