@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "110"
 tags: [datetime, settings, regress-suite]
@@ -28,9 +28,10 @@ Todo 059 added IntervalStyle as a setting that is stored but not applied (docume
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Fixed by todo 120 (c1995d1): output follows IntervalStyle; postgres_verbose '1 day 2 hours' is '@ 1 day 2 hours', as in PostgreSQL.
