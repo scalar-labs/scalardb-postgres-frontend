@@ -53,6 +53,8 @@ public class ColumnTypeTest {
     "'bpchar(4)', CHAR, CHAR, TRIMMED_TEXT, , , 4",
     "'smallint', SMALLINT, SMALLINT, INT, , , ",
     "'int2', SMALLINT, SMALLINT, INT, , , ",
+    "'json', JSON, JSON, TEXT, , , ",
+    "'JSONB', JSONB, JSONB, TEXT, , , ",
   })
   public void declared_ModifiedTypes_ShouldHaveTheirRowAndReadItBack(
       String type,
@@ -392,6 +394,7 @@ public class ColumnTypeTest {
       {declared("varchar(3)"), TextColumn.of("v", "abcd")},
       {declared("char(3)"), TextColumn.of("c", "abcd")},
       {declared("smallint"), IntColumn.of("s", 40000)},
+      {declared("jsonb"), TextColumn.of("j", "{bad")},
     };
     for (Object[] c : cases) {
       ColumnType t = (ColumnType) c[0];
@@ -437,6 +440,25 @@ public class ColumnTypeTest {
             ColumnType.fromRow("NUMERIC", null, null, null, "ZZ", DataType.TEXT)
                 .comparableWhenStored())
         .isFalse();
+  }
+
+  @Test
+  public void json_ShouldKeepItsTextAndJsonbBeNormalised() {
+    String written = "{\"z\" : [1 ,2], \"a\": 1, \"a\": 1.50}";
+    ColumnType json = declared("json");
+    ColumnType jsonb = declared("jsonb");
+    assertThat(json.exact("j", json.coerce(written))).isEqualTo(TextColumn.of("j", written));
+    assertThat(jsonb.exact("b", jsonb.coerce(written)))
+        .isEqualTo(TextColumn.of("b", "{\"a\": 1.50, \"z\": [1, 2]}"));
+    assertThat(state(() -> json.coerce("{bad"))).isEqualTo("22P02");
+    // read back as the declared type: json keeps its text, jsonb reads unnormalised text as jsonb
+    assertThat(String.valueOf(json.decode(TextColumn.of("j", written), "t"))).isEqualTo(written);
+    assertThat(String.valueOf(jsonb.decode(TextColumn.of("b", "{\"z\":1, \"a\" : 2}"), "t")))
+        .isEqualTo("{\"a\": 2, \"z\": 1}");
+    assertThat(json.oid()).isEqualTo(114);
+    assertThat(jsonb.oid()).isEqualTo(3802);
+    assertThat(jsonb.comparableWhenStored()).isFalse();
+    assertThat(state(() -> jsonb.checkKeyable("b", 18))).isEqualTo("0A000");
   }
 
   @Test

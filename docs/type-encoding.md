@@ -37,7 +37,7 @@ column is read.
 |---|---|---|---|
 | `full_table_name` | TEXT | partition | `namespace.table`, as in ScalarDB's metadata table |
 | `column_name` | TEXT | clustering | the column's name, the same in ScalarDB and to clients |
-| `sql_type` | TEXT | | `NUMERIC`, `VARCHAR`, `CHAR` or `SMALLINT` |
+| `sql_type` | TEXT | | `NUMERIC`, `VARCHAR`, `CHAR`, `SMALLINT`, `JSON` or `JSONB` |
 | `type_precision` | INT | | NUMERIC digits; null for NUMERIC without a precision |
 | `type_scale` | INT | | NUMERIC scale; null when `type_precision` is |
 | `type_length` | INT | | n of `VARCHAR(n)` and `CHAR(n)` |
@@ -55,9 +55,13 @@ One row per column with a declared type; a table with none has no rows.
 | `VARCHAR(n)` | VARCHAR | `TEXT` | TEXT | at most n characters |
 | `CHAR(n)`; `CHAR` is `CHAR(1)` | CHAR | `TRIMMED_TEXT` | TEXT | at most n characters, without trailing spaces |
 | `SMALLINT`, `INT2` | SMALLINT | `INT` | INT | −32768 to 32767 |
+| `JSON` | JSON | `TEXT` | TEXT | valid JSON, as written |
+| `JSONB` | JSONB | `TEXT` | TEXT | valid JSON as PostgreSQL normalises jsonb: keys sorted by length then bytes, the last of a duplicate key, `": "` and `", "` separators |
 
 A negative scale is allowed: `NUMERIC(5,-2)` stores 12300 as 123. A `DECIMAL_TEXT` column cannot be a key or
-index column: ScalarDB would compare its text, not its number. `VARCHAR` without a length is plain `TEXT`, with
+index column: ScalarDB would compare its text, not its number. Neither can a `JSON` or `JSONB` column, and
+conditions on one are evaluated in the frontend: jsonb compares by value (`1.0` equals `1.00`), json not at
+all. A `JSONB` value another client stored unnormalised still reads as that value. `VARCHAR` without a length is plain `TEXT`, with
 no row.
 
 The digit limit for `SCALED_BIGINT` is chosen when the column is created, from the storage the frontend is

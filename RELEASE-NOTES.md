@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### json and jsonb columns keep their type
+
+A `json` or `jsonb` column used to become plain `text`: `\d` showed `text`, a `jsonb` value was stored as
+written, and `->` on a `json` column answered as jsonb, with its keys sorted. The type is now recorded like
+`NUMERIC(p,s)` (docs/type-encoding.md). `json` keeps its text as written, and `jsonb` is stored normalised,
+as PostgreSQL stores it. Both are described with their own type, and conditions on them run in the
+frontend. `json` has no `=`, ordering or grouping (42883), and `jsonb` compares by value, as in PostgreSQL.
+Declaring one now needs the metadata table, as `NUMERIC(p,s)` does (`55000` until `CREATE FRONTEND METADATA
+TABLES`). Neither can be a key or index column (`0A000`). Columns created by earlier releases stay `text`.
+
 ### Catalog answers: the truth or an error
 
 A catalog query the frontend could not plan used to answer no rows, which a client cannot tell from "there

@@ -131,8 +131,8 @@ class TypeStore {
       throw new PgException.Argument(
           "55000",
           "a column type this frontend must record (NUMERIC, DECIMAL, VARCHAR(n), CHAR(n),"
-              + " SMALLINT) needs its metadata table: run CREATE FRONTEND METADATA TABLES as a"
-              + " superuser first");
+              + " SMALLINT, JSON, JSONB) needs its metadata table: run CREATE FRONTEND METADATA"
+              + " TABLES as a superuser first");
     }
   }
 

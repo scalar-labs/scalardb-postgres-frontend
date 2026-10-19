@@ -1778,6 +1778,12 @@ final class Evaluator {
     a = a instanceof Catalog.Reg ? (Object) ((Catalog.Reg) a).oid : a;
     b = b instanceof Catalog.Reg ? (Object) ((Catalog.Reg) b).oid : b;
     if (a instanceof Json.Value || b instanceof Json.Value) {
+      if (a instanceof Json.Value && !((Json.Value) a).binary
+          || b instanceof Json.Value && !((Json.Value) b).binary) {
+        // as PostgreSQL: json has no =, <, ordering or grouping; jsonb does
+        throw new PgException.Argument(
+            "42883", "could not identify a comparison operator for type json");
+      }
       Json.Value x = Json.of(a);
       Json.Value y = Json.of(b);
       return x.equals(y) ? 0 : x.toString().compareTo(y.toString());

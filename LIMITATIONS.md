@@ -153,7 +153,7 @@ at the end of this section.
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an
   omitted column with a `DEFAULT` reads `NULL`. `serial` columns do not generate values.
 - **Declared types are recorded in the frontend's metadata table** (`docs/type-encoding.md`): `CHAR(n)`,
-  `VARCHAR(n)`, `SMALLINT` and `NUMERIC` keep their declaration and PostgreSQL's rules for it
+  `VARCHAR(n)`, `SMALLINT`, `NUMERIC`, `JSON` and `JSONB` keep their declaration and PostgreSQL's rules for it
   (`amount NUMERIC(10,2)` is a ScalarDB `BIGINT` column `amount` holding cents, and a row in
   `scalardb_postgres_frontend.column_types` saying so). The table is created once with `CREATE FRONTEND
   METADATA TABLES`; until then such a declaration is refused (`55000`). With Cluster authentication the

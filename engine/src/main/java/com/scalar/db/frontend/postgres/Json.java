@@ -58,7 +58,7 @@ final class Json {
 
     @Override
     public int hashCode() {
-      return toString().hashCode();
+      return hash(node); // agrees with equals: [1] and [1.0] are one jsonb value
     }
 
     @Override
@@ -298,6 +298,27 @@ final class Json {
       return false;
     }
     return same(a, b);
+  }
+
+  /** A hash that equal values share: numbers by value, object members in any order. */
+  private static int hash(JsonNode n) {
+    if (n.isNumber()) {
+      return n.decimalValue().stripTrailingZeros().hashCode();
+    }
+    int h = n.getNodeType().hashCode();
+    if (n.isObject()) {
+      for (Iterator<Map.Entry<String, JsonNode>> it = n.fields(); it.hasNext(); ) {
+        Map.Entry<String, JsonNode> e = it.next();
+        h += e.getKey().hashCode() ^ hash(e.getValue());
+      }
+    } else if (n.isArray()) {
+      for (JsonNode item : n) {
+        h = 31 * h + hash(item);
+      }
+    } else {
+      h = 31 * h + n.hashCode();
+    }
+    return h;
   }
 
   /** Equality as jsonb sees it: numbers by value, containers member by member. */

@@ -161,6 +161,22 @@ public class HelpersTest {
   }
 
   @Test
+  public void jsonEquality_ShouldFollowPostgreSql() {
+    // jsonb: equal by value, so one DISTINCT or GROUP BY member; json: no equality at all
+    Json.Value one = Json.cast("[1, {\"a\": 1}]", true);
+    Json.Value same = Json.cast("[1.0, {\"a\":1.00}]", true);
+    assertThat(one).isEqualTo(same).hasSameHashCodeAs(same);
+    assertThat(Evaluator.compare(one, same)).isZero();
+    Json.Value json = Json.cast("[1]", false);
+    assertThatThrownBy(() -> Evaluator.compare(json, json))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+    assertThatThrownBy(() -> Operators.normalize(json))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+  }
+
+  @Test
   public void stringEscapes_ShouldReadAsPostgreSqlDoes() {
     assertThat(QueryParser.escapeStringQuotes("SELECT E'it\\'s', 'a\\'"))
         .isEqualTo("SELECT E'it''s', 'a\\'");

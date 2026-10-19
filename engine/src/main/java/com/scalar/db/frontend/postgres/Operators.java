@@ -1000,6 +1000,11 @@ final class Operators {
    */
   @Nullable static Object normalize(@Nullable Object v) {
     v = v instanceof Catalog.Reg ? (Object) ((Catalog.Reg) v).oid : v;
+    if (v instanceof Json.Value && !((Json.Value) v).binary) {
+      // as PostgreSQL: json has no equality, so no DISTINCT, GROUP BY, UNION or IN on it
+      throw new PgException.Argument(
+          "42883", "could not identify an equality operator for type json");
+    }
     if (v instanceof String && Evaluator.collation().hasCanonicalTextForm()) {
       return java.nio.ByteBuffer.wrap(Evaluator.collation().canonicalTextFormOf((String) v));
     }

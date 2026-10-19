@@ -42,6 +42,10 @@ final class ColumnType {
     CHAR,
     /** smallint: an INT within -32768..32767. */
     SMALLINT,
+    /** json: valid JSON text, kept as written. */
+    JSON,
+    /** jsonb: JSON text as PostgreSQL normalises it (keys sorted, last duplicate kept). */
+    JSONB,
     /** A recorded type this frontend cannot read: shown as stored, never written. */
     UNKNOWN_ENCODING
   }
@@ -123,6 +127,10 @@ final class ColumnType {
       case "smallint":
       case "int2":
         return new ColumnType(Kind.SMALLINT, DataType.INT, 0, 0, 0);
+      case "json":
+        return new ColumnType(Kind.JSON, DataType.TEXT, 0, 0, 0);
+      case "jsonb":
+        return new ColumnType(Kind.JSONB, DataType.TEXT, 0, 0, 0);
       default:
         return of(QueryParser.columnType(declared));
     }
@@ -190,6 +198,10 @@ final class ColumnType {
       case "SMALLINT/INT":
         t = new ColumnType(Kind.SMALLINT, DataType.INT, 0, 0, 0);
         break;
+      case "JSON/TEXT":
+      case "JSONB/TEXT":
+        t = new ColumnType(sqlType.equals("JSON") ? Kind.JSON : Kind.JSONB, DataType.TEXT, 0, 0, 0);
+        break;
       default:
         return unknown;
     }
@@ -208,6 +220,9 @@ final class ColumnType {
         return "CHAR";
       case SMALLINT:
         return "SMALLINT";
+      case JSON:
+      case JSONB:
+        return kind.name();
       default:
         throw new IllegalStateException("No row for a " + kind + " column");
     }
@@ -241,6 +256,9 @@ final class ColumnType {
         return "TRIMMED_TEXT";
       case SMALLINT:
         return "INT";
+      case JSON:
+      case JSONB:
+        return "TEXT";
       default:
         throw new IllegalStateException("No row for a " + kind + " column");
     }
@@ -251,9 +269,13 @@ final class ColumnType {
    * keys, ranges and conditions on the column may be pushed down. A text-stored numeric is the
    * exception: as text, "1.50" differs from "1.5" and "10" sorts before "9", so every comparison on
    * it but IS NULL must be evaluated in memory, and such a column cannot be a key or index column.
+   * JSON is another: jsonb compares by value ({@code 1.0} equals {@code 1.00}), json not at all.
    */
   boolean comparableWhenStored() {
-    return kind != Kind.NUMERIC_TEXT && kind != Kind.UNKNOWN_ENCODING;
+    return kind != Kind.NUMERIC_TEXT
+        && kind != Kind.UNKNOWN_ENCODING
+        && kind != Kind.JSON
+        && kind != Kind.JSONB;
   }
 
   /**
@@ -261,6 +283,15 @@ final class ColumnType {
    * differently from PostgreSQL (a text-stored numeric).
    */
   void checkKeyable(String column, int maxScaledPrecision) {
+    if (kind == Kind.JSON || kind == Kind.JSONB) {
+      throw new PgException.Argument(
+          "0A000",
+          "column \""
+              + column
+              + "\" cannot be a key or index column: a "
+              + sqlName()
+              + " value is stored as text here, which ScalarDB would order and match as text");
+    }
     if (!comparableWhenStored()) {
       throw new PgException.Argument(
           "0A000",
@@ -280,7 +311,7 @@ final class ColumnType {
    * is taken as written, and a number against it is 42883. A numeric stored as text is not.
    */
   boolean comparesAsText() {
-    return storage == DataType.TEXT && !isNumeric();
+    return storage == DataType.TEXT && !isNumeric() && kind != Kind.JSON && kind != Kind.JSONB;
   }
 
   /**
@@ -314,6 +345,10 @@ final class ColumnType {
         return 1042;
       case SMALLINT:
         return 21;
+      case JSON:
+        return 114;
+      case JSONB:
+        return 3802;
       default:
         return Catalog.typeOid(storage);
     }
@@ -370,6 +405,9 @@ final class ColumnType {
         }
       case SMALLINT:
         return Evaluator.cast("smallint", v); // integer rounding and the range check, 22003
+      case JSON:
+      case JSONB:
+        return jsonText(v);
       case UNKNOWN_ENCODING:
         throw unknownEncoding();
       default:
@@ -486,6 +524,9 @@ final class ColumnType {
           }
           return IntColumn.of(storageName, d.intValue());
         }
+      case JSON:
+      case JSONB:
+        return v == null ? TextColumn.ofNull(storageName) : TextColumn.of(storageName, jsonText(v));
       case UNKNOWN_ENCODING:
         throw unknownEncoding();
       default:
@@ -785,6 +826,20 @@ final class ColumnType {
           }
           return i;
         }
+      case JSON:
+      case JSONB:
+        {
+          String s = stored.getTextValue();
+          if (s == null) {
+            return null;
+          }
+          try {
+            // a jsonb another client stored unnormalised still reads as jsonb
+            return Json.cast(s, kind == Kind.JSONB);
+          } catch (PgException.Argument invalid) {
+            throw corrupted(stored, table);
+          }
+        }
       default:
         return stored.getValueAsObject();
     }
@@ -810,6 +865,17 @@ final class ColumnType {
   }
 
   // ---- helpers ----
+
+  /**
+   * The text a json or jsonb column stores: json validated and kept as written, jsonb normalised as
+   * PostgreSQL normalises it on input. A json value given to a jsonb column (or the reverse) is
+   * converted, as the assignment cast does.
+   */
+  private String jsonText(Object v) {
+    Json.Value j =
+        v instanceof Json.Value ? (Json.Value) v : Json.cast(noNul(Evaluator.text(v)), false);
+    return kind == Kind.JSONB ? Json.text(j.node, true) : j.toString();
+  }
 
   /**
    * A value as a number for a numeric column: a BigDecimal, or a Double for NaN and the infinities.
