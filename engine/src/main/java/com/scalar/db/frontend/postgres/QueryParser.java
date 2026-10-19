@@ -3100,6 +3100,11 @@ class QueryParser {
         }
         plan.expanded.add(plan.outputNames.get(i));
       }
+      if (nestedSetReturning(e)) {
+        // PostgreSQL expands it under the expression, one row per element
+        throw new PgException.Argument(
+            "0A000", "Unsupported set-returning function inside an expression: " + e);
+      }
     }
     if (plan.distinct && plan.distinctOn.isEmpty()) {
       Set<String> outputs = new HashSet<>();
@@ -3137,6 +3142,35 @@ class QueryParser {
     // pg_proc's proretset, and information_schema's _pg_expandarray
     return name.equals("_pg_expandarray")
         || Builtins.overloads(name).stream().anyMatch(f -> "t".equals(f.row.get("proretset")));
+  }
+
+  /** Whether a set-returning call sits below the top of {@code e}, outside subqueries. */
+  private static boolean nestedSetReturning(Expression e) {
+    boolean[] found = {false};
+    Expression call = e;
+    while (call instanceof RowGetExpression) {
+      call = unwrap(((RowGetExpression) call).getExpression()); // (f(x)).field
+    }
+    Expression top = isSetReturning(e) ? call : null;
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(Function function, S context) {
+            found[0] |= function != top && isSetReturning(function);
+            return super.visit(function, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+        });
+    return found[0];
   }
 
   /** Set-returning JSON functions, as a table function in FROM. */

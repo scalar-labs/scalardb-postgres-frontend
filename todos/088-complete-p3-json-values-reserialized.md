@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "088"
 tags: [json, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ json keeps its text as written. json_array_elements(_text), and json values nest
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: json results are built as text from their parts, as PostgreSQL's datum_to_json does: a json part as written, a jsonb part as jsonb prints, arrays compact, json_agg starting arrays on a new line, json_object_agg as { k : v }; array elements keep their text. Also: json_build_object with a non-scalar key fails with 22023 (from todo 091), a record as json is refused (0A000; PostgreSQL writes an object), and a set-returning call nested in an expression (json_array_elements(x)::text) is refused instead of collapsing its rows into one array. Regress vs PostgreSQL 18: json.sql #207-210, #342, #351, #377 SAME; no new failures in json, jsonb, arrays.

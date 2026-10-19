@@ -3596,11 +3596,13 @@ final class Evaluator {
           return widened(best, f, f.getParameters(), group, ctx);
         }
       case "JSON_BUILD_OBJECT":
+        return Json.buildObjectText(args);
       case "JSONB_BUILD_OBJECT":
-        return new Json.Value(Json.buildObject(args), name.startsWith("JSONB"), null);
+        return new Json.Value(Json.buildObject(args), true, null);
       case "JSON_BUILD_ARRAY":
+        return Json.buildArrayText(args, false);
       case "JSONB_BUILD_ARRAY":
-        return new Json.Value(Json.buildArray(args), name.startsWith("JSONB"), null);
+        return new Json.Value(Json.buildArray(args), true, null);
       case "NOW":
       case "TRANSACTION_TIMESTAMP":
         return statementNow();
@@ -3656,8 +3658,11 @@ final class Evaluator {
       case "LOCALTIME":
         return roundedTo(now(name), ((Number) args.get(0)).intValue()); // the precision form
       case "TO_JSON":
+        return args.get(0) instanceof Json.Value && !((Json.Value) args.get(0)).binary
+            ? args.get(0)
+            : Json.cast(Json.jsonText(args.get(0)), false);
       case "TO_JSONB":
-        return new Json.Value(Json.toNode(args.get(0)), name.equals("TO_JSONB"), null);
+        return new Json.Value(Json.toNode(args.get(0)), true, null);
       case "JSON_TYPEOF":
       case "JSONB_TYPEOF":
         return Json.typeOf(Json.of(args.get(0)).node);
@@ -3683,7 +3688,11 @@ final class Evaluator {
       case "JSON_ARRAY_ELEMENTS_TEXT":
       case "JSONB_ARRAY_ELEMENTS_TEXT":
         return Json.elements(
-            Json.of(args.get(0)).node, name.startsWith("JSONB"), name.endsWith("_TEXT"));
+            args.get(0) instanceof String
+                ? Json.cast((String) args.get(0), name.startsWith("JSONB"))
+                : Json.of(args.get(0)),
+            name.startsWith("JSONB"),
+            name.endsWith("_TEXT"));
       case "LENGTH":
       case "CHAR_LENGTH":
       case "CHARACTER_LENGTH":
@@ -4384,21 +4393,9 @@ final class Evaluator {
         pairs.add(key);
         pairs.add(eval(params.get(1), Collections.singletonList(row), ctx));
       }
-      com.fasterxml.jackson.databind.node.ObjectNode object = Json.buildObject(pairs);
-      if (name.startsWith("JSONB")) {
-        return new Json.Value(object, true, null);
-      }
-      // json_object_agg writes { "k" : v, ... }, spaced as PostgreSQL does
-      StringJoiner members = new StringJoiner(", ", "{ ", " }");
-      object
-          .fields()
-          .forEachRemaining(
-              m ->
-                  members.add(
-                      Json.text(new com.fasterxml.jackson.databind.node.TextNode(m.getKey()), false)
-                          + " : "
-                          + Json.text(m.getValue(), false)));
-      return new Json.Value(object, false, members.toString());
+      return name.startsWith("JSONB")
+          ? new Json.Value(Json.buildObject(pairs), true, null)
+          : Json.objectAggText(pairs);
     }
     // count(t.*): t's whole row, which is NULL in a row an outer join extended with NULLs for t
     // ponytail: such a row is told by all of t's columns being NULL; exact for a ScalarDB table,
@@ -4562,10 +4559,9 @@ final class Evaluator {
             : rectangular(
                 new ArrayList<>(values), "cannot accumulate arrays of different dimensionality");
       case "JSON_AGG":
+        return values.isEmpty() ? null : Json.buildArrayText(values, true);
       case "JSONB_AGG":
-        return values.isEmpty()
-            ? null
-            : new Json.Value(Json.buildArray(values), name.equals("JSONB_AGG"), null);
+        return values.isEmpty() ? null : new Json.Value(Json.buildArray(values), true, null);
       case "STRING_AGG":
         {
           if (values.isEmpty()) {

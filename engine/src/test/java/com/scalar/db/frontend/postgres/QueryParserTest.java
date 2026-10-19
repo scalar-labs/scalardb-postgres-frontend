@@ -1755,6 +1755,21 @@ public class QueryParserTest {
                 "{\"b\" : 1, \"a\" : \"x\"}",
                 "v",
                 "{\"b\":1,\"a\":2}"));
+    // a json value built from parts keeps each part's text, a jsonb part printed as jsonb
+    assertThat(
+            parser
+                .parse(
+                    "SELECT json_build_object('e', '{\"x\":1}'::jsonb, 'f', '[1,2]'::json)::text"
+                        + " AS o, json_build_array(ARRAY[1, 2], 1.50)::text AS a")
+                .execute(transaction))
+        .containsExactly(map("o", "{\"e\" : {\"x\": 1}, \"f\" : [1,2]}", "a", "[[1,2], 1.50]"));
+    assertThat(
+            parser
+                .parse("SELECT json_array_elements_text('[1e2, [1,2]]') AS v")
+                .execute(transaction))
+        .containsExactly(map("v", "1e2"), map("v", "[1,2]"));
+    assertThatThrownBy(() -> parser.parse("SELECT json_array_elements('[1]')::text"))
+        .hasMessageContaining("set-returning function inside an expression");
     // json extraction keeps the text as written (strings re-escaped, the last duplicate key); jsonb
     // normalises
     String raw =

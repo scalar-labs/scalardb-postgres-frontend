@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.TreeMap;
 import javax.annotation.Nullable;
 
@@ -118,6 +119,9 @@ final class Json {
     }
     if (v instanceof Number) {
       return NODES.numberNode(new BigDecimal(Evaluator.text(v)));
+    }
+    if (v instanceof Evaluator.Row) {
+      throw unsupportedRecord(); // PostgreSQL writes an object named by the record's fields
     }
     if (v instanceof List) {
       ArrayNode array = NODES.arrayNode();
@@ -448,18 +452,91 @@ final class Json {
 
   /** {@code json_build_object(k1, v1, ...)}: keys as text, in the order given. */
   static ObjectNode buildObject(List<Object> args) {
+    ObjectNode out = NODES.objectNode();
+    for (int i = 0; i < pairs(args); i += 2) {
+      out.set(Evaluator.text(args.get(i)), toNode(args.get(i + 1)));
+    }
+    return out;
+  }
+
+  /** The number of arguments, checked as key and value pairs with scalar, non-null keys. */
+  private static int pairs(List<Object> args) {
     if (args.size() % 2 != 0) {
       throw new PgException.Argument(
           "22023", "argument list must have even number of elements (key, value pairs)");
     }
-    ObjectNode out = NODES.objectNode();
     for (int i = 0; i < args.size(); i += 2) {
-      if (args.get(i) == null) {
+      Object key = args.get(i);
+      if (key == null) {
         throw new IllegalArgumentException("argument " + (i + 1) + ": key must not be null");
       }
-      out.set(Evaluator.text(args.get(i)), toNode(args.get(i + 1)));
+      if (key instanceof List || key instanceof Value) {
+        throw new PgException.Argument(
+            "22023", "key value must be scalar, not array, composite, or json");
+      }
     }
-    return out;
+    return args.size();
+  }
+
+  /**
+   * A SQL value in json text, as PostgreSQL's datum_to_json writes it: a json value as written, a
+   * jsonb one as printed, an array without spaces.
+   */
+  static String jsonText(@Nullable Object v) {
+    if (v == null) {
+      return "null";
+    }
+    if (v instanceof Value) {
+      return v.toString();
+    }
+    if (v instanceof Evaluator.Row) {
+      throw unsupportedRecord();
+    }
+    if (v instanceof List) {
+      StringJoiner items = new StringJoiner(",", "[", "]");
+      ((List<?>) v).forEach(item -> items.add(jsonText(item)));
+      return items.toString();
+    }
+    return text(toNode(v), false);
+  }
+
+  private static PgException.Argument unsupportedRecord() {
+    return new PgException.Argument("0A000", "Unsupported: a record as json");
+  }
+
+  /** A json value built as text, as PostgreSQL builds it, and read back for the operators. */
+  private static Value built(String text) {
+    return new Value(parse(text), false, text);
+  }
+
+  /** json_build_object: {@code {"k" : v, ...}}, each value as written. */
+  static Value buildObjectText(List<Object> args) {
+    StringJoiner members = new StringJoiner(", ", "{", "}");
+    for (int i = 0; i < pairs(args); i += 2) {
+      members.add(jsonText(Evaluator.text(args.get(i))) + " : " + jsonText(args.get(i + 1)));
+    }
+    return built(members.toString());
+  }
+
+  /** json_object_agg: {@code { "k" : v, ... }}, spaced as PostgreSQL writes it. */
+  static Value objectAggText(List<Object> pairs) {
+    StringJoiner members = new StringJoiner(", ", "{ ", " }");
+    for (int i = 0; i < pairs(pairs); i += 2) {
+      members.add(jsonText(Evaluator.text(pairs.get(i))) + " : " + jsonText(pairs.get(i + 1)));
+    }
+    return built(members.toString());
+  }
+
+  /** json_build_array: {@code [v, ...]}; json_agg also starts an array or row on a new line. */
+  static Value buildArrayText(List<?> items, boolean agg) {
+    StringBuilder sb = new StringBuilder("[");
+    for (Object item : items) {
+      if (sb.length() > 1) {
+        sb.append(agg && item instanceof List ? ", \n " : ", ");
+      }
+      sb.append(jsonText(item));
+    }
+    return built(sb.append(']').toString());
   }
 
   static ArrayNode buildArray(List<?> items) {
@@ -470,15 +547,16 @@ final class Json {
     return out;
   }
 
-  /** The elements of an array, as values of the given type. */
-  static List<Object> elements(JsonNode node, boolean binary, boolean asText) {
+  /** The elements of an array, as values of the given type; a json value's as written. */
+  static List<Object> elements(Value value, boolean binary, boolean asText) {
+    JsonNode node = value.node;
     if (!node.isArray()) {
       throw new PgException.Argument(
           "22023", "cannot extract elements from " + (node.isObject() ? "an object" : "a scalar"));
     }
     List<Object> out = new ArrayList<>();
-    for (JsonNode item : node) {
-      out.add(asText ? scalarText(item, binary) : new Value(item, binary, null));
+    for (int i = 0; i < node.size(); i++) {
+      out.add(extracted(value, node.get(i), List.of((long) i), binary, asText));
     }
     return out;
   }
