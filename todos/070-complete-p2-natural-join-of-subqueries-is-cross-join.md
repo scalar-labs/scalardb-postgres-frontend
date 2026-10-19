@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "070"
 tags: [join, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ int4, numeric, join, aggregates, window).
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done. The cause was narrower than the title: JSqlParser drops NATURAL when INNER follows it (NATURAL INNER JOIN parses as INNER JOIN with no condition, a cross join), for tables and subqueries alike; NATURAL JOIN worked. QueryParser.normalize rewrites NATURAL INNER JOIN to NATURAL JOIN. While there: normalize's rewrites (OPERATOR(pg_catalog.x), quoting a reserved word after AS) ran over the whole text, so 'x AS order' in a string literal was stored as 'x AS \"order\"' and 'OPERATOR(pg_catalog.+)' as '+', silently. They now go through QueryParser.outsideLiterals, which skips string literals, quoted names, dollar quotes and comments. Live checks against PostgreSQL 16 match (join.sql #81, #84 shapes, the literals, AS order, OPERATOR); HelpersTest covers normalize.

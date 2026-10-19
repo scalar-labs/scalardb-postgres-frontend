@@ -1225,13 +1225,62 @@ class QueryParser {
   /** Rewrites PostgreSQL syntax that JSQLParser does not accept. */
   static String normalize(String sql) {
     return parenthesisedJsonOperands(
-        escapeStringQuotes(
-            sql.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
-                // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
-                .replaceAll(
-                    "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
-                    "AS \"$1\"")));
+        outsideLiterals(
+            escapeStringQuotes(sql),
+            code ->
+                code.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
+                    // JSQLParser drops NATURAL when INNER follows it (a cross join, todo 070)
+                    .replaceAll("(?i)\\bNATURAL\\s+INNER\\s+JOIN\\b", "NATURAL JOIN")
+                    // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
+                    .replaceAll(
+                        "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
+                        "AS \"$1\"")));
   }
+
+  /**
+   * Applies {@code rewrite} to the SQL outside string literals, quoted identifiers, dollar quotes
+   * and comments, which are copied as they are: a rewrite of the SQL's syntax must not change the
+   * data it carries ('x AS order' stays as written). String literals have their quotes doubled by
+   * then ({@link #escapeStringQuotes}).
+   */
+  static String outsideLiterals(String sql, java.util.function.UnaryOperator<String> rewrite) {
+    StringBuilder out = new StringBuilder(sql.length());
+    int code = 0; // start of the code not yet rewritten
+    int i = 0;
+    while (i < sql.length()) {
+      char c = sql.charAt(i);
+      int end = -1;
+      if (c == '\'' || c == '"') {
+        end = sql.indexOf(c, i + 1);
+        while (end > 0 && end + 1 < sql.length() && sql.charAt(end + 1) == c) {
+          end = sql.indexOf(c, end + 2); // a doubled quote
+        }
+        end = end < 0 ? sql.length() : end + 1;
+      } else if (sql.startsWith("--", i)) {
+        end = sql.indexOf('\n', i);
+        end = end < 0 ? sql.length() : end;
+      } else if (sql.startsWith("/*", i)) {
+        end = sql.indexOf("*/", i + 2);
+        end = end < 0 ? sql.length() : end + 2;
+      } else if (c == '$') {
+        Matcher tag = DOLLAR_TAG.matcher(sql).region(i, sql.length());
+        if (tag.lookingAt() && (i == 0 || !Character.isLetterOrDigit(sql.charAt(i - 1)))) {
+          end = sql.indexOf(tag.group(), i + tag.group().length());
+          end = end < 0 ? sql.length() : end + tag.group().length();
+        }
+      }
+      if (end < 0) {
+        i++;
+        continue;
+      }
+      out.append(rewrite.apply(sql.substring(code, i))).append(sql, i, end);
+      code = end;
+      i = end;
+    }
+    return out.append(rewrite.apply(sql.substring(code))).toString();
+  }
+
+  private static final Pattern DOLLAR_TAG = Pattern.compile("\\$([A-Za-z_]\\w*)?\\$");
 
   // words before a parenthesis that make it an operand, not a function's argument list
   private static final Set<String> NOT_FUNCTIONS =

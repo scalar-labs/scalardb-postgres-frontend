@@ -250,6 +250,18 @@ public class HelpersTest {
   }
 
   @Test
+  public void normalize_ShouldRewriteSyntaxButNotData() {
+    // the rewrites apply to the SQL, never inside a literal, quoted name, dollar quote or comment
+    assertThat(
+            QueryParser.normalize(
+                "SELECT 'x AS order', 1 AS order, $$a NATURAL INNER JOIN b$$ /* AS user */"
+                    + " FROM a NATURAL INNER JOIN b WHERE 2 OPERATOR(pg_catalog.+) 3 > \"AS user\""))
+        .isEqualTo(
+            "SELECT 'x AS order', 1 AS \"order\", $$a NATURAL INNER JOIN b$$ /* AS user */"
+                + " FROM a NATURAL JOIN b WHERE 2 + 3 > \"AS user\"");
+  }
+
+  @Test
   public void parenthesisedJsonOperands_ShouldNotReadAsLambdas() {
     // a parenthesised operand of -> is wrapped; a call, ->>, a literal and a comment are not
     assertThat(
