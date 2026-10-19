@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "075"
 tags: [aggregates, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ In a subquery, an aggregate whose arguments (and FILTER) reference only outer-qu
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Refused first: in a subquery, an aggregate whose arguments and FILTER name no column of its own query but an outer column or a subquery (PostgreSQL's outer-level aggregate) fails with 0A000 instead of running once per outer row; it also refuses an aggregate over an uncorrelated subquery alone, which PostgreSQL keeps at its level. regress aggregates: the outer-level wrong results are errors now (182, max(min(...)), turns from PostgreSQL's 42803 to 0A000); subselect and join none new. Aggregating at the outer level remains to implement.

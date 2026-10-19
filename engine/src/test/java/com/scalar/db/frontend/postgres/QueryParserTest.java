@@ -506,6 +506,23 @@ public class QueryParserTest {
                     .get(0)
                     .keySet()))
         .containsExactly("j", "a.i", "b.k");
+    // a frame exclusion is refused rather than ignored
+    assertThatThrownBy(
+            () ->
+                parser
+                    .parse(
+                        "SELECT sum(x) OVER (ORDER BY x ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING"
+                            + " EXCLUDE CURRENT ROW) FROM (VALUES (1), (2)) v(x)")
+                    .execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    // an aggregate over only outer columns aggregates the outer rows in PostgreSQL: refused
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "SELECT (SELECT max(o.x) FROM (VALUES (1)) i(y)) FROM (VALUES (1), (2)) o(x)"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // ON clauses nesting joins are refused rather than attached to the wrong join
     assertThatThrownBy(
             () ->

@@ -103,6 +103,11 @@ final class Windows {
       partitionBy.add((Expression) p);
     }
     if (frame != null) {
+      if (frame.getExclusion() != null
+          && frame.getExclusion() != WindowElement.Exclusion.NO_OTHERS) {
+        // ponytail: frames are computed as contiguous ranges; EXCLUDE would cut holes in them
+        throw new PgException.Argument("0A000", "Unsupported window frame exclusion: " + frame);
+      }
       for (WindowOffset bound : bounds(frame)) {
         boolean unbounded = bound.getExpression() == null;
         if (bound.getType() == WindowOffset.Type.EXPR

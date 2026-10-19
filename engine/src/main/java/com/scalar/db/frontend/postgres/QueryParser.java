@@ -2985,6 +2985,15 @@ class QueryParser {
     if (plan.having != null) {
       analyze(plan.having, scope, plan.subplans);
     }
+    if (outer != null) {
+      List<Expression> checked = new ArrayList<>(plan.outputExpressions);
+      if (plan.having != null) {
+        checked.add(plan.having);
+      }
+      for (Expression e : checked) {
+        refuseOuterAggregates(e, scope);
+      }
+    }
     plan.aggregated = plan.groupBy != null || plan.having != null;
     for (Expression e : plan.outputExpressions) {
       plan.aggregated |= hasAggregate(e);
@@ -5762,6 +5771,65 @@ class QueryParser {
           }
         });
     return out;
+  }
+
+  /**
+   * An aggregate whose arguments name no column of its own query but an outer one (or a subquery)
+   * belongs to the outer query in PostgreSQL, aggregating over its rows; evaluated here it would
+   * run once per outer row, so it is refused.
+   */
+  private static void refuseOuterAggregates(Expression e, Scope scope) {
+    List<List<Expression>> arguments = new ArrayList<>(); // per aggregate: arguments and FILTER
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(Function f, S context) {
+            if (Evaluator.isAggregate(f) && f.getParameters() != null) {
+              arguments.add(Collections.singletonList(f.getParameters()));
+            }
+            return super.visit(f, context);
+          }
+
+          @Override
+          public <S> Void visit(net.sf.jsqlparser.expression.AnalyticExpression a, S context) {
+            if (a.getType() != net.sf.jsqlparser.expression.AnalyticType.OVER) {
+              List<Expression> parts = new ArrayList<>();
+              if (a.getExpression() != null) {
+                parts.add(a.getExpression());
+              }
+              if (a.getFilterExpression() != null) {
+                parts.add(a.getFilterExpression());
+              }
+              arguments.add(parts);
+            }
+            return super.visit(a, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+        });
+    for (List<Expression> a : arguments) {
+      List<net.sf.jsqlparser.schema.Column> columns = new ArrayList<>();
+      boolean subqueries = false;
+      for (Expression part : a) {
+        columns.addAll(columnRefs(part));
+        subqueries |= !subselects(part).isEmpty();
+      }
+      boolean local = columns.stream().anyMatch(c -> scope.isLocal(scope.resolve(c)));
+      if (!local && (!columns.isEmpty() || subqueries)) {
+        // ponytail: also refuses an aggregate over an uncorrelated subquery alone, which
+        // PostgreSQL keeps at this level
+        throw new PgException.Argument(
+            "0A000", "Unsupported aggregate over only outer-query columns: " + a.get(0));
+      }
+    }
   }
 
   /** The subqueries directly in {@code e}, not descending into them. */
