@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "096"
 tags: [types, float, regress-suite]
@@ -29,9 +29,10 @@ Three float8 edge cases differ from PostgreSQL.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: float8 input follows float8in: Infinity, inf and NaN in any case, decimal digits only (1.5f is 22P02), and a value that overflows or underflows to zero fails with 22003, also numeric to float8 (1e400::float8). round(float8) is rint (half to even, -0 kept), and round(float8, n) fails with 42883 as in PostgreSQL. power follows dpow: 1 ^ NaN, NaN ^ 0 and -1 ^ Infinity are 1. float8 and real are written with Ryu's shortest digits, never a midpoint (1e23 is 9.999999999999999e+22; JDK 17's Double.toString is not always shortest): 20,000 random float8 and 20,000 random float4 bit patterns print as PostgreSQL 18 prints them. Regress float4.sql #31-34, #41 and float8.sql #6-9, #24-27, #34, #51, #64-93 now SAME. Left: hex input ('0x10'::float8, 16 in PostgreSQL) is refused.

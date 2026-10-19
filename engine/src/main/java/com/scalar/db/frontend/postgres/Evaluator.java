@@ -2001,14 +2001,54 @@ final class Evaluator {
    * A float's shortest digits that read back as it, as PostgreSQL prints a real; Float.toString
    * before JDK 19 can give more (4.5678899E15 for 4.56789e+15).
    */
+  /** The shortest digits for {@code d}, as PostgreSQL's float8out (Ryu) writes it. */
+  private static BigDecimal shortest(double d) {
+    BigDecimal exact = new BigDecimal(d);
+    return shortest(
+        exact,
+        midpoint(exact, Math.nextDown(d), Math.ulp(d)),
+        midpoint(exact, Math.nextUp(d), Math.ulp(d)),
+        new BigDecimal(Double.toString(d)).stripTrailingZeros().precision());
+  }
+
+  /** The shortest digits for {@code f}, as PostgreSQL's float4out (Ryu) writes it. */
   private static BigDecimal shortest(float f) {
     BigDecimal exact = new BigDecimal(f);
-    for (int p = 1; ; p++) {
-      BigDecimal b = exact.round(new java.math.MathContext(p, java.math.RoundingMode.HALF_EVEN));
-      if (b.floatValue() == f) {
-        return b;
-      }
+    return shortest(
+        exact,
+        midpoint(exact, Math.nextDown(f), Math.ulp(f)),
+        midpoint(exact, Math.nextUp(f), Math.ulp(f)),
+        new BigDecimal(Float.toString(f)).stripTrailingZeros().precision());
+  }
+
+  /** Halfway from {@code exact} to its neighbor; past the largest value, half an ulp beyond. */
+  private static BigDecimal midpoint(BigDecimal exact, double neighbor, double ulp) {
+    BigDecimal other =
+        Double.isInfinite(neighbor)
+            ? exact.add(new BigDecimal(Math.copySign(ulp, neighbor)))
+            : new BigDecimal(neighbor);
+    return exact.add(other).divide(BigDecimal.valueOf(2)); // exact: a binary fraction halved
+  }
+
+  /**
+   * The fewest digits strictly between the midpoints {@code low} and {@code high}: Ryu as
+   * PostgreSQL builds it never takes a midpoint itself (1e23, halfway between two doubles, is
+   * written 9.999999999999999e+22), since a reader may round a tie either way. Fewer digits fit
+   * only if more do, so the search starts from a length that reads back and moves one way.
+   */
+  private static BigDecimal shortest(BigDecimal exact, BigDecimal low, BigDecimal high, int start) {
+    java.util.function.IntFunction<BigDecimal> digits =
+        p -> exact.round(new java.math.MathContext(p, RoundingMode.HALF_EVEN));
+    java.util.function.Predicate<BigDecimal> inside =
+        c -> c.compareTo(low) > 0 && c.compareTo(high) < 0;
+    int p = Math.max(start, 1);
+    while (!inside.test(digits.apply(p))) {
+      p++;
     }
+    while (p > 1 && inside.test(digits.apply(p - 1))) {
+      p--;
+    }
+    return digits.apply(p);
   }
 
   /** base ^ exponent, and power(base, exponent), in double precision as PostgreSQL's float8. */
@@ -2026,6 +2066,13 @@ final class Evaluator {
     }
     double base = b.doubleValue();
     double exponent = x.doubleValue();
+    // as PostgreSQL's dpow, after POSIX: 1 ^ NaN, NaN ^ 0 and -1 ^ Infinity are 1
+    if (Double.isNaN(base) || Double.isNaN(exponent)) {
+      return base == 1 || exponent == 0 ? 1 : Double.NaN;
+    }
+    if (Math.abs(base) == 1 && Double.isInfinite(exponent)) {
+      return 1;
+    }
     if (base == 0 && exponent < 0) {
       throw new PgException.Argument("2201F", "zero raised to a negative power is undefined");
     }
@@ -2485,6 +2532,38 @@ final class Evaluator {
     return v instanceof ByteBuffer || v instanceof byte[];
   }
 
+  /** float8in: digits, or Infinity, inf and NaN in any case; a value past the range fails. */
+  static double floatIn(String text) {
+    String t = text.trim();
+    switch (t.toLowerCase(Locale.ROOT)) {
+      case "infinity":
+      case "+infinity":
+      case "inf":
+      case "+inf":
+        return Double.POSITIVE_INFINITY;
+      case "-infinity":
+      case "-inf":
+        return Double.NEGATIVE_INFINITY;
+      case "nan":
+        return Double.NaN;
+      default:
+        break;
+    }
+    BigDecimal exact;
+    try {
+      exact = new BigDecimal(t); // decimal digits only: not Java's 1.5f, 0x1p3 or Infinity
+    } catch (NumberFormatException e) {
+      throw new PgException.Argument(
+          "22P02", "invalid input syntax for type double precision: \"" + text + "\"");
+    }
+    double d = Double.parseDouble(t);
+    if (Double.isInfinite(d) || d == 0 && exact.signum() != 0) {
+      throw new PgException.Argument(
+          "22003", "\"" + text + "\" is out of range for type double precision");
+    }
+    return d;
+  }
+
   /** A bytea value's bytes. */
   private static byte[] bytes(Object v) {
     if (v instanceof byte[]) {
@@ -2550,9 +2629,7 @@ final class Evaluator {
     if (d == 0) {
       return 1 / d < 0 ? "-0" : "0";
     }
-    BigDecimal b =
-        (maxPlainExponent == 6 ? shortest((float) d) : new BigDecimal(Double.toString(d)))
-            .stripTrailingZeros();
+    BigDecimal b = (maxPlainExponent == 6 ? shortest((float) d) : shortest(d)).stripTrailingZeros();
     int exponent = b.precision() - b.scale() - 1;
     if (exponent >= -4 && exponent < maxPlainExponent) {
       return b.toPlainString();
@@ -3348,7 +3425,12 @@ final class Evaluator {
         return d;
       }
       if (t.contains("float") || t.contains("double") || t.equals("real")) {
-        double d = v instanceof Number ? ((Number) v).doubleValue() : Double.parseDouble(s);
+        double d = v instanceof Number ? ((Number) v).doubleValue() : floatIn(s);
+        if (v instanceof BigDecimal
+            && (Double.isInfinite(d) || d == 0 && ((BigDecimal) v).signum() != 0)) {
+          throw new PgException.Argument(
+              "22003", "\"" + s + "\" is out of range for type double precision");
+        }
         boolean real =
             t.equals("real")
                 || t.equals("float4")
@@ -3790,13 +3872,18 @@ final class Evaluator {
           if (!isFinite(args.get(0))) {
             return args.get(0);
           }
+          if (args.get(0) instanceof Double || args.get(0) instanceof Float) {
+            if (args.size() > 1) {
+              throw new PgException.Argument(
+                  "42883", "function round(double precision, integer) does not exist");
+            }
+            return Math.rint(num(args, 0).doubleValue()); // dround: half to even, -0 kept
+          }
           BigDecimal rounded =
               new BigDecimal(num(args, 0).toString()).setScale(scale, RoundingMode.HALF_UP);
           return isIntegral(args.get(0))
               ? (Object) rounded.longValue()
-              : args.get(0) instanceof BigDecimal
-                  ? (Object) checkedNumeric(rounded) // round(5.5e131071, -131072) overflows
-                  : (Object) rounded.doubleValue();
+              : (Object) checkedNumeric(rounded); // round(5.5e131071, -131072) overflows
         }
       case "FLOOR":
         return isIntegral(args.get(0))

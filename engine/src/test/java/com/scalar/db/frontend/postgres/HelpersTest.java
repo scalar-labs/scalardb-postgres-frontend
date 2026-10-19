@@ -298,6 +298,21 @@ public class HelpersTest {
   }
 
   @Test
+  public void floats_ShouldReadAndWriteAsPostgreSqlDoes() {
+    // Ryu's shortest digits, never a midpoint between two doubles: 1e23 is one
+    assertThat(Evaluator.text(1e23)).isEqualTo("9.999999999999999e+22");
+    assertThat(Evaluator.text(Double.MIN_VALUE)).isEqualTo("5e-324");
+    assertThat(Evaluator.text(0.1f)).isEqualTo("0.1");
+    assertThat(Evaluator.floatIn(" -Inf ")).isEqualTo(Double.NEGATIVE_INFINITY);
+    for (String[] bad :
+        new String[][] {{"10e400", "22003"}, {"1e-400", "22003"}, {"1.5f", "22P02"}}) {
+      assertThatThrownBy(() -> Evaluator.floatIn(bad[0]))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
+    }
+  }
+
+  @Test
   public void stringEscapes_ShouldReadAsPostgreSqlDoes() {
     assertThat(QueryParser.escapeStringQuotes("SELECT E'it\\'s', 'a\\'"))
         .isEqualTo("SELECT E'it''s', 'a\\'");
