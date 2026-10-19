@@ -208,7 +208,8 @@ public class ClientCatalogTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"psql18", "psql14", "pgjdbc", "sqlalchemy", "asyncpg", "django"})
+  @ValueSource(
+      strings = {"psql18", "psql14", "pgjdbc", "sqlalchemy", "asyncpg", "django", "prisma"})
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE",
       justification = "A test replaying the captured client queries, with this server's oids")

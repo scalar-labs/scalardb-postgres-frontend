@@ -187,6 +187,7 @@ final class Builtins {
    * PostgreSQL would choose (see {@link #score}); 0 when no signature matches.
    */
   static long resultOid(String name, long[] args) {
+    args = vectorsAsArrays(args);
     Function best = null;
     int bestScore = -1;
     for (Function f : overloads(name)) {
@@ -213,7 +214,7 @@ final class Builtins {
         continue;
       }
       long[] params = l == 0 ? new long[] {r} : new long[] {l, r};
-      long[] args = l == 0 ? new long[] {right} : new long[] {left, right};
+      long[] args = vectorsAsArrays(l == 0 ? new long[] {right} : new long[] {left, right});
       int score = score(params, args, false);
       if (score > bestScore) {
         bestScore = score;
@@ -221,6 +222,18 @@ final class Builtins {
       }
     }
     return found;
+  }
+
+  /**
+   * The arguments with int2vector and oidvector as int2[] and oid[], as PostgreSQL's type
+   * resolution takes them (pg_index.indkey to generate_subscripts and unnest).
+   */
+  private static long[] vectorsAsArrays(long[] args) {
+    long[] out = args.clone();
+    for (int i = 0; i < out.length; i++) {
+      out[i] = out[i] == 22 ? 1005 : out[i] == 30 ? 1028 : out[i];
+    }
+    return out;
   }
 
   /**

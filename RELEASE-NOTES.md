@@ -17,8 +17,14 @@ TABLES`). Neither can be a key or index column (`0A000`). Columns created by ear
 A catalog query the frontend could not plan used to answer no rows, which a client cannot tell from "there
 is none": SQLAlchemy reflected tables without primary keys or indexes, for one. Now a catalog query answers
 what PostgreSQL 16 would answer for the same schema, or fails. The queries psql 14 and 18, pgjdbc,
-SQLAlchemy, asyncpg and Django send are kept as fixtures with PostgreSQL 16's answers, and the tests check
-each one. psql's `\d` of an index, `\dconfig` and `\df+`, SQLAlchemy's `get_columns`, `get_pk_constraint`
+SQLAlchemy, asyncpg, Django and Prisma send are kept as fixtures with PostgreSQL 16's answers, and the
+tests check each one. `prisma db pull` now introspects the database. Before, its schema engine crashed
+on three gaps:
+- `information_schema.columns` had no `udt_schema` or `is_identity`;
+- tables had no row type (`pg_class.reltype` was 0; each now has one in `pg_type`, with its array
+  type);
+- `generate_subscripts(indkey, 1)` was described as text, since `int2vector` and `oidvector` did not
+  count as arrays when a call's types were resolved. psql's `\d` of an index, `\dconfig` and `\df+`, SQLAlchemy's `get_columns`, `get_pk_constraint`
 and `get_indexes`, and `pg_get_keywords()` now answer as in PostgreSQL 16. `pg_tables`, `pg_user` and
 `pg_timezone_names` are new; `pg_settings` shows the session's values and their source, and `SHOW`,
 `SHOW ALL` and `current_setting` read the same settings. [LIMITATIONS.md](LIMITATIONS.md) lists the catalog

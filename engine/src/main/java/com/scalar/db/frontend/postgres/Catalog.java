@@ -222,6 +222,14 @@ final class Catalog {
     }
   };
 
+  /**
+   * information_schema.columns.udt_schema: where the column's type (its element's, if an array) is.
+   */
+  private static String udtSchema(long typeOid) {
+    long element = elementOid(typeOid) != 0 ? elementOid(typeOid) : typeOid;
+    return DOMAIN_OIDS.contains(element) ? "information_schema" : "pg_catalog";
+  }
+
   /** A setting's row in {@link #SETTINGS}, by its exact name; null for one not listed. */
   @Nullable static String[] setting(String name) {
     for (String[] s : SETTINGS) {
@@ -601,7 +609,12 @@ final class Catalog {
             "numeric_precision",
             "numeric_precision_radix",
             "numeric_scale",
-            "datetime_precision"));
+            "datetime_precision",
+            "udt_catalog",
+            "udt_schema",
+            "is_identity",
+            "is_generated",
+            "is_updatable"));
     type(16, "bool", "boolean");
     type(17, "bytea", "bytea");
     type(20, "int8", "bigint");
@@ -2108,6 +2121,9 @@ final class Catalog {
                 typed ? typeStore.read(namespace, table, stored) : Collections.emptyMap());
         TableMetadata metadata = columnMap.metadata();
         long relOid = oid++;
+        long rowTypeOid = oid++;
+        long rowArrayOid = oid++;
+        rowType(t, rowTypeOid, rowArrayOid, table, namespaceOid, relOid);
         // as CREATE TABLE ... WITH (encrypted = '...') set them, for \d+ to show
         List<String> encrypted = new ArrayList<>();
         for (String column : metadata.getColumnNames()) {
@@ -2118,6 +2134,7 @@ final class Catalog {
         relation(
             t,
             relOid,
+            rowTypeOid,
             table,
             namespaceOid,
             "r",
@@ -2210,7 +2227,12 @@ final class Catalog {
               bounded ? (Object) (long) declared.precision : nativePrecision(typeOid),
               typeOid == 1700 ? (Object) 10L : nativePrecision(typeOid) != null ? 2L : null,
               bounded ? (Object) (long) declared.scale : nativeScale(typeOid),
-              null);
+              null,
+              database,
+              udtSchema(typeOid),
+              "NO",
+              "NEVER",
+              "YES");
         }
         String columnList = String.join(", ", keys);
         // The primary key as ScalarDB sees it: a read needs the whole partition key to be a Scan
@@ -2267,7 +2289,7 @@ final class Catalog {
               table + "_pkey");
         }
         long pkeyOid = oid++;
-        relation(t, pkeyOid, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null, null);
+        relation(t, pkeyOid, 0L, table + "_pkey", namespaceOid, "i", BTREE_AM, false, null, null);
         row(
             t,
             "pg_catalog.pg_index",
@@ -2372,7 +2394,7 @@ final class Catalog {
         for (String index : new TreeSet<>(metadata.getSecondaryIndexNames())) {
           long indexOid = oid++;
           String indexName = table + "_" + index + "_idx";
-          relation(t, indexOid, indexName, namespaceOid, "i", BTREE_AM, false, null, null);
+          relation(t, indexOid, 0L, indexName, namespaceOid, "i", BTREE_AM, false, null, null);
           int indexPosition = new ArrayList<>(metadata.getColumnNames()).indexOf(index) + 1;
           long indexAttnum = indexPosition;
           row(
@@ -2657,9 +2679,11 @@ final class Catalog {
         }
         long oid = Long.parseLong(relation[0]);
         String kind = relation[1];
+        // ponytail: a catalog relation's row type is left out (reltype 0); PostgreSQL has one
         relation(
             t,
             oid,
+            0L,
             d.getKey(),
             namespace,
             kind,
@@ -2794,7 +2818,12 @@ final class Catalog {
               nativePrecision(typeOid),
               nativePrecision(typeOid) != null ? 2L : null,
               nativeScale(typeOid),
-              null);
+              null,
+              database,
+              udtSchema(typeOid),
+              "NO",
+              "NEVER",
+              "NO");
         }
       }
     }
@@ -2928,6 +2957,7 @@ final class Catalog {
   private static void relation(
       Map<String, List<Map<String, Object>>> t,
       long oid,
+      long rowType,
       String name,
       long namespaceOid,
       String kind,
@@ -2961,8 +2991,51 @@ final class Catalog {
         -1.0,
         acl,
         0L,
-        0L,
+        rowType,
         false);
+  }
+
+  /** A table's row type, as PostgreSQL creates one with every table, and its array type. */
+  private static void rowType(
+      Map<String, List<Map<String, Object>>> t,
+      long oid,
+      long arrayOid,
+      String table,
+      long namespace,
+      long relation) {
+    row(
+        t,
+        "pg_catalog.pg_type",
+        oid,
+        table,
+        namespace,
+        0L,
+        0L,
+        ",",
+        "record_in",
+        "c",
+        0L,
+        arrayOid,
+        -1L,
+        "C",
+        relation,
+        false,
+        -1L,
+        OWNER_OID,
+        null,
+        false,
+        "d",
+        "x",
+        0L,
+        false,
+        "record_out",
+        "record_recv",
+        "record_send",
+        "-",
+        "-",
+        "-",
+        null);
+    arrayType(t, arrayOid, table, namespace, 0L, oid, 8L); // 8: aligned as a record, "d"
   }
 
   private static Map<String, Object> row(
