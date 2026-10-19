@@ -295,6 +295,8 @@ final class Evaluator {
     return v;
   }
 
+  // rotated ^ expressions by their parsed node; only rotated ones, whose value never refers to the
+  // key, so the weak keys can go once the statement cache drops the statement
   private static final Map<BitwiseXor, Expression> CARETS =
       Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
@@ -302,39 +304,40 @@ final class Evaluator {
    * {@code a * b ^ c} as PostgreSQL reads it, {@code a * (b ^ c)}: JSQLParser gives {@code ^} the
    * precedence of {@code * / %}, left to right, where PostgreSQL binds it tighter (and left to
    * right among {@code ^}). A {@code ^} whose left operand is an unparenthesised {@code * / %}
-   * takes only that operation's right operand. Rotated once per expression.
+   * takes only that operation's right operand.
    */
   static Expression caret(BitwiseXor e) {
-    return CARETS.computeIfAbsent(
-        e,
-        k -> {
-          Expression left = k.getLeftExpression();
-          if (left instanceof BitwiseXor) {
-            left = caret((BitwiseXor) left); // ((a * b) ^ c) ^ d: the inner one first
-          }
-          if (left instanceof Multiplication
-              || left instanceof Division
-              || left instanceof Modulo) {
-            BinaryExpression m = (BinaryExpression) left;
-            BitwiseXor inner = new BitwiseXor();
-            inner.setLeftExpression(m.getRightExpression());
-            inner.setRightExpression(k.getRightExpression());
-            BinaryExpression out =
-                left instanceof Multiplication
-                    ? new Multiplication()
-                    : left instanceof Division ? new Division() : new Modulo();
-            out.setLeftExpression(m.getLeftExpression());
-            out.setRightExpression(caret(inner));
-            return out;
-          }
-          if (left != k.getLeftExpression()) {
-            BitwiseXor out = new BitwiseXor();
-            out.setLeftExpression(left);
-            out.setRightExpression(k.getRightExpression());
-            return out;
-          }
-          return k;
-        });
+    Expression cached = CARETS.get(e);
+    if (cached != null) {
+      return cached;
+    }
+    Expression left = e.getLeftExpression();
+    if (left instanceof BitwiseXor) {
+      left = caret((BitwiseXor) left); // ((a * b) ^ c) ^ d: the inner one first
+    }
+    Expression rotated;
+    if (left instanceof Multiplication || left instanceof Division || left instanceof Modulo) {
+      BinaryExpression m = (BinaryExpression) left;
+      BitwiseXor inner = new BitwiseXor();
+      inner.setLeftExpression(m.getRightExpression());
+      inner.setRightExpression(e.getRightExpression());
+      BinaryExpression out =
+          left instanceof Multiplication
+              ? new Multiplication()
+              : left instanceof Division ? new Division() : new Modulo();
+      out.setLeftExpression(m.getLeftExpression());
+      out.setRightExpression(caret(inner));
+      rotated = out;
+    } else if (left != e.getLeftExpression()) {
+      BitwiseXor out = new BitwiseXor();
+      out.setLeftExpression(left);
+      out.setRightExpression(e.getRightExpression());
+      rotated = out;
+    } else {
+      return e; // nothing to rotate: not cached, as the entry's value would hold its weak key
+    }
+    CARETS.put(e, rotated);
+    return rotated;
   }
 
   /**
