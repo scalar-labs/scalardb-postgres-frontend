@@ -2029,6 +2029,9 @@ final class Evaluator {
 
   @Nullable private static Object columnValue(
       Column c, String name, List<Map<String, Object>> group, Context ctx) {
+    if (group instanceof Operators.Aggregate.EmptyGroup) {
+      return null; // the empty grouping set's row over no input: its grouping columns are NULL
+    }
     Map<String, Object> row = group.isEmpty() ? Collections.emptyMap() : group.get(0);
     List<Map<String, Object>> candidates =
         ctx.outer == null ? Collections.singletonList(row) : Arrays.asList(row, ctx.outer);
@@ -3263,7 +3266,10 @@ final class Evaluator {
     String name = functionName(f);
     if (name.equals("GROUPING")) {
       // grouping(a, b): a bit per argument, 1 when the grouping set left that expression out
-      Object outside = group.isEmpty() ? null : group.get(0).get(Operators.GROUPING_KEY);
+      Object outside =
+          group instanceof Operators.Aggregate.EmptyGroup
+              ? ((Operators.Aggregate.EmptyGroup) group).outside
+              : group.isEmpty() ? null : group.get(0).get(Operators.GROUPING_KEY);
       long bits = 0;
       if (f.getParameters() != null) {
         for (Expression p : f.getParameters()) {

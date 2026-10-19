@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "100"
 tags: [aggregates, grouping-sets, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ Each `()` grouping set yields one row even over empty input, as an aggregate wit
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. Operators.Aggregate gives the empty grouping set () its row over no input, as an aggregate without GROUP BY does: an EmptyGroup that knows what the set left out, so GROUPING() is 1 for those expressions and the grouping columns read as NULL (Evaluator.columnValue). Non-empty sets over no input still yield nothing. Seven statements (GROUPING SETS with (), ((),()), ROLLUP, CUBE, HAVING) match PostgreSQL 16 live; groupingsets.sql's DIFFs went from 16 to 4 (the rest are todos 101 and 102 and an aborted COMMIT). QueryParserTest covers it.

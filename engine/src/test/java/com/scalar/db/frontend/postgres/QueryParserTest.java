@@ -1670,6 +1670,14 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // the empty grouping set yields its row over no input, grouping columns NULL, GROUPING() 1
+    assertThat(
+            parser
+                .parse(
+                    "SELECT x, count(*) AS n, grouping(x) AS g FROM generate_series(1, 0) AS s(x)"
+                        + " GROUP BY ROLLUP(x)")
+                .execute(transaction))
+        .containsExactly(map("x", null, "n", 0L, "g", 1L));
     // smallint op smallint stays smallint and overflows; casts to oid keep its range
     for (String sql :
         new String[] {

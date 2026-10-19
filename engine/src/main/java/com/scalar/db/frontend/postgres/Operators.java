@@ -780,6 +780,12 @@ final class Operators {
                       + QueryParser.unquote(c.getColumnName()));
             }
           }
+          if (set.isEmpty() && rows.isEmpty()) {
+            // the empty grouping set yields its one row even over no input, as an aggregate
+            // without GROUP BY does
+            grouped.add(new EmptyGroup(outside));
+            continue;
+          }
           grouped.addAll(groups(rows, set, nulled, outside, ctx));
         }
       } else if (groupBy == null) {
@@ -829,6 +835,27 @@ final class Operators {
      * outside} (the grouping expressions this set leaves out) is kept in the rows for {@code
      * grouping()}.
      */
+    /** The empty grouping set's group over no rows, which still knows what it left out. */
+    static final class EmptyGroup extends ArrayList<Map<String, Object>> {
+      private static final long serialVersionUID = 1L;
+      final Set<String> outside;
+
+      EmptyGroup(Set<String> outside) {
+        this.outside = outside;
+      }
+
+      // equal as the empty list it is: what it left out names no row
+      @Override
+      public boolean equals(Object o) {
+        return super.equals(o);
+      }
+
+      @Override
+      public int hashCode() {
+        return super.hashCode();
+      }
+    }
+
     private static List<List<Map<String, Object>>> groups(
         List<Map<String, Object>> rows,
         List<Expression> key,
