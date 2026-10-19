@@ -1759,7 +1759,7 @@ public final class PostgresServer implements AutoCloseable {
           b.get(bytes);
           return bytes;
         }
-        return value instanceof byte[] ? (byte[]) value : QueryParser.hex(wireText(value));
+        return value instanceof byte[] ? (byte[]) value : QueryParser.bytea(wireText(value));
       case 1082:
         return ByteBuffer.allocate(4)
             .putInt(

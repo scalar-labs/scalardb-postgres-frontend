@@ -6205,7 +6205,7 @@ class QueryParser {
       case TEXT:
         return TextColumn.of(name, s);
       case BLOB:
-        return s == null ? BlobColumn.ofNull(name) : BlobColumn.of(name, hex(s));
+        return s == null ? BlobColumn.ofNull(name) : BlobColumn.of(name, bytea(s));
       case DATE:
         return s == null ? DateColumn.ofNull(name) : DateColumn.of(name, LocalDate.parse(s));
       case TIME:
@@ -6519,13 +6519,56 @@ class QueryParser {
     return OffsetDateTime.parse(t.substring(0, m.start()) + offset);
   }
 
-  /** Decodes a PostgreSQL bytea hex literal such as {@code \x0a0b}. */
-  static byte[] hex(String s) {
-    String h = s.startsWith("\\x") ? s.substring(2) : s;
-    byte[] out = new byte[h.length() / 2];
-    for (int i = 0; i < out.length; i++) {
-      out[i] = (byte) Integer.parseInt(h.substring(2 * i, 2 * i + 2), 16);
+  /**
+   * bytea input as PostgreSQL reads it: {@code \x} then hex digit pairs (whitespace between pairs),
+   * else the escape format, in which {@code \\} is a backslash, {@code \nnn} an octal byte, and
+   * anything else its UTF-8 bytes.
+   */
+  static byte[] bytea(String s) {
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    if (s.startsWith("\\x") || s.startsWith("\\X")) {
+      int high = -1;
+      for (int i = 2; i < s.length(); i++) {
+        char c = s.charAt(i);
+        if (high < 0 && Character.isWhitespace(c)) {
+          continue;
+        }
+        int digit = Character.digit(c, 16);
+        if (digit < 0) {
+          throw new PgException.Argument("22023", "invalid hexadecimal digit: \"" + c + "\"");
+        }
+        if (high < 0) {
+          high = digit;
+        } else {
+          out.write(high << 4 | digit);
+          high = -1;
+        }
+      }
+      if (high >= 0) {
+        throw new PgException.Argument("22023", "invalid hexadecimal data: odd number of digits");
+      }
+      return out.toByteArray();
     }
-    return out;
+    for (int i = 0; i < s.length(); ) {
+      char c = s.charAt(i);
+      if (c != '\\') {
+        int end = i + Character.charCount(s.codePointAt(i));
+        out.writeBytes(s.substring(i, end).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        i = end;
+      } else if (i + 1 < s.length() && s.charAt(i + 1) == '\\') {
+        out.write('\\');
+        i += 2;
+      } else if (i + 3 < s.length()
+          && s.charAt(i + 1) >= '0'
+          && s.charAt(i + 1) <= '3'
+          && Character.digit(s.charAt(i + 2), 8) >= 0
+          && Character.digit(s.charAt(i + 3), 8) >= 0) {
+        out.write(Integer.parseInt(s.substring(i + 1, i + 4), 8));
+        i += 4;
+      } else {
+        throw new PgException.Argument("22P02", "invalid input syntax for type bytea");
+      }
+    }
+    return out.toByteArray();
   }
 }

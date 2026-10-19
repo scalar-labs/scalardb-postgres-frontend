@@ -35,3 +35,4 @@ Several malformed literals that PostgreSQL rejects are accepted.
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: The odd-number-of-hex-digits item (strings.sql #40) and the 22P02-vs-22023 bad hex digit (#41) are fixed by todo 081's bytea parser. The \\u escapes and adjacent literals remain.

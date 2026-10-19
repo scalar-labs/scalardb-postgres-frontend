@@ -162,6 +162,17 @@ public class HelpersTest {
   }
 
   @Test
+  public void bytea_ShouldReadHexAndEscapeFormats() {
+    assertThat(Evaluator.hex(QueryParser.bytea("\\x de AD"))).isEqualTo("dead");
+    assertThat(Evaluator.hex(QueryParser.bytea("DeAd"))).isEqualTo("44654164"); // escape format
+    assertThat(Evaluator.hex(QueryParser.bytea("a\\\\b\\101\\000"))).isEqualTo("615c624100");
+    assertThat(Evaluator.hex(QueryParser.bytea("\u00e9"))).isEqualTo("c3a9");
+    for (String bad : new String[] {"\\xdea", "\\xgg", "a\\b", "a\\400"}) {
+      assertThatThrownBy(() -> QueryParser.bytea(bad)).as(bad).isInstanceOf(PgException.class);
+    }
+  }
+
+  @Test
   public void stringAggOfBytea_ShouldJoinTheBytes() {
     java.nio.ByteBuffer ff = java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xff});
     java.nio.ByteBuffer aa = java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xaa});

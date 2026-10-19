@@ -1944,7 +1944,7 @@ final class Evaluator {
         return QueryParser.instant(s);
       }
       if (target instanceof ByteBuffer) {
-        return ByteBuffer.wrap(QueryParser.hex(s));
+        return ByteBuffer.wrap(QueryParser.bytea(s));
       }
     } catch (ArithmeticException e) {
       throw e;
@@ -3108,7 +3108,7 @@ final class Evaluator {
       if (t.equals("bytea")) {
         return v instanceof ByteBuffer || v instanceof byte[]
             ? v
-            : ByteBuffer.wrap(QueryParser.hex(s));
+            : ByteBuffer.wrap(QueryParser.bytea(s));
       }
       if (t.endsWith("[]")) {
         String element = t.substring(0, t.length() - 2).trim();

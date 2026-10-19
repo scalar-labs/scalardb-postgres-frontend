@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "081"
 tags: [bytea, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ PostgreSQL reads bytea input that does not start with `\x` as escape format: pla
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. QueryParser.bytea (was hex) reads bytea input as PostgreSQL does: \\x then hex digit pairs with whitespace allowed between pairs (an odd count or a bad digit is 22023), otherwise the escape format (\\\\ a backslash, \\nnn an octal byte, other characters their UTF-8 bytes, any other backslash 22P02). Casts, comparisons, column writes and binary output all use it. A live check of values, errors, inserts and a comparison against PostgreSQL 16 matches; HelpersTest covers it. The odd-digit item of todo 085 is fixed with it.
