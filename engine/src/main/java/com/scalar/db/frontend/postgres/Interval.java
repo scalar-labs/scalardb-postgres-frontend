@@ -44,6 +44,14 @@ final class Interval implements Comparable<Interval> {
    * seconds, a leading {@code @}, a trailing {@code ago}, and ISO 8601 {@code P1Y2M3DT4H5M6S}.
    */
   static Interval parse(String text) {
+    try {
+      return read(text);
+    } catch (ArithmeticException e) {
+      throw outOfRange(); // a field past its range, as PostgreSQL's 22015
+    }
+  }
+
+  private static Interval read(String text) {
     String s = text.trim();
     if (s.startsWith("@")) {
       s = s.substring(1).trim();
@@ -68,8 +76,12 @@ final class Interval implements Comparable<Interval> {
                       : seconds(Evaluator.checkedNumeric(new BigDecimal(iso.group(7)))));
     } else {
       Matcher m = TOKEN.matcher(s);
+      int seen = 0; // the fields given so far: PostgreSQL rejects one given twice
+      boolean any = false;
       while (m.find()) {
+        any = true;
         if (m.group(1) != null) {
+          seen = field(seen, 0b11111 << 4, text); // a time is hours, minutes and all seconds
           String[] parts = m.group(1).split(":");
           boolean negative = parts[0].startsWith("-");
           BigDecimal secs =
@@ -86,34 +98,93 @@ final class Interval implements Comparable<Interval> {
         }
         BigDecimal amount = Evaluator.checkedNumeric(new BigDecimal(m.group(2)));
         String unit = m.group(3).toLowerCase(Locale.ROOT);
-        if (unit.isEmpty() || unit.matches("s|sec|secs|second|seconds")) {
+        if (unit.isEmpty()) {
+          // a bare number is seconds alone, or days before a time ('1 2:03:04'); PostgreSQL's
+          // other readings ('1-2' as years and months) are not taken
+          boolean beforeTime =
+              m.end() < s.length() && TIME_NEXT.matcher(s.substring(m.end())).lookingAt();
+          if (!beforeTime && (seen != 0 || m.end() < s.trim().length())) {
+            throw invalid(text);
+          }
+          unit = beforeTime ? "day" : "second";
+        }
+        if (unit.matches("s|sec|secs|second|seconds")) {
+          // fractional seconds also claim the milliseconds and microseconds, as in PostgreSQL
+          seen =
+              field(
+                  seen,
+                  amount.scale() > 0 && fraction(amount).signum() != 0 ? 0b111 << 6 : 1 << 6,
+                  text);
           micros = micros.add(seconds(amount));
         } else if (unit.matches("y|yr|yrs|year|years")) {
-          BigDecimal m12 = amount.multiply(BigDecimal.valueOf(12));
-          months += whole(m12);
-          days += whole(fraction(m12).multiply(BigDecimal.valueOf(30)));
+          seen = field(seen, 1, text);
+          // a fraction of a year is whole months, rounded as PostgreSQL's rint: 0.7 years is 8 mons
+          months =
+              Math.addExact(
+                  months,
+                  whole(
+                      amount.multiply(BigDecimal.valueOf(12)).setScale(0, RoundingMode.HALF_EVEN)));
         } else if (unit.matches("mon|mons|month|months")) {
-          months += whole(amount);
-          days += whole(fraction(amount).multiply(BigDecimal.valueOf(30)));
+          seen = field(seen, 1 << 1, text);
+          months = Math.addExact(months, whole(amount));
+          // a fraction of a month is 30-day days, and their fraction time: 0.01 months is 07:12:00
+          BigDecimal d = fraction(amount).multiply(BigDecimal.valueOf(30));
+          days = Math.addExact(days, whole(d));
+          micros = micros.add(fraction(d).multiply(BigDecimal.valueOf(MICROS_PER_DAY)));
         } else if (unit.matches("w|week|weeks") || unit.matches("d|day|days")) {
+          seen = field(seen, unit.startsWith("w") ? 1 << 2 : 1 << 3, text);
           BigDecimal d = unit.startsWith("w") ? amount.multiply(BigDecimal.valueOf(7)) : amount;
-          days += whole(d);
+          days = Math.addExact(days, whole(d));
           micros = micros.add(fraction(d).multiply(BigDecimal.valueOf(MICROS_PER_DAY)));
         } else if (unit.matches("h|hr|hrs|hour|hours")) {
+          seen = field(seen, 1 << 4, text);
           micros = micros.add(seconds(amount.multiply(BigDecimal.valueOf(3600))));
         } else if (unit.matches("m|min|mins|minute|minutes")) {
+          seen = field(seen, 1 << 5, text);
           micros = micros.add(seconds(amount.multiply(BigDecimal.valueOf(60))));
         } else if (unit.matches("ms|millisecond|milliseconds")) {
+          seen = field(seen, 1 << 7, text);
           micros = micros.add(amount.multiply(BigDecimal.valueOf(1000)));
         } else if (unit.matches("us|microsecond|microseconds")) {
+          seen = field(seen, 1 << 8, text);
           micros = micros.add(amount);
         } else {
           throw invalid(text);
         }
       }
+      if (!any) {
+        throw invalid(text); // '' is not an interval
+      }
     }
-    Interval v = new Interval(months, days, micros.setScale(0, RoundingMode.HALF_UP).longValue());
-    return ago ? v.negate() : v;
+    long time;
+    try {
+      time = micros.setScale(0, RoundingMode.HALF_UP).longValueExact();
+    } catch (ArithmeticException e) {
+      throw outOfRange();
+    }
+    if (ago) {
+      months = -months;
+      days = -days;
+      time = Math.negateExact(time);
+    }
+    if (months != (int) months || days != (int) days) {
+      throw outOfRange(); // PostgreSQL keeps months and days as integers
+    }
+    return new Interval(months, days, time);
+  }
+
+  private static final Pattern TIME_NEXT = Pattern.compile("\\s*[+-]?\\d+:");
+
+  /** {@code seen} with {@code bits} added; a field given twice is invalid input. */
+  private static int field(int seen, int bits, String text) {
+    if ((seen & bits) != 0) {
+      throw invalid(text);
+    }
+    return seen | bits;
+  }
+
+  private static IllegalArgumentException outOfRange() {
+    return new PgException.Argument("22015", "interval out of range");
   }
 
   private static IllegalArgumentException invalid(String text) {
@@ -134,7 +205,11 @@ final class Interval implements Comparable<Interval> {
   }
 
   private static long whole(BigDecimal v) {
-    return v.setScale(0, RoundingMode.DOWN).longValue();
+    try {
+      return v.setScale(0, RoundingMode.DOWN).longValueExact();
+    } catch (ArithmeticException e) {
+      throw outOfRange();
+    }
   }
 
   private static BigDecimal fraction(BigDecimal v) {
@@ -271,29 +346,37 @@ final class Interval implements Comparable<Interval> {
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    part(sb, months / 12, "year");
-    part(sb, months % 12, "mon");
-    part(sb, days, "day");
+    // as PostgreSQL's EncodeInterval: a positive field after a negative one is signed, -1 days
+    // +02:00
+    boolean before = part(sb, months / 12, "year", false);
+    before = part(sb, months % 12, "mon", before);
+    before = part(sb, days, "day", before);
     if (micros != 0 || sb.length() == 0) {
-      long abs = Math.abs(micros);
-      long seconds = abs / MICROS_PER_SECOND;
+      long seconds =
+          Math.abs(micros / MICROS_PER_SECOND); // Math.abs(micros) fails at Long.MIN_VALUE
+      long fraction = Math.abs(micros % MICROS_PER_SECOND);
       String time =
           String.format("%02d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60);
-      long fraction = abs % MICROS_PER_SECOND;
       if (fraction != 0) {
         time += String.format(".%06d", fraction).replaceAll("0+$", "");
       }
-      sb.append(sb.length() > 0 ? " " : "").append(micros < 0 ? "-" : "").append(time);
+      sb.append(sb.length() > 0 ? " " : "")
+          .append(micros < 0 ? "-" : before ? "+" : "")
+          .append(time);
     }
     return sb.toString();
   }
 
-  private static void part(StringBuilder sb, long value, String unit) {
-    if (value != 0) {
-      sb.append(sb.length() > 0 ? " " : "").append(value).append(' ').append(unit);
-      if (value != 1) {
-        sb.append('s'); // PostgreSQL pluralizes everything but exactly 1
-      }
+  /** Appends a nonzero field; whether the last field written is negative. */
+  private static boolean part(StringBuilder sb, long value, String unit, boolean before) {
+    if (value == 0) {
+      return before;
     }
+    sb.append(sb.length() > 0 ? " " : "").append(before && value > 0 ? "+" : "").append(value);
+    sb.append(' ').append(unit);
+    if (value != 1) {
+      sb.append('s'); // PostgreSQL pluralizes everything but exactly 1
+    }
+    return value < 0;
   }
 }

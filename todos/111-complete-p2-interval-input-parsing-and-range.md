@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "111"
 tags: [datetime, interval, wrong-result, regress-suite]
@@ -30,9 +30,10 @@ The interval input parser does not follow PostgreSQL's DecodeInterval, ignores q
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Interval input follows PostgreSQL where it is read, and fails where it is not: a bare number is seconds alone or days before a time ('1 2:03:04', '-1 +02:03'), any other bare number ('1-2', '1 2') is 22007; a field given twice is 22007 (fractional seconds and a time also claim milliseconds and microseconds); '' is 22007; a field past its range, before or after 'ago', is 22015 rather than wrapping. A fraction of a year rounds to months, a fraction of a month carries into days and time (0.01 months is 07:12:00; it was dropped). A qualifier other than one field over a whole number ('1' YEAR TO MONTH, second(2), '1.5' DAY) is refused with 0A000. Found alongside: a positive field after a negative one prints with '+' (-1 days +02:03:00), the most negative microseconds printed as --2562047788:00:-54.-775808, and INTERVAL '...' is named interval. regress interval: 47 wrong results fixed before these last fixes; the rest are IntervalStyle (todo 120), 22008 vs 22015 codes, and interval * float overflow (#42). Year-month input ('1-2') and qualifiers remain to implement.

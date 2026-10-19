@@ -3566,6 +3566,9 @@ class QueryParser {
     if (e instanceof CastExpression) {
       return castTypeLabel(((CastExpression) e).getColDataType().getDataType());
     }
+    if (e instanceof net.sf.jsqlparser.expression.IntervalExpression) {
+      return "interval"; // INTERVAL '1 day' is a typed literal, named by its type
+    }
     return "?column?";
   }
 

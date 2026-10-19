@@ -140,10 +140,29 @@ public class HelpersTest {
         "1.5 days|1 day 12:00:00",
         "@ 2 hours ago|-02:00:00",
         "P1Y2M3DT4H5M6S|1 year 2 mons 3 days 04:05:06",
-        "90|00:01:30"
+        "90|00:01:30",
+        "1 2:03:04|1 day 02:03:04",
+        "-1 +02:03|-1 days +02:03:00"
       })
   public void intervalParse_ShouldReadPostgreSqlInputForms(String input, String output) {
     assertThat(Interval.parse(input).toString()).isEqualTo(output);
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      delimiter = '|',
+      value = {
+        "1 day 1 day|22007",
+        "1 hour 02:00:00|22007",
+        "1 2|22007",
+        "1-2|22007", // years and months in PostgreSQL, not read here
+        "''|22007",
+        "2562047789 hours|22015",
+        "2147483648 days|22015"
+      })
+  public void intervalParse_ShouldRefuseWhatItCannotRead(String input, String state) {
+    assertThatThrownBy(() -> Interval.parse(input))
+        .isInstanceOfSatisfying(PgException.class, e -> assertThat(e.sqlState()).isEqualTo(state));
   }
 
   @Test

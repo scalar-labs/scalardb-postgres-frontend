@@ -1063,10 +1063,18 @@ final class Evaluator {
       p = p.startsWith("'") && p.endsWith("'") ? p.substring(1, p.length() - 1) : p;
       // INTERVAL '1' DAY carries its unit apart from the amount (the leading field of HOUR TO
       // MINUTE)
-      String unit =
-          iv.getIntervalQualifier() != null
-              ? iv.getIntervalQualifier().getLeadingField()
-              : iv.getIntervalType();
+      net.sf.jsqlparser.expression.IntervalQualifier q = iv.getIntervalQualifier();
+      String unit = q != null ? q.getLeadingField() : iv.getIntervalType();
+      if (unit != null
+          && (!INTEGER_TEXT.matcher(p.trim()).matches()
+              || (q != null
+                  && (q.getTrailingField() != null
+                      || q.getLeadingFieldPrecision() != null
+                      || q.getFractionalSecondsPrecision() != null)))) {
+        // ponytail: a qualifier truncates the fields below it and gives a bare number to its last
+        // field ('1' YEAR TO MONTH is 1 mon); only a whole number with one field is read so far
+        throw new PgException.Argument("0A000", "Unsupported interval qualifier: " + e);
+      }
       return Interval.parse(unit == null ? p : p + " " + unit);
     }
     if (e instanceof TimezoneExpression) {
@@ -2020,6 +2028,9 @@ final class Evaluator {
     }
     return v;
   }
+
+  private static final java.util.regex.Pattern INTEGER_TEXT =
+      java.util.regex.Pattern.compile("[+-]?\\d+");
 
   /** A double rounded to real, which fails as PostgreSQL's float8 to float4 does. */
   private static float real(double d) {
