@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "082"
 tags: [bytea, settings, regress-suite]
@@ -28,9 +28,10 @@ on both servers.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: SET bytea_output = hex|escape; escape writes bytes as PostgreSQL's byteaout does (printable ASCII, \\ for a backslash, \nnn otherwise); other values fail with 22023. aggregates.sql #290, #298 are now SAME.

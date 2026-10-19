@@ -1321,8 +1321,15 @@ final class Evaluator {
       if (v == null || p == null) {
         return null;
       }
-      String escape =
-          like.getEscape() == null ? "\\" : String.valueOf(eval(like.getEscape(), group, ctx));
+      Object escapeValue = like.getEscape() == null ? "\\" : eval(like.getEscape(), group, ctx);
+      if (escapeValue == null) {
+        return null; // as PostgreSQL's strict like_escape and similar_to_escape
+      }
+      String escape = String.valueOf(escapeValue);
+      if (escape.codePointCount(0, escape.length()) > 1) {
+        throw new PgException.Argument(
+            "22025", "invalid escape string: Escape string must be empty or one character.");
+      }
       if (like.getLikeKeyWord() == LikeExpression.KeyWord.SIMILAR_TO) {
         boolean similar = match(similarPattern(String.valueOf(p), escape), String.valueOf(v), true);
         return similar != like.isNot();
@@ -2331,6 +2338,22 @@ final class Evaluator {
     return v instanceof Boolean ? ((Boolean) v ? "t" : "f") : text(v);
   }
 
+  /** bytea_output = escape: printable ASCII as is, a backslash doubled, other bytes as \\nnn. */
+  private static String escapeBytes(byte[] bytes) {
+    StringBuilder sb = new StringBuilder();
+    for (byte b : bytes) {
+      int c = b & 0xff;
+      if (c == '\\') {
+        sb.append("\\\\");
+      } else if (c < 0x20 || c > 0x7e) {
+        sb.append(String.format("\\%03o", c));
+      } else {
+        sb.append((char) c);
+      }
+    }
+    return sb.toString();
+  }
+
   static String text(Object v) {
     if (v instanceof Json.Value || v instanceof Catalog.Reg) {
       return v.toString();
@@ -2409,7 +2432,10 @@ final class Evaluator {
       return timestampText(z.toLocalDateTime()) + offsetText(z.getOffset());
     }
     if (isBytea(v)) {
-      return "\\x" + hex(bytes(v));
+      Settings settings = settings();
+      return settings != null && "escape".equals(settings.get("bytea_output"))
+          ? escapeBytes(bytes(v))
+          : "\\x" + hex(bytes(v));
     }
     if (v instanceof Double) {
       return floatText((Double) v, 15);
@@ -3748,7 +3774,7 @@ final class Evaluator {
           return isIntegral(args.get(0))
               ? (Object) rounded.longValue()
               : args.get(0) instanceof BigDecimal
-                  ? (Object) rounded
+                  ? (Object) checkedNumeric(rounded) // round(5.5e131071, -131072) overflows
                   : (Object) rounded.doubleValue();
         }
       case "FLOOR":

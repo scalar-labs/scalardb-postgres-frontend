@@ -61,6 +61,7 @@ final class Catalog {
       "Sets the application name to be reported in statistics and logs."
     },
     {"block_size", "8192", "integer", "internal", null, "Shows the size of a disk block."},
+    {"bytea_output", "hex", "enum", "user", null, "Sets the output format for bytea."},
     {
       "client_encoding", "UTF8", "string", "user", null, "Sets the client's character set encoding."
     },

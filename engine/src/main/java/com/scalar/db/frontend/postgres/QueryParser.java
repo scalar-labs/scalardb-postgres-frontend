@@ -3022,6 +3022,10 @@ class QueryParser {
       if (!outputName) {
         analyze(o.getExpression(), scope, plan.subplans);
         bindWindows(o.getExpression(), select, scope, plan);
+        if (plan.aggregated) {
+          noNestedAggregate(o.getExpression());
+          checkGrouped(o.getExpression(), grouped(plan), plan);
+        }
       }
     }
     if (!plan.distinctOn.isEmpty() && !plan.orderBy.isEmpty()) {
@@ -6186,22 +6190,36 @@ class QueryParser {
     if (plan.having != null) {
       noNestedAggregate(plan.having);
     }
+    if (select.getWindowDefinitions() != null) {
+      Set<String> windows = new HashSet<>();
+      for (net.sf.jsqlparser.expression.WindowDefinition d : select.getWindowDefinitions()) {
+        if (!windows.add(d.getWindowName().toLowerCase(Locale.ROOT))) {
+          throw new PgException.Argument(
+              "42P20", "window \"" + d.getWindowName() + "\" is already defined");
+        }
+      }
+    }
     if (!plan.aggregated) {
       return;
     }
-    Set<String> grouped = new HashSet<>();
-    if (plan.groupBy != null) {
-      for (Expression g : plan.groupBy) {
-        grouped.add(
-            unwrap(g).toString()); // GROUP BY c1 resolves to the output's (x + y) as written
-      }
-    }
+    Set<String> grouped = grouped(plan);
     for (Expression e : plan.outputExpressions) {
       checkGrouped(e, grouped, plan);
     }
     if (plan.having != null) {
       checkGrouped(plan.having, grouped, plan);
     }
+  }
+
+  /** The grouping expressions' texts; GROUP BY c1 resolves to the output's (x + y) as written. */
+  private static Set<String> grouped(LogicalPlan plan) {
+    Set<String> grouped = new HashSet<>();
+    if (plan.groupBy != null) {
+      for (Expression g : plan.groupBy) {
+        grouped.add(unwrap(g).toString());
+      }
+    }
+    return grouped;
   }
 
   private static void checkGrouped(Expression e, Set<String> grouped, LogicalPlan plan) {
@@ -6306,9 +6324,33 @@ class QueryParser {
                       "42803", "aggregate function calls cannot be nested");
                 }
               }
+              if (function.isDistinct() && function.getOrderByElements() != null) {
+                Set<String> arguments = new HashSet<>();
+                function.getParameters().forEach(p -> arguments.add(p.toString()));
+                for (OrderByElement o : function.getOrderByElements()) {
+                  if (!arguments.contains(o.getExpression().toString())) {
+                    throw new PgException.Argument(
+                        "42P10",
+                        "in an aggregate with DISTINCT, ORDER BY expressions must appear in"
+                            + " argument list");
+                  }
+                }
+              }
               return null;
             }
             return super.visit(function, context);
+          }
+
+          @Override
+          public <S> Void visit(
+              net.sf.jsqlparser.expression.AnalyticExpression analytic, S context) {
+            if (Evaluator.isFilteredAggregate(analytic)
+                && analytic.getFilterExpression() != null
+                && hasAggregate(analytic.getFilterExpression())) {
+              throw new PgException.Argument(
+                  "42803", "aggregate functions are not allowed in FILTER");
+            }
+            return super.visit(analytic, context);
           }
 
           @Override

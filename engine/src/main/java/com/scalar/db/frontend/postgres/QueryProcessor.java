@@ -295,11 +295,12 @@ public class QueryProcessor {
     if ("DateStyle".equals(key)) {
       value = dateStyle(value, current("DateStyle"));
     }
-    if ("IntervalStyle".equals(key)) {
+    if ("IntervalStyle".equals(key) || "bytea_output".equals(key)) {
       String style = value.trim().replace("'", "").toLowerCase(Locale.ROOT);
-      if (!style.matches("postgres|postgres_verbose|sql_standard|iso_8601")) {
+      if (!style.matches("postgres|postgres_verbose|sql_standard|iso_8601|hex|escape")
+          || (style.matches("hex|escape") != "bytea_output".equals(key))) {
         throw new PgException.Argument(
-            "22023", "invalid value for parameter \"IntervalStyle\": \"" + value + "\"");
+            "22023", "invalid value for parameter \"" + key + "\": \"" + value + "\"");
       }
       value = style;
     }

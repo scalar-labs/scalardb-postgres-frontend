@@ -445,6 +445,15 @@ public class QueryParserTest {
     assertThat(
             parser
                 .parse(
+                    "SELECT 'abc' SIMILAR TO 'a%' ESCAPE NULL AS a, 'abc' LIKE 'a%' ESCAPE NULL AS b")
+                .execute(transaction))
+        .containsExactly(map("a", null, "b", null));
+    assertThatThrownBy(
+            () -> parser.parse("SELECT 'abc' SIMILAR TO 'a%' ESCAPE '##'").execute(transaction))
+        .hasMessageContaining("invalid escape string");
+    assertThat(
+            parser
+                .parse(
                     "SELECT 2 BETWEEN SYMMETRIC 3 AND 1 AS a, (1, 'x') = (1, 'x') AS b,"
                         + " (1, 2) < (1, 3) AS c, (1, NULL) = (1, 2) AS d, (ARRAY[10, 20, 30])[2] AS e,"
                         + " (ARRAY[10, 20, 30])[2:3] AS f, (ARRAY[10, 20, 30])[5] AS g")
@@ -1873,6 +1882,20 @@ public class QueryParserTest {
         .hasMessageContaining("not allowed in WHERE");
     assertThatThrownBy(() -> parser.parse("SELECT max(count(*)) FROM t GROUP BY id"))
         .hasMessageContaining("cannot be nested");
+    assertThatThrownBy(() -> parser.parse("SELECT count(*) FROM t GROUP BY id ORDER BY name"))
+        .hasMessageContaining("must appear in the GROUP BY clause");
+    assertThatThrownBy(() -> parser.parse("SELECT max(id) FILTER (WHERE sum(price) > 0) FROM t"))
+        .hasMessageContaining("not allowed in FILTER");
+    assertThatThrownBy(
+            () -> parser.parse("SELECT string_agg(DISTINCT name, ',' ORDER BY name || 'x') FROM t"))
+        .hasMessageContaining("must appear in argument list");
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "SELECT count(*) OVER w FROM t WINDOW w AS (ORDER BY id), w AS (ORDER BY id)"))
+        .hasMessageContaining("window \"w\" is already defined");
+    assertThat(parser.parse("SELECT count(*) c FROM t GROUP BY id ORDER BY c, id, max(seq)"))
+        .isNotNull();
     // the whole primary key grouped lets the other columns through (functional dependency), and
     // grouped expressions may be reused as a whole
     assertThat(parser.parse("SELECT id, seq, name, price * 2 FROM t GROUP BY id, seq").getWrite())

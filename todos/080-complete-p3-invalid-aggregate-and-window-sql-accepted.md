@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "080"
 tags: [aggregates, window, validation, regress-suite]
@@ -34,8 +34,9 @@ unnoticed until it meets a real PostgreSQL.
 
 ## Acceptance Criteria
 
-- [ ] Each statement above fails with PostgreSQL's SQLSTATE.
+- [x] Each statement above fails with PostgreSQL's SQLSTATE.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-20: Refused as PostgreSQL does: an aggregate in FILTER (42803), DISTINCT aggregate ORDER BY expressions not among its arguments (42P10, also for a no-op cast such as s::text on text, which PostgreSQL accepts), a WINDOW name defined twice (42P20), an ungrouped column in ORDER BY of a grouped query (42803), and round() past numeric's range (22003). The nested-aggregate case is refused by todo 075 with 0A000. Regress (aggregates, select_implicit, window, groupingsets vs PostgreSQL 18): those statements are now SAME, nothing newly refused.

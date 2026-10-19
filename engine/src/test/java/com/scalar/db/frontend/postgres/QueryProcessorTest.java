@@ -587,6 +587,13 @@ public class QueryProcessorTest {
     assertThat(processor.execute("SHOW IntervalStyle"))
         .containsExactly(Collections.singletonMap("IntervalStyle", "sql_standard"));
     processor.execute("RESET IntervalStyle");
+    processor.execute("SET bytea_output = escape");
+    assertThat(processor.execute("SELECT E'\\\\xDeAd5c41'::bytea::text AS b"))
+        .containsExactly(Collections.singletonMap("b", "\\336\\255\\\\A"));
+    assertThatThrownBy(() -> processor.execute("SET bytea_output = iso_8601"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
+    processor.execute("RESET bytea_output");
     // as PostgreSQL: a name it does not know fails, unless it is a custom dotted one
     for (String sql :
         new String[] {

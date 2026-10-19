@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "084"
 tags: [strings, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ A NULL escape makes SIMILAR TO NULL, and an escape longer than one character is 
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: ESCAPE NULL gives NULL for LIKE and SIMILAR TO; an escape longer than one character fails with 22025, as in PostgreSQL 18.
