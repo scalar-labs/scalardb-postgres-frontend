@@ -1130,9 +1130,7 @@ final class Evaluator {
       // PostgreSQL's ^ is exponentiation (# is XOR)
       Object l = eval(((BitwiseXor) e).getLeftExpression(), group, ctx);
       Object r = eval(((BitwiseXor) e).getRightExpression(), group, ctx);
-      return l == null || r == null
-          ? null
-          : (Object) Math.pow(((Number) l).doubleValue(), ((Number) r).doubleValue());
+      return l == null || r == null ? null : power(Arrays.asList(l, r));
     }
     if (e instanceof ExtractExpression) {
       ExtractExpression x = (ExtractExpression) e;
@@ -1989,6 +1987,38 @@ final class Evaluator {
         return b;
       }
     }
+  }
+
+  /** base ^ exponent, and power(base, exponent), in double precision as PostgreSQL's float8. */
+  private static double power(List<Object> args) {
+    Number b = num(args, 0);
+    Number x = num(args, 1);
+    if ((b instanceof BigDecimal || x instanceof BigDecimal)
+        && !(b instanceof Double
+            || b instanceof Float
+            || x instanceof Double
+            || x instanceof Float)) {
+      // ponytail: numeric ^ numeric is exact at PostgreSQL's result scale (power_var); refused
+      // until then rather than answered in double precision
+      throw new PgException.Argument("0A000", "Unsupported operator: numeric ^ numeric");
+    }
+    double base = b.doubleValue();
+    double exponent = x.doubleValue();
+    if (base == 0 && exponent < 0) {
+      throw new PgException.Argument("2201F", "zero raised to a negative power is undefined");
+    }
+    if (base < 0 && exponent != Math.rint(exponent)) {
+      throw new PgException.Argument(
+          "2201F", "a negative number raised to a non-integer power yields a complex result");
+    }
+    double v = Math.pow(base, exponent);
+    if (Double.isInfinite(v) && Double.isFinite(base) && Double.isFinite(exponent)) {
+      throw new ArithmeticException("value out of range: overflow");
+    }
+    if (v == 0 && base != 0 && Double.isFinite(base) && Double.isFinite(exponent)) {
+      throw new ArithmeticException("value out of range: underflow");
+    }
+    return v;
   }
 
   /** A double rounded to real, which fails as PostgreSQL's float8 to float4 does. */
@@ -3729,19 +3759,12 @@ final class Evaluator {
         return toDecimal(args.get(0)).remainder(toDecimal(args.get(1)));
       case "POWER":
       case "POW":
-        {
-          double base = num(args, 0).doubleValue();
-          double exponent = num(args, 1).doubleValue();
-          if (base == 0 && exponent < 0) {
-            throw new PgException.Argument("2201F", "zero raised to a negative power is undefined");
-          }
-          if (base < 0 && exponent != Math.rint(exponent)) {
-            throw new PgException.Argument(
-                "2201F", "a negative number raised to a non-integer power yields a complex result");
-          }
-          return Math.pow(base, exponent);
-        }
+        return power(args);
       case "SQRT":
+        if (num(args, 0) instanceof BigDecimal) {
+          // ponytail: numeric sqrt has PostgreSQL's own result scale (sqrt_var); refused until then
+          throw new PgException.Argument("0A000", "Unsupported function: sqrt(numeric)");
+        }
         if (num(args, 0).doubleValue() < 0) {
           throw new PgException.Argument("2201F", "cannot take square root of a negative number");
         }

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "069"
 tags: [numeric, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ PostgreSQL computes `numeric ^ numeric`, `power(numeric, numeric)` and `sqrt(num
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Refused first, as agreed for the large todos: numeric ^ numeric, power(numeric, numeric) and sqrt(numeric) fail with 0A000 (an operand is numeric and none is a float) rather than answering in double precision; their pg_proc, pg_operator and information_schema rows are dropped, so the catalog lists only what runs (psql \dfS 254 -> 251, \doS 378 -> 377). Float ^ shares power()'s 2201F checks and gains PostgreSQL's 22003 overflow and underflow. generate_series in FROM now takes numeric arguments through the evaluator's series, keeping their scale (0.0 gave 0, 1, 2; 0.5 steps failed). regress numeric: 36 wrong results now errors, none new; float8, int4, int8 none new. Exact numeric power (power_var) and sqrt (sqrt_var) at PostgreSQL's result scale remain to implement.

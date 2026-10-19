@@ -1164,7 +1164,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
--- expect: 254  # only the functions the frontend implements
+-- expect: 251  # only the functions the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1476,7 +1476,7 @@ ORDER BY 1, 2, 3, 4;
 -----
 -- [doS]
 -- postgres16: 799 92dbd6588d14
--- expect: 378  # only the operators the frontend implements
+-- expect: 377  # only the operators the frontend implements
 SELECT n.nspname as "Schema",
   o.oprname AS "Name",
   CASE WHEN o.oprkind='l' THEN NULL ELSE pg_catalog.format_type(o.oprleft, NULL) END AS "Left arg type",

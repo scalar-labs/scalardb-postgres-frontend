@@ -262,12 +262,8 @@ audit	pg_catalog	pg_type_is_visible_2080	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	
 audit	pg_catalog	pg_typeof_1619	1	IN	NO	NO	\N	"any"	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	any	\N	\N	\N	\N	1	\N
 audit	pg_catalog	pow_1346	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
 audit	pg_catalog	pow_1346	2	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	2	\N
-audit	pg_catalog	pow_1738	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
-audit	pg_catalog	pow_1738	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
 audit	pg_catalog	power_1368	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
 audit	pg_catalog	power_1368	2	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	2	\N
-audit	pg_catalog	power_2169	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
-audit	pg_catalog	power_2169	2	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	2	\N
 audit	pg_catalog	quote_ident_1282	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
 audit	pg_catalog	quote_literal_1283	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
 audit	pg_catalog	quote_literal_1285	1	IN	NO	NO	\N	anyelement	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	anyelement	\N	\N	\N	\N	1	\N
@@ -297,7 +293,6 @@ audit	pg_catalog	shobj_description_1993	2	IN	NO	NO	\N	name	\N	\N	\N	\N	\N	\N	\N	
 audit	pg_catalog	sign_1706	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
 audit	pg_catalog	sign_2310	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
 audit	pg_catalog	sqrt_1344	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	float8	\N	\N	\N	\N	1	\N
-audit	pg_catalog	sqrt_1730	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
 audit	pg_catalog	starts_with_3696	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
 audit	pg_catalog	starts_with_3696	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
 audit	pg_catalog	string_agg_3538	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N

@@ -211,6 +211,15 @@ public class QueryProcessorTest {
       assertThat(processor.execute("SELECT (" + r[0] + ")::text AS v"))
           .containsExactly(Collections.singletonMap("v", r[1]));
     }
+    // numeric ^ and sqrt are exact in PostgreSQL: refused rather than answered in double precision
+    for (String sql :
+        Arrays.asList("SELECT 1.2 ^ 345", "SELECT power(2.0, 3)", "SELECT sqrt(2.0)")) {
+      assertThatThrownBy(() -> processor.execute(sql))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
+    assertThat(processor.execute("SELECT (2 ^ 10)::text AS v"))
+        .containsExactly(Collections.singletonMap("v", "1024"));
     assertThatThrownBy(() -> processor.execute("SELECT '2147483647'::float4::int4"))
         .hasMessageContaining("integer out of range"); // 2147483648 as a real
     // a time with an offset is refused, not read as a timestamptz

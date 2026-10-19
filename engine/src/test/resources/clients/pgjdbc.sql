@@ -119,7 +119,7 @@ SELECT current_database() AS current_database, n.nspname,c.relname,r.rolname,c.r
 -----
 -- [pgjdbc]
 -- postgres16: 3125 cb74defb3ee6
--- expect: 184  # only the functions the frontend implements
+-- expect: 181  # only the functions the frontend implements
 SELECT current_database() AS "FUNCTION_CAT",  n.nspname AS "FUNCTION_SCHEM", p.proname AS "FUNCTION_NAME",  d.description AS "REMARKS",  CASE    WHEN (format_type(p.prorettype, null) = 'unknown') THEN 0   WHEN      (substring(pg_get_function_result(p.oid) from 0 for 6) = 'TABLE') OR      (substring(pg_get_function_result(p.oid) from 0 for 6) = 'SETOF') THEN 2   ELSE 1 END  AS "FUNCTION_TYPE",  p.proname || '_' || p.oid AS "SPECIFIC_NAME" FROM pg_catalog.pg_proc p INNER JOIN pg_catalog.pg_namespace n ON p.pronamespace=n.oid LEFT JOIN pg_catalog.pg_description d ON p.oid=d.objoid WHERE true   AND p.prokind='f' AND p.proname LIKE '%' ORDER BY "FUNCTION_SCHEM", "FUNCTION_NAME", p.oid::text
 -----
 -- [pgjdbc]
@@ -139,7 +139,7 @@ SELECT current_database() AS "PROCEDURE_CAT",  n.nspname AS "PROCEDURE_SCHEM", p
 -----
 -- [pgjdbc]
 -- postgres16: 3297 8d4e61cdb7ae
--- expect: 254  # only the functions the frontend implements
+-- expect: 251  # only the functions the frontend implements
 SELECT current_database() AS current_database, n.nspname,p.proname,p.prorettype,p.proargtypes, t.typtype,t.typrelid,  p.proargnames, p.proargmodes, p.proallargtypes, p.oid  FROM pg_catalog.pg_proc p, pg_catalog.pg_namespace n, pg_catalog.pg_type t  WHERE p.pronamespace=n.oid AND p.prorettype=t.oid  AND p.proname LIKE '%' ORDER BY n.nspname, p.proname, p.oid::text
 -----
 -- [pgjdbc]

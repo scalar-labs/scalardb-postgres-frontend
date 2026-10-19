@@ -199,9 +199,7 @@
 2080	16	SELECT pg_type_is_visible(10::oid)
 1619	2206	SELECT pg_typeof(2::int4)
 1346	701	SELECT pow(1.5::float8, 1.5::float8)
-1738	1700	SELECT pow(1.5::numeric, 1.5::numeric)
 1368	701	SELECT power(1.5::float8, 1.5::float8)
-2169	1700	SELECT power(1.5::numeric, 1.5::numeric)
 1282	25	SELECT quote_ident('a'::text)
 1283	25	SELECT quote_literal('a'::text)
 1285	25	SELECT quote_literal(2::int4)
@@ -222,7 +220,6 @@
 1706	1700	SELECT sign(1.5::numeric)
 2310	701	SELECT sign(1.5::float8)
 1344	701	SELECT sqrt(1.5::float8)
-1730	1700	SELECT sqrt(1.5::numeric)
 3696	16	SELECT starts_with('a'::text, 'a'::text)
 2648	1184	SELECT statement_timestamp()
 3538	25	SELECT string_agg('a'::text, 'a'::text)
@@ -408,7 +405,6 @@ o823	20	SELECT 2::int2 OPERATOR(pg_catalog.-) 2::int8
 o824	20	SELECT 2::int2 OPERATOR(pg_catalog.*) 2::int8
 o825	20	SELECT 2::int2 OPERATOR(pg_catalog./) 2::int8
 o965	701	SELECT 1.5::float8 OPERATOR(pg_catalog.^) 1.5::float8
-o1038	1700	SELECT 1.5::numeric OPERATOR(pg_catalog.^) 1.5::numeric
 o1054	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.=) 'a'::bpchar
 o1055	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.~) 'a'::text
 o1056	16	SELECT 'a'::bpchar OPERATOR(pg_catalog.!~) 'a'::text

@@ -3909,51 +3909,28 @@ class QueryParser {
       if (!name.equals("generate_series")) {
         throw new PgException.Argument("0A000", "Unsupported table function: " + function);
       }
-      // generate_series(start, stop [, step]) over integer values known while planning, such as
-      // pgjdbc's array_upper(current_schemas(false), 1): a one-column source
-      List<Long> args = new ArrayList<>();
-      boolean nothing = false; // a NULL argument: no rows, as in PostgreSQL
-      for (Expression e :
-          function.getParameters() == null
-              ? Collections.<Expression>emptyList()
-              : function.getParameters()) {
-        embed(e);
-        Object v =
-            Evaluator.eval(
-                e,
-                Collections.<Map<String, Object>>emptyList(),
-                new Evaluator.Context(null, Collections.emptyMap(), catalog, BOUND.get()));
-        if (v == null) {
-          nothing = true;
-          args.add(0L);
-        } else {
-          args.add(new BigDecimal(Evaluator.text(v).trim()).longValueExact());
-        }
-      }
-      if (args.size() < 2 || args.size() > 3) {
+      // generate_series(start, stop [, step]) over integer or numeric values known while
+      // planning, such as pgjdbc's array_upper(current_schemas(false), 1): a one-column source
+      int arity = function.getParameters() == null ? 0 : function.getParameters().size();
+      if (arity < 2 || arity > 3) {
         throw new IllegalArgumentException("generate_series takes 2 or 3 arguments: " + function);
       }
-      long step = args.size() == 3 ? args.get(2) : 1;
-      if (step == 0 && !nothing) {
-        throw new IllegalArgumentException("step size cannot equal zero");
+      for (Expression e : function.getParameters()) {
+        embed(e);
       }
+      Object series =
+          Evaluator.eval(
+              function,
+              Collections.<Map<String, Object>>emptyList(),
+              new Evaluator.Context(null, Collections.emptyMap(), catalog, BOUND.get()));
       String qualifier = alias != null ? alias : "generate_series";
       String column = qualifier; // as in PostgreSQL, the alias also names the single column
       if (item.getAlias() != null && item.getAlias().getAliasColumns() != null) {
         column = unquote(item.getAlias().getAliasColumns().get(0).name);
       }
       List<Map<String, Object>> rows = new ArrayList<>();
-      for (long v = args.get(0); !nothing && (step > 0 ? v <= args.get(1) : v >= args.get(1)); ) {
+      for (Object v : series == null ? Collections.emptyList() : (List<?>) series) { // NULL: none
         rows.add(Collections.<String, Object>singletonMap(qualifier + "." + column, v));
-        if (rows.size() > MAX_SERIES_ROWS) {
-          throw new PgException.Argument(
-              "54000", "generate_series produces too many rows: " + function);
-        }
-        try {
-          v = Math.addExact(v, step);
-        } catch (ArithmeticException pastTheEnd) {
-          break; // the next value is beyond bigint, so beyond stop
-        }
       }
       LogicalPlan.Source source =
           new LogicalPlan.Source(qualifier, Collections.singletonList(column), null, null);

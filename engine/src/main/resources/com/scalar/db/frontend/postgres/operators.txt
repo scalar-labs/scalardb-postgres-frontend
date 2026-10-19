@@ -155,7 +155,6 @@ oid	oprname	oprnamespace	oprowner	oprkind	oprcanmerge	oprcanhash	oprleft	oprrigh
 824	*	11	10	b	f	f	21	20	20	820	0	943 int28mul	0	0	multiply
 825	/	11	10	b	f	f	21	20	20	0	0	948 int28div	0	0	divide
 965	^	11	10	b	f	f	701	701	701	0	0	232 dpow	0	0	exponentiation
-1038	^	11	10	b	f	f	1700	1700	1700	0	0	1739 numeric_power	0	0	exponentiation
 1054	=	11	10	b	t	t	1042	1042	16	1054	1057	1048 bpchareq	101 eqsel	105 eqjoinsel	equal
 1055	~	11	10	b	f	f	1042	25	16	0	1056	1658 bpcharregexeq	1818 regexeqsel	1824 regexeqjoinsel	matches regular expression, case-sensitive
 1056	!~	11	10	b	f	f	1042	25	16	0	1055	1659 bpcharregexne	1821 regexnesel	1827 regexnejoinsel	does not match regular expression, case-sensitive
