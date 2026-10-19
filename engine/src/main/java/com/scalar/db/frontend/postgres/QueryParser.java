@@ -2255,6 +2255,12 @@ class QueryParser {
    */
   static String declaredText(net.sf.jsqlparser.statement.create.table.ColDataType type) {
     String name = type.getDataType();
+    if (type.getArrayData() != null && !type.getArrayData().isEmpty()
+        || name.matches("(?i).*\\bARRAY\\b.*")) {
+      // ScalarDB has no array column; the element type alone would take array values as scalars
+      throw new PgException.Argument(
+          "0A000", "Unsupported column type: " + type + " (ScalarDB has no array column type)");
+    }
     List<String> args = type.getArgumentsStringList();
     return args == null || args.isEmpty() || name.contains("(")
         ? name

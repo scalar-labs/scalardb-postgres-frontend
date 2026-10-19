@@ -1734,6 +1734,18 @@ public class QueryParserTest {
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE d (id INT, v INT, v TEXT, PRIMARY KEY (id))"))
         .hasMessageContaining("specified more than once");
+    // no array column: the element type alone would take array values as scalars
+    for (String sql :
+        new String[] {
+          "CREATE TABLE d (id INT PRIMARY KEY, a INT[])",
+          "CREATE TABLE d (id INT PRIMARY KEY, a TEXT[][])",
+          "ALTER TABLE t ADD COLUMN tags TEXT[]"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE d (id INT, \"a\" INT, \"A\" INT, PRIMARY KEY (id))"))
         .hasMessageContaining("differing only in case");
