@@ -11,6 +11,7 @@ import java.sql.SQLException;
 import java.time.DateTimeException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -158,6 +159,25 @@ public class HelpersTest {
     assertThat(Json.path(Json.parse("{\"a\":[10,{\"b\":7}]}"), Arrays.asList("a", "1", "b")))
         .hasToString("7");
     assertThat(Json.path(Json.parse("{\"a\":1}"), Collections.singletonList("x"))).isNull();
+  }
+
+  @Test
+  public void stringAggOfBytea_ShouldJoinTheBytes() {
+    java.nio.ByteBuffer ff = java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xff});
+    java.nio.ByteBuffer aa = java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xaa});
+    net.sf.jsqlparser.expression.Function f = new net.sf.jsqlparser.expression.Function();
+    Object joined =
+        Evaluator.aggregateValues(
+            "STRING_AGG",
+            new java.util.ArrayList<>(List.of(ff, aa)),
+            java.nio.ByteBuffer.wrap(new byte[] {(byte) 0xee}),
+            f);
+    assertThat(Evaluator.text(joined)).isEqualTo("\\xffeeaa");
+    // an untyped '' delimiter is bytea input, and no delimiter joins them directly
+    assertThat(Evaluator.text(Evaluator.aggregateValues("STRING_AGG", List.of(ff, aa), "", f)))
+        .isEqualTo("\\xffaa");
+    assertThat(Evaluator.text(Evaluator.aggregateValues("STRING_AGG", List.of(ff, aa), null, f)))
+        .isEqualTo("\\xffaa");
   }
 
   @Test

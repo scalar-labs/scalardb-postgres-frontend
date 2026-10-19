@@ -4264,6 +4264,19 @@ final class Evaluator {
           if (values.isEmpty()) {
             return null;
           }
+          if (values.get(0) instanceof ByteBuffer) {
+            // string_agg(bytea, bytea): the bytes joined, not their text
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            // an untyped delimiter literal ('') is bytea input
+            Object d = delimiter instanceof String ? cast("bytea", delimiter) : delimiter;
+            for (int i = 0; i < values.size(); i++) {
+              if (i > 0 && d != null) {
+                out.writeBytes(bytes(d));
+              }
+              out.writeBytes(bytes(values.get(i)));
+            }
+            return ByteBuffer.wrap(out.toByteArray());
+          }
           StringBuilder joined = new StringBuilder();
           for (int i = 0; i < values.size(); i++) {
             if (i > 0 && delimiter != null) {
