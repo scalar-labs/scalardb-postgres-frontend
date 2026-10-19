@@ -508,6 +508,15 @@ public class QueryProcessorTest {
     }
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
+    // a read-only default makes a single statement's transaction read-only too: no write, no DDL
+    processor.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY");
+    for (String sql : new String[] {"DELETE FROM t WHERE id = 1", "DROP TABLE t", "TRUNCATE t"}) {
+      assertThatThrownBy(() -> processor.execute(sql))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("25006"));
+    }
+    processor.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE");
     // DateStyle is stored as PostgreSQL stores it, which clients parse: style and order
     processor.execute("SET DateStyle = ymd");
     assertThat(processor.execute("SHOW DateStyle"))

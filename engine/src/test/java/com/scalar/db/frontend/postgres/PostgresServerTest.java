@@ -268,7 +268,7 @@ public class PostgresServerTest {
           .isInstanceOf(SQLException.class);
       assertThatThrownBy(() -> statement.execute("SELECT id FROM t"))
           .isInstanceOf(SQLException.class)
-          .hasMessageContaining("Current transaction is aborted")
+          .hasMessageContaining("current transaction is aborted")
           .extracting(e -> ((SQLException) e).getSQLState())
           .isEqualTo("25P02");
       assertThat(connection.unwrap(org.postgresql.jdbc.PgConnection.class).getTransactionState())

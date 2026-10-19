@@ -500,7 +500,7 @@ public class QueryProcessor {
   /** Thrown for any statement but COMMIT/ROLLBACK once a statement failed inside a transaction. */
   public static final class AbortedTransactionException extends IllegalStateException {
     AbortedTransactionException() {
-      super("Current transaction is aborted, commands ignored until end of transaction block");
+      super("current transaction is aborted, commands ignored until end of transaction block");
     }
   }
 
@@ -810,12 +810,42 @@ public class QueryProcessor {
           }
         }
         try {
+          checkWritable(word, sql);
           return statement(sql, parameters);
         } catch (RuntimeException | TransactionException | ExecutionException e) {
           aborted |= inTransaction();
           throw e;
         }
     }
+  }
+
+  private static final java.util.Set<String> DDL =
+      new java.util.HashSet<>(
+          Arrays.asList("CREATE", "DROP", "ALTER", "TRUNCATE", "GRANT", "REVOKE", "COMMENT"));
+
+  /**
+   * As PostgreSQL: a write or DDL in a read-only transaction is 25006, whether the block was begun
+   * READ ONLY or default_transaction_read_only (SET SESSION CHARACTERISTICS) makes a single
+   * statement's own transaction read-only.
+   */
+  private void checkWritable(String word, String sql) {
+    boolean readOnly =
+        inTransaction() ? pendingReadOnly : isOn(current("default_transaction_read_only"));
+    if (!readOnly || !(WRITES.contains(word) || DDL.contains(word))) {
+      return;
+    }
+    String[] words = QueryParser.trimStatement(sql).split("\\s+");
+    String command =
+        word.equals("TRUNCATE")
+            ? "TRUNCATE TABLE"
+            : DDL.contains(word) && words.length > 1
+                ? word
+                    + " "
+                    + words[words[1].equalsIgnoreCase("UNIQUE") && words.length > 2 ? 2 : 1]
+                        .toUpperCase(Locale.ROOT)
+                : word;
+    throw new PgException.Argument(
+        "25006", "cannot execute " + command + " in a read-only transaction");
   }
 
   /** The innermost savepoint named in a ROLLBACK TO or RELEASE statement. */
