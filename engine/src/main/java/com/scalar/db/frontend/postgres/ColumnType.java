@@ -463,7 +463,8 @@ final class ColumnType {
               throw new PgException.Argument(
                   "22P02", "invalid input syntax for type smallint: \"" + text + "\"");
             }
-            BigDecimal d = new BigDecimal(text);
+            BigDecimal d =
+                new BigDecimal(java.util.Objects.requireNonNull(Evaluator.integerInput(text)));
             if (d.compareTo(BigDecimal.valueOf(Short.MIN_VALUE)) < 0
                 || d.compareTo(BigDecimal.valueOf(Short.MAX_VALUE)) > 0) {
               throw new PgException.Argument(

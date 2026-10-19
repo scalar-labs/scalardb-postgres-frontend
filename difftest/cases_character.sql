@@ -83,3 +83,31 @@ WITH x AS (SELECT k, c FROM ch) SELECT k FROM x WHERE c LIKE 'abc  ' ORDER BY k;
 SELECT lpad('a', 2.9);
 -- @ch_numeric_info ordered
 SELECT column_name, numeric_precision, numeric_precision_radix, numeric_scale FROM information_schema.columns WHERE table_name = 'ch' ORDER BY ordinal_position;
+-- @int_quoted_beyond_range
+SELECT k FROM ch WHERE k = '5000000000';
+-- @int_quoted_beyond_range_or
+SELECT c FROM chk WHERE n = '40000000000' OR n = 1;
+-- @int_number_beyond_range
+SELECT k FROM ch WHERE k = 5000000000;
+-- @bigint_quoted_beyond_range
+SELECT k FROM ch WHERE abs(k::bigint) = '99999999999999999999';
+-- @int_quoted_in_memory_beyond_range
+SELECT k FROM ch WHERE k + 0 = '5000000000';
+-- @sm_quoted_beyond_range_or
+SELECT k FROM ch WHERE s = '40000' OR k = 1;
+-- @int_input_hex ordered
+SELECT k FROM ch WHERE k = '0x4' OR s = '0x7' ORDER BY k;
+-- @int_input_underscore ordered
+SELECT k FROM ch WHERE s = '32_767' OR k + 0 = '0o_3' ORDER BY k;
+-- @int_input_binary ordered
+SELECT k FROM ch WHERE s = '-0b1000000000000000' OR coalesce(s, 0) = '0B111' ORDER BY k;
+-- @int_input_casts
+SELECT '0x10'::int, '1_000'::bigint, '-0b11'::smallint, ' 0o_17 '::int, '-0x80000000'::int;
+-- @int_input_hex_beyond_range
+SELECT k FROM ch WHERE k = '0x80000000';
+-- @int_input_double_underscore
+SELECT k FROM ch WHERE k = '1__0';
+-- @int_input_fraction
+SELECT k FROM ch WHERE k = '1.0';
+-- @int_input_exponent
+SELECT n FROM chk WHERE n + 0 = '1e3';

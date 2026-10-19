@@ -50,6 +50,17 @@ public class HelpersTest {
     assertThat(Evaluator.offsetText(java.time.ZoneOffset.ofHours(9))).isEqualTo("+09");
   }
 
+  @Test
+  public void integerInput_ShouldReadIntegersAsPostgreSql16Does() {
+    assertThat(Evaluator.integerInput(" -0x1F ")).isEqualTo(-31);
+    assertThat(Evaluator.integerInput("0o_17")).isEqualTo(15);
+    assertThat(Evaluator.integerInput("+0B101")).isEqualTo(5);
+    assertThat(Evaluator.integerInput("1_000")).isEqualTo(1000);
+    for (String bad : Arrays.asList("1__0", "_1", "1_", "0x", "0x_", "1.0", "1e3", "00x1", "")) {
+      assertThat(Evaluator.integerInput(bad)).as(bad).isNull();
+    }
+  }
+
   static Stream<Arguments> failures() {
     return Stream.of(
         Arguments.of(new StackOverflowError(), "54001"),

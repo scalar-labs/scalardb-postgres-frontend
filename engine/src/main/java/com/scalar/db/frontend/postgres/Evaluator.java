@@ -1847,6 +1847,20 @@ final class Evaluator {
   }
 
   private static Object coerce(String s, Object target) {
+    if (target instanceof Integer || target instanceof Long || target instanceof Short) {
+      // a quoted literal next to an integer is integer input: '0x10', '1_000'; 22003 beyond range
+      String type = target instanceof Long ? "bigint" : "integer";
+      BigInteger v = integerInput(s);
+      if (v == null) {
+        throw new PgException.Argument(
+            "22P02", "invalid input syntax for type " + type + ": \"" + s + "\"");
+      }
+      if (v.bitLength() > (target instanceof Long ? 63 : 31)) {
+        throw new PgException.Argument(
+            "22003", "value \"" + s + "\" is out of range for type " + type);
+      }
+      return v.longValue();
+    }
     try {
       if (target instanceof Number) {
         return checkedNumeric(new BigDecimal(s));
@@ -2829,7 +2843,24 @@ final class Evaluator {
   private static final Pattern SAME_TYPE_AS_ARGUMENTS =
       Pattern.compile("COALESCE|GREATEST|LEAST|NULLIF|ABS|MIN|MAX|ROUND|FLOOR|CEIL|CEILING|TRUNC");
 
-  private static final Pattern INTEGER_TEXT = Pattern.compile("[+-]?\\d+");
+  // PostgreSQL 16's integer input: decimal, or 0x, 0o, 0b digits; single underscores between
+  // digits and after the prefix; whitespace around
+  private static final Pattern INTEGER_INPUT =
+      Pattern.compile(
+          "[ \\t\\n\\r\\f\\u000B]*([+-]?)(?:0[xX]((?:_?[0-9a-fA-F])+)|0[oO]((?:_?[0-7])+)"
+              + "|0[bB]((?:_?[01])+)|([0-9](?:_?[0-9])*))[ \\t\\n\\r\\f\\u000B]*");
+
+  /** {@code s} read as int2in, int4in and int8in read it, before the range check; null if not. */
+  @Nullable static BigInteger integerInput(String s) {
+    java.util.regex.Matcher m = INTEGER_INPUT.matcher(s);
+    if (!m.matches()) {
+      return null;
+    }
+    int group = m.group(2) != null ? 2 : m.group(3) != null ? 3 : m.group(4) != null ? 4 : 5;
+    int radix = group == 2 ? 16 : group == 3 ? 8 : group == 4 ? 2 : 10;
+    BigInteger v = new BigInteger(m.group(group).replace("_", ""), radix);
+    return m.group(1).equals("-") ? v.negate() : v;
+  }
 
   private static final Pattern TYPE_LENGTH = Pattern.compile("\\((\\d+)\\)");
   private static final Pattern TRAILING_SPACES = Pattern.compile(" +$");
@@ -2841,12 +2872,12 @@ final class Evaluator {
    * '1e3' are 22P02, not rounded (a number, as opposed to text, is rounded by the caller).
    */
   private static BigDecimal integerText(String s, String type) {
-    String trimmed = s.trim();
-    if (!INTEGER_TEXT.matcher(trimmed).matches()) {
+    BigInteger v = integerInput(s);
+    if (v == null) {
       throw new PgException.Argument(
           "22P02", "invalid input syntax for type " + type + ": \"" + s + "\"");
     }
-    return decimal(trimmed);
+    return new BigDecimal(v);
   }
 
   /** The SQL name of a number's type, for typing a quoted literal from it. */

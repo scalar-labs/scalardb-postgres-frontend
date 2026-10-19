@@ -38,3 +38,17 @@ ch_derived OK
 ch_cte_like OK
 pad_numeric_length BOTH_ERR
 ch_numeric_info OK
+int_quoted_beyond_range BOTH_ERR
+int_quoted_beyond_range_or BOTH_ERR
+int_number_beyond_range OK
+bigint_quoted_beyond_range BOTH_ERR
+int_quoted_in_memory_beyond_range BOTH_ERR
+sm_quoted_beyond_range_or BOTH_ERR
+int_input_hex OK
+int_input_underscore OK
+int_input_binary OK
+int_input_casts OK
+int_input_hex_beyond_range BOTH_ERR
+int_input_double_underscore BOTH_ERR
+int_input_fraction BOTH_ERR
+int_input_exponent BOTH_ERR

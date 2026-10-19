@@ -5293,6 +5293,7 @@ class QueryParser {
           return null;
         }
         if (row == null
+            && !(c.getRightExpression() instanceof StringValue) // '5000000000' is integer input
             && failure instanceof IllegalArgumentException
             && isOutOfRange((IllegalArgumentException) failure)) {
           return null; // id = 5000000000 is false, not an error, in PostgreSQL: compared in memory
@@ -6009,16 +6010,22 @@ class QueryParser {
   }
 
   static boolean isInteger(@Nullable String s) {
-    return s != null && s.trim().matches("[+-]?\\d+");
+    return s != null && Evaluator.integerInput(s) != null;
+  }
+
+  /** {@link Evaluator#integerInput}, failing as a number parser does when {@code s} is not one. */
+  private static java.math.BigInteger integerInput(String s) {
+    java.math.BigInteger v = Evaluator.integerInput(s);
+    if (v == null) {
+      throw new NumberFormatException(s);
+    }
+    return v;
   }
 
   /** True for the failure of {@link #columnFromText} on an integer beyond the column's range. */
   static boolean isOutOfRange(IllegalArgumentException e) {
-    String message = String.valueOf(e.getMessage());
-    // a quoted value out of a smallint's range is an input error, as in PostgreSQL; a number
-    // literal reaches a smallint as a number and fails with the typed OutOfRange instead
     return e instanceof PgException.OutOfRange
-        || (message.contains("out of range for type") && !message.endsWith("type smallint"));
+        || String.valueOf(e.getMessage()).contains("out of range for type");
   }
 
   private static String pgTypeName(DataType type) {
@@ -6047,11 +6054,11 @@ class QueryParser {
       case INT:
         return s == null
             ? IntColumn.ofNull(name)
-            : IntColumn.of(name, new BigDecimal(s.trim()).intValueExact()); // ' 42' is 42
+            : IntColumn.of(name, integerInput(s).intValueExact());
       case BIGINT:
         return s == null
             ? BigIntColumn.ofNull(name)
-            : BigIntColumn.of(name, new BigDecimal(s.trim()).longValueExact());
+            : BigIntColumn.of(name, integerInput(s).longValueExact());
       case FLOAT:
         return s == null
             ? FloatColumn.ofNull(name)
