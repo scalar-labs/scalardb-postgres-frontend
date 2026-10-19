@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "089"
 tags: [arrays, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ The second argument chooses the dimension; a dimension the array lacks gives NUL
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. array_length, array_upper and array_lower now take the dimension argument (nested lists, 1-based); a dimension below 1 or beyond the array's is NULL, and an inner dimension's lower bound is 1. Live check against PostgreSQL 16 matches for 2-D arrays, out-of-range dimensions, an empty array and int2vector (pg_index.indkey, from 0). QueryParserTest covers it. Fixed with 090.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "090"
 tags: [arrays, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ NULL elements are skipped, or replaced by the third argument; a NULL separator m
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done with 089. array_to_string writes the elements of every dimension in order, skips NULL elements or writes the third argument for them when it is not NULL, and is NULL for a NULL separator; an empty first element no longer swallows the separator. Matches PostgreSQL 16 live; QueryParserTest covers it.

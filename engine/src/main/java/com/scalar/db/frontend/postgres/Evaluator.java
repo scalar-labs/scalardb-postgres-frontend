@@ -3816,10 +3816,22 @@ final class Evaluator {
         case "ARRAY_UPPER":
         case "ARRAY_LOWER":
           {
-            // null for an empty array, as PostgreSQL has no dimension to report
+            // dimension d of the array (nested lists, 1-based); null for an empty array or a
+            // dimension it does not have, as PostgreSQL has none to report
             Object a = arg(args, 0);
-            List<?> items = a == null ? Collections.emptyList() : elements(a);
+            Object d = args.size() > 1 ? arg(args, 1) : 1L;
+            if (a == null || !(d instanceof Number) || ((Number) d).longValue() < 1) {
+              return null;
+            }
             long lower = lowerBound(a);
+            List<?> items = elements(a);
+            for (long k = ((Number) d).longValue(); k > 1; k--) {
+              if (items.isEmpty() || !(items.get(0) instanceof List)) {
+                return null;
+              }
+              items = (List<?>) items.get(0);
+              lower = 1;
+            }
             return items.isEmpty()
                 ? null
                 : (Object)
@@ -3828,14 +3840,23 @@ final class Evaluator {
                         : name.equals("ARRAY_LOWER") ? lower : lower + items.size() - 1);
           }
         case "ARRAY_TO_STRING":
-          if (!(arg(args, 0) instanceof List)) {
-            return null;
+          {
+            // the elements of every dimension in order; a NULL one is skipped, or written as the
+            // third argument when that is not NULL; a NULL separator gives NULL
+            if (!(arg(args, 0) instanceof List) || arg(args, 1) == null) {
+              return null;
+            }
+            String nullText = args.size() > 2 && arg(args, 2) != null ? str(args, 2) : null;
+            List<Object> flat = new ArrayList<>();
+            flatten((List<?>) args.get(0), flat);
+            StringJoiner joined = new StringJoiner(str(args, 1));
+            for (Object v : flat) {
+              if (v != null || nullText != null) {
+                joined.add(v == null ? nullText : text(v));
+              }
+            }
+            return joined.toString();
           }
-          StringBuilder sb = new StringBuilder();
-          for (Object v : (List<?>) args.get(0)) {
-            sb.append(sb.length() == 0 ? "" : str(args, 1)).append(text(v));
-          }
-          return sb.toString();
         case "FORMAT_TYPE":
           // format_type(oid, typmod): numeric(10,2), character varying(20), character(3), ...
           return arg(args, 0) instanceof Number
@@ -4156,6 +4177,17 @@ final class Evaluator {
             ? eval(params.get(1), group.subList(0, 1), ctx)
             : null;
     return aggregateValues(name, values, delimiter, f);
+  }
+
+  /** The elements of a (possibly multi-dimensional) array, in order. */
+  private static void flatten(List<?> array, List<Object> out) {
+    for (Object v : array) {
+      if (v instanceof List) {
+        flatten((List<?>) v, out);
+      } else {
+        out.add(v);
+      }
+    }
   }
 
   /** Whether every column of the source with this prefix ({@code t.}) is NULL in the row. */

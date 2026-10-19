@@ -1670,6 +1670,22 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // array_length and array_upper take a dimension; array_to_string skips or replaces NULLs
+    assertThat(
+            parser
+                .parse(
+                    "SELECT array_length(array[[1,2,3],[4,5,6]], 2) AS l2,"
+                        + " array_length(array[1,2,3], 2) AS none,"
+                        + " array_upper(array[[1,2,3],[4,5,6]], 2) AS u2,"
+                        + " array_to_string(array[1,2,NULL,6], ',') AS s,"
+                        + " array_to_string(array[1,2,NULL,6], ',', '*') AS r,"
+                        + " array_to_string(array[1,2], NULL) AS n,"
+                        + " array_to_string(array[[1,2],[3,4]], ',') AS f")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "l2", 3L, "none", null, "u2", 3L, "s", "1,2,6", "r", "1,2,*,6", "n", null, "f",
+                "1,2,3,4"));
     // jsonb subscripts read as -> does: a key, an index from 0 or the end, a numeric key on an
     // object
     assertThat(
