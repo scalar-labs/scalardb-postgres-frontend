@@ -2666,7 +2666,7 @@ class QueryParser {
     final Map<String, Cte> visible;
     final boolean recursive; // in a WITH RECURSIVE list: a UNION body may refer to itself
     @Nullable Plan working; // inside its own step: the previous iteration's rows
-    boolean referenced; // the step referred to the working table
+    int references; // how often the step referred to the working table
 
     Cte(WithItem<?> item, Map<String, Cte> visible, boolean recursive) {
       this.item = item;
@@ -2687,6 +2687,11 @@ class QueryParser {
       boolean recursive = false; // the keyword covers the whole list
       for (WithItem<?> item : items) {
         recursive |= item.isRecursive();
+        if (item.getSearchClause() != null || item.getCycleClause() != null) {
+          // ponytail: SEARCH adds an ordering column and CYCLE stops cycles; refused until they do
+          throw new PgException.Argument(
+              "0A000", "SEARCH and CYCLE are not supported: " + item.getAliasName());
+        }
         if (!(item.getParenthesedStatement() instanceof Select)) {
           throw new PgException.Argument(
               "0A000",
@@ -3816,7 +3821,7 @@ class QueryParser {
         try {
           SetOperationList body = cte.recursive ? recursiveBody(cte.item) : null;
           if (cte.working != null) {
-            cte.referenced = true;
+            cte.references++;
             derived = cte.working;
           } else if (body != null) {
             derived = recursive(cte, name, body, outer);
@@ -4073,7 +4078,7 @@ class QueryParser {
     }
     List<Map<String, Object>> working = new ArrayList<>();
     Cte self = new Cte(cte.item, cte.visible, true);
-    self.working = Plan.working(name, names, working);
+    self.working = Plan.working(name, names, working, anchor.outputOids());
     Map<String, Cte> scope = new LinkedHashMap<>(cte.visible);
     scope.put(name, self);
     Map<String, Cte> saved = ctes;
@@ -4084,8 +4089,25 @@ class QueryParser {
     } finally {
       ctes = saved;
     }
-    if (!self.referenced) {
+    if (self.references == 0) {
       return select(cte.item.getSelect(), outer);
+    }
+    wellFormedStep(name, body.getSelects().get(1), self.references);
+    int[] anchorOids = anchor.outputOids();
+    int[] stepOids = step.outputOids();
+    for (int i = 0; i < Math.min(anchorOids.length, stepOids.length); i++) {
+      if (NUMERIC_OIDS.contains(anchorOids[i])
+          && NUMERIC_OIDS.contains(stepOids[i])
+          && anchorOids[i] != stepOids[i]) {
+        // the working table keeps the anchor's type, which PostgreSQL checks the step against
+        throw new PgException.Argument(
+            "42804",
+            "recursive query \""
+                + name
+                + "\" column "
+                + (i + 1)
+                + " has a different type in the non-recursive term than overall");
+      }
     }
     if (step.outputNames.size() != names.size()) {
       throw new IllegalArgumentException(
@@ -4093,6 +4115,73 @@ class QueryParser {
     }
     boolean all = ((UnionOp) body.getOperations().get(0)).isAll();
     return Plan.recursive(names, anchor.outputTypes, anchor, step, working, all);
+  }
+
+  private static final Set<Integer> NUMERIC_OIDS =
+      new HashSet<>(Arrays.asList(20, 21, 23, 700, 701, 1700));
+
+  /**
+   * PostgreSQL's checkWellFormedRecursion for the recursive term: it refers to the query once, in
+   * its own FROM and not on the nullable side of an outer join, with no aggregate, set operation,
+   * ORDER BY, LIMIT, OFFSET or FOR UPDATE.
+   */
+  private static void wellFormedStep(String name, Select step, int references) {
+    while (step instanceof ParenthesedSelect && step.getWithItemsList() == null) {
+      step = ((ParenthesedSelect) step).getSelect();
+    }
+    if (step.getWithItemsList() != null && !step.getWithItemsList().isEmpty()) {
+      // ponytail: a term reaching the query through its own WITH is let through unchecked, as it
+      // was; PostgreSQL's rules for that case are not ported
+      return;
+    }
+    if (!(step instanceof PlainSelect) || references > 1) {
+      throw new PgException.Argument(
+          "42P19",
+          "recursive reference to query \""
+              + name
+              + "\" must appear once, in the FROM of a plain recursive term");
+    }
+    PlainSelect select = (PlainSelect) step;
+    if (select.getOrderByElements() != null
+        || select.getLimit() != null
+        || select.getOffset() != null
+        || select.getForUpdateTable() != null
+        || select.getForMode() != null) {
+      throw new PgException.Argument(
+          "0A000", "ORDER BY, LIMIT, OFFSET and FOR UPDATE in a recursive query are not supported");
+    }
+    List<FromItem> items = new ArrayList<>();
+    items.add(select.getFromItem());
+    List<Join> joins = select.getJoins() == null ? Collections.emptyList() : select.getJoins();
+    for (Join j : joins) {
+      items.add(j.getRightItem());
+    }
+    int at = -1; // the self-reference among the FROM items
+    for (int i = 0; i < items.size(); i++) {
+      FromItem f = items.get(i);
+      if (f instanceof Table
+          && ((Table) f).getSchemaName() == null
+          && unquote(((Table) f).getName()).equals(name)) {
+        at = i;
+      }
+    }
+    boolean nullable = false;
+    for (int k = 0; at >= 0 && k < joins.size(); k++) {
+      Join j = joins.get(k);
+      nullable |=
+          (j.isLeft() && k + 1 == at) || (j.isRight() && k + 1 > at) || (j.isFull() && k + 1 >= at);
+    }
+    boolean aggregate = select.getHaving() != null && hasAggregate(select.getHaving());
+    for (SelectItem<?> item : select.getSelectItems()) {
+      aggregate |= hasAggregate(item.getExpression());
+    }
+    if (at < 0 || nullable || aggregate) {
+      throw new PgException.Argument(
+          "42P19",
+          "recursive reference to query \""
+              + name
+              + "\" must not appear within a subquery, an outer join or an aggregate");
+    }
   }
 
   /** A subquery in FROM as a source: its alias names it, and the alias column list its columns. */

@@ -110,6 +110,7 @@ final class Plan {
   int offset;
   // A set operation: its two member plans and how they combine
   private List<Plan> members = Collections.emptyList();
+  @Nullable private int[] fixedOids; // a recursive query's working table: the anchor's types
   @Nullable private Operators.SetOperation.Kind setKind;
   private boolean setAll;
   final Map<Select, Plan> subplans;
@@ -605,8 +606,9 @@ final class Plan {
   }
 
   /** The working table of a recursive CTE: whatever rows {@code rows} holds when opened. */
-  static Plan working(String name, List<String> names, List<Map<String, Object>> rows) {
+  static Plan working(String name, List<String> names, List<Map<String, Object>> rows, int[] oids) {
     Plan plan = constant(names, rows, "SELECT");
+    plan.fixedOids = oids;
     plan.root = new Operators.Values(rows, "Working table " + name);
     return plan;
   }
@@ -765,6 +767,9 @@ final class Plan {
    * drivers such as pgx need the type before the first row arrives.
    */
   public int[] outputOids() {
+    if (fixedOids != null) {
+      return fixedOids.clone();
+    }
     int[] oids = new int[outputNames.size()];
     Returning returning = write == null ? null : write.returning;
     for (int i = 0; i < oids.length; i++) {

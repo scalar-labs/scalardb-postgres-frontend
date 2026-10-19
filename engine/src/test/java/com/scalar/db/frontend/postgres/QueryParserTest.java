@@ -506,6 +506,25 @@ public class QueryParserTest {
                     .get(0)
                     .keySet()))
         .containsExactly("j", "a.i", "b.k");
+    // a recursive query PostgreSQL rejects, or whose SEARCH or CYCLE would be dropped, is refused
+    for (String sql :
+        Arrays.asList(
+            "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 3)"
+                + " SEARCH DEPTH FIRST BY n SET s SELECT * FROM t",
+            "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT count(*) FROM t) SELECT * FROM t",
+            "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT t.n + 1 FROM (VALUES (1)) v(x)"
+                + " LEFT JOIN t ON t.n = v.x) SELECT * FROM t",
+            "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n * 2.5 FROM t WHERE n < 9)"
+                + " SELECT * FROM t")) {
+      assertThatThrownBy(() -> parser.parse(sql)).as(sql).isInstanceOf(PgException.class);
+    }
+    assertThat(
+            parser
+                .parse(
+                    "WITH RECURSIVE t(n) AS (SELECT 1::bigint UNION ALL SELECT n * 2 FROM t"
+                        + " WHERE n < 4) SELECT n FROM t")
+                .execute(transaction))
+        .containsExactly(map("n", 1L), map("n", 2L), map("n", 4L));
     // a frame exclusion is refused rather than ignored
     assertThatThrownBy(
             () ->

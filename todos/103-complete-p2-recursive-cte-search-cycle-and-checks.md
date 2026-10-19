@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "103"
 tags: [cte, wrong-result, validation, regress-suite]
@@ -29,9 +29,10 @@ SEARCH and CYCLE add columns and stop cycles; the frontend parses and drops them
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Refused first: SEARCH and CYCLE fail with 0A000 instead of being dropped. A recursive term PostgreSQL rejects fails too: the query referred to more than once, from a subquery, a set operation or the nullable side of an outer join, or with an aggregate (42P19), or with ORDER BY, LIMIT, OFFSET or FOR UPDATE (0A000); a term reaching the query through its own WITH is let through as before. A step column whose numeric type differs from the anchor's fails with 42804; for that, the working table now carries the anchor's types, so the step's types are inferred from them (1::bigint then n * 2 runs; 1 then n * 2.5 is refused). regress with: 16 wrong results fixed, none new. Left: #140 (an anchor over VALUES, typed int8 here, int4 in PostgreSQL) and #141 (numeric typmods differ), both accepted where PostgreSQL rejects; SEARCH and CYCLE remain to implement.
