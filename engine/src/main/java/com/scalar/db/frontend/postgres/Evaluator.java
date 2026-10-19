@@ -1548,10 +1548,15 @@ final class Evaluator {
   private static void jsonSteps(
       net.sf.jsqlparser.expression.JsonExpression j, List<Map.Entry<Expression, String>> steps) {
     for (Map.Entry<Expression, String> ident : j.getIdentList()) {
-      if (ident.getKey() instanceof net.sf.jsqlparser.expression.JsonExpression) {
-        net.sf.jsqlparser.expression.JsonExpression inner =
-            (net.sf.jsqlparser.expression.JsonExpression) ident.getKey();
-        steps.add(new java.util.AbstractMap.SimpleEntry<>(inner.getExpression(), ident.getValue()));
+      net.sf.jsqlparser.expression.JsonExpression inner = chained(ident.getKey());
+      if (inner != null) {
+        // j -> -1 -> 'b' is read as j -> -(1 -> 'b'): the sign belongs to the first step
+        Expression first =
+            ident.getKey() instanceof SignedExpression
+                ? new SignedExpression(
+                    ((SignedExpression) ident.getKey()).getSign(), inner.getExpression())
+                : inner.getExpression();
+        steps.add(new java.util.AbstractMap.SimpleEntry<>(first, ident.getValue()));
         jsonSteps(inner, steps);
       } else {
         steps.add(ident);
@@ -1563,9 +1568,17 @@ final class Evaluator {
   static String lastJsonOperator(net.sf.jsqlparser.expression.JsonExpression j) {
     List<Map.Entry<Expression, String>> idents = j.getIdentList();
     Map.Entry<Expression, String> last = idents.get(idents.size() - 1);
-    return last.getKey() instanceof net.sf.jsqlparser.expression.JsonExpression
-        ? lastJsonOperator((net.sf.jsqlparser.expression.JsonExpression) last.getKey())
-        : last.getValue();
+    net.sf.jsqlparser.expression.JsonExpression inner = chained(last.getKey());
+    return inner != null ? lastJsonOperator(inner) : last.getValue();
+  }
+
+  /** The rest of a JSON chain that JSQLParser nests in a step, possibly behind its sign. */
+  @Nullable private static net.sf.jsqlparser.expression.JsonExpression chained(Expression step) {
+    Expression e =
+        step instanceof SignedExpression ? ((SignedExpression) step).getExpression() : step;
+    return e instanceof net.sf.jsqlparser.expression.JsonExpression
+        ? (net.sf.jsqlparser.expression.JsonExpression) e
+        : null;
   }
 
   /** An integer operand, for bitwise operators and subscripts. */

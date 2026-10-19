@@ -1634,6 +1634,14 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // chains JSQLParser misreads: -> -1 -> (a sign) and (j -> 'a') -> (a lambda)
+    assertThat(
+            parser
+                .parse(
+                    "SELECT '[1,{\"b\":[3]}]'::jsonb -> -1 -> 'b' AS s,"
+                        + " ('{\"a\":{\"b\":1}}'::jsonb -> 'a') -> 'b' AS p")
+                .execute(transaction))
+        .containsExactly(map("s", Json.cast("[3]", true), "p", Json.cast("1", true)));
     assertThat(
             parser
                 .parse(

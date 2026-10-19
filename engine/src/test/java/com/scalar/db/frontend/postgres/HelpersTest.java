@@ -168,6 +168,18 @@ public class HelpersTest {
   }
 
   @Test
+  public void parenthesisedJsonOperands_ShouldNotReadAsLambdas() {
+    // a parenthesised operand of -> is wrapped; a call, ->>, a literal and a comment are not
+    assertThat(
+            QueryParser.parenthesisedJsonOperands(
+                "SELECT (j -> 'a') -> 'b', f(j) -> 'c', (j)->>'d', '(x) -> y' /* (z) -> w */"
+                    + " WHERE x AND ((j -> 'a')) -> 'b' = 1"))
+        .isEqualTo(
+            "SELECT COALESCE((j -> 'a')) -> 'b', f(j) -> 'c', (j)->>'d', '(x) -> y'"
+                + " /* (z) -> w */ WHERE x AND COALESCE(((j -> 'a'))) -> 'b' = 1");
+  }
+
+  @Test
   public void similarPattern_ShouldMatchTheWholeString() {
     assertThat(Evaluator.similarPattern("%(b|d)%", "").matcher("abc").matches()).isTrue();
     assertThat(Evaluator.similarPattern("a_c", "").matcher("abcd").matches()).isFalse();

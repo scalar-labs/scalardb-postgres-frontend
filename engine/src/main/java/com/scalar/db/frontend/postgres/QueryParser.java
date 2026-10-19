@@ -47,10 +47,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1224,12 +1226,107 @@ class QueryParser {
 
   /** Rewrites PostgreSQL syntax that JSQLParser does not accept. */
   static String normalize(String sql) {
-    return escapeStringQuotes(
-        sql.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
-            // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
-            .replaceAll(
-                "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
-                "AS \"$1\""));
+    return parenthesisedJsonOperands(
+        escapeStringQuotes(
+            sql.replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
+                // a reserved word as a column alias, as Sequelize writes AS primary, AS unique
+                .replaceAll(
+                    "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
+                    "AS \"$1\"")));
+  }
+
+  // words before a parenthesis that make it an operand, not a function's argument list
+  private static final Set<String> NOT_FUNCTIONS =
+      Set.of(
+          "AND",
+          "OR",
+          "NOT",
+          "SELECT",
+          "WHERE",
+          "ON",
+          "WHEN",
+          "THEN",
+          "ELSE",
+          "BY",
+          "HAVING",
+          "RETURNING",
+          "SET",
+          "DISTINCT",
+          "IS",
+          "IN",
+          "LIKE",
+          "BETWEEN",
+          "AS",
+          "VALUES");
+
+  /**
+   * JSQLParser reads {@code (j -> 'a') -> 'b'} as a lambda, which PostgreSQL does not have: a
+   * parenthesised operand of {@code ->} is written {@code COALESCE((...))}, the same value in a
+   * form it parses as a JSON chain. Literals, quoted names and comments are skipped; the string
+   * literals have their quotes doubled by then (see {@link #escapeStringQuotes}).
+   */
+  static String parenthesisedJsonOperands(String sql) {
+    if (!sql.contains("->")) {
+      return sql;
+    }
+    Deque<Integer> open = new ArrayDeque<>();
+    Map<Integer, Integer> wrapped = new HashMap<>(); // ( index -> its ) index
+    for (int i = 0; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      if (c == '\'' || c == '"') {
+        int end = sql.indexOf(c, i + 1);
+        while (end > 0 && end + 1 < sql.length() && sql.charAt(end + 1) == c) {
+          end = sql.indexOf(c, end + 2); // a doubled quote
+        }
+        i = end < 0 ? sql.length() : end;
+      } else if (sql.startsWith("--", i) || sql.startsWith("/*", i)) {
+        int end = sql.charAt(i) == '-' ? sql.indexOf('\n', i) : sql.indexOf("*/", i);
+        i = end < 0 ? sql.length() : end;
+      } else if (c == '(') {
+        open.push(i);
+      } else if (c == ')' && !open.isEmpty()) {
+        int start = open.pop();
+        int next = i + 1;
+        while (next < sql.length() && Character.isWhitespace(sql.charAt(next))) {
+          next++;
+        }
+        if (sql.startsWith("->", next) && !sql.startsWith("->>", next) && !called(sql, start)) {
+          wrapped.put(start, i);
+        }
+      }
+    }
+    if (wrapped.isEmpty()) {
+      return sql;
+    }
+    Set<Integer> ends = new HashSet<>(wrapped.values());
+    StringBuilder out = new StringBuilder(sql.length() + wrapped.size() * 12);
+    for (int i = 0; i < sql.length(); i++) {
+      if (wrapped.containsKey(i)) {
+        out.append("COALESCE(");
+      }
+      out.append(sql.charAt(i));
+      if (ends.contains(i)) {
+        out.append(')');
+      }
+    }
+    return out.toString();
+  }
+
+  /** Whether the parenthesis at {@code open} is a call's argument list: f(x), "f"(x), a[1](x). */
+  private static boolean called(String sql, int open) {
+    int end = open;
+    while (end > 0 && Character.isWhitespace(sql.charAt(end - 1))) {
+      end--;
+    }
+    int start = end;
+    while (start > 0
+        && (Character.isLetterOrDigit(sql.charAt(start - 1)) || sql.charAt(start - 1) == '_')) {
+      start--;
+    }
+    if (start == end) {
+      return end > 0 && (sql.charAt(end - 1) == '"' || sql.charAt(end - 1) == ']');
+    }
+    return !NOT_FUNCTIONS.contains(sql.substring(start, end).toUpperCase(Locale.ROOT));
   }
 
   /**
