@@ -220,6 +220,8 @@ at the end of this section.
 - **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified
   (`a.x`, `b.x`) or as `COALESCE(a.x, b.x)`; an unqualified reference to it, and a further `USING` join
   on it, are refused with `0A000`. After INNER and LEFT joins it works as in PostgreSQL.
+- **Outer joins nested without parentheses** (`a LEFT JOIN b LEFT JOIN c ON x ON y`) are refused with
+  `0A000`, as are parenthesized joins in `FROM`; the same nesting of inner joins works.
 - **Ordered-set aggregates are refused** (`percentile_cont`, `percentile_disc`, `mode` and the hypothetical
   `rank`/`percent_rank`/`cume_dist` with `WITHIN GROUP`), with `0A000`.
 - **Array column types are refused** (`int[]`, `text[][]` in CREATE TABLE and ADD COLUMN), with `0A000`:

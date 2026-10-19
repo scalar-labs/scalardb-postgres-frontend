@@ -2897,40 +2897,40 @@ class QueryParser {
         if (targets.isEmpty()) {
           throw new IllegalArgumentException("SELECT * requires a FROM clause");
         }
-        for (LogicalPlan.Source s : targets) {
-          s.star = true;
+        targets.forEach(t -> t.star = true);
+        for (Map.Entry<LogicalPlan.Source, String> sc :
+            e instanceof AllTableColumns
+                ? starColumns(targets.get(0))
+                : starColumns(plan.sources, joinNodes)) {
+          LogicalPlan.Source s = sc.getKey();
+          String c = sc.getValue();
           int position = plan.sources.indexOf(s);
-          for (String c : s.columns) {
-            if (!(e instanceof AllTableColumns) && s.merged.containsKey(c)) {
-              continue; // a USING column comes out once, from the left side
-            }
-            if (s.catalogTable != null && c.equals(Catalog.TABLEOID)) {
-              continue; // a system column
-            }
-            Expression column = new net.sf.jsqlparser.schema.Column(new Table(s.qualifier), c);
-            String name = multi ? s.qualifier + "." + c : c;
-            for (int k = position + 1;
-                !(e instanceof AllTableColumns) && k < plan.sources.size();
-                k++) {
-              LogicalPlan.Source later = plan.sources.get(k);
-              if (s.qualifier.equals(later.merged.get(c))) {
-                name = c;
-                if (plan.joins.get(k - 1).kind != LogicalPlan.Join.Kind.INNER) {
-                  // either side may be null-extended, so the merged column takes whichever is set
-                  Function coalesce = new Function();
-                  coalesce.setName("COALESCE");
-                  coalesce.setParameters(
-                      new ExpressionList<Expression>(
-                          column,
-                          new net.sf.jsqlparser.schema.Column(new Table(later.qualifier), c)));
-                  column = coalesce;
-                }
+          if (s.catalogTable != null && c.equals(Catalog.TABLEOID)) {
+            continue; // a system column
+          }
+          Expression column = new net.sf.jsqlparser.schema.Column(new Table(s.qualifier), c);
+          String name = multi ? s.qualifier + "." + c : c;
+          for (int k = position + 1;
+              !(e instanceof AllTableColumns) && k < plan.sources.size();
+              k++) {
+            LogicalPlan.Source later = plan.sources.get(k);
+            if (s.qualifier.equals(later.merged.get(c))) {
+              name = c;
+              if (plan.joins.get(k - 1).kind != LogicalPlan.Join.Kind.INNER) {
+                // either side may be null-extended, so the merged column takes whichever is set
+                Function coalesce = new Function();
+                coalesce.setName("COALESCE");
+                coalesce.setParameters(
+                    new ExpressionList<Expression>(
+                        column,
+                        new net.sf.jsqlparser.schema.Column(new Table(later.qualifier), c)));
+                column = coalesce;
               }
             }
-            plan.outputNames.add(name);
-            plan.outputLabels.add(c);
-            plan.outputExpressions.add(column);
           }
+          plan.outputNames.add(name);
+          plan.outputLabels.add(c);
+          plan.outputExpressions.add(column);
         }
       } else {
         String label = item.getAlias() != null ? unquote(item.getAlias().getName()) : label(e);
@@ -2948,6 +2948,18 @@ class QueryParser {
       plan.where.add(c);
     }
     for (int i = 0; i < joinNodes.size(); i++) {
+      int nested = joinNodes.get(i).getOnExpressions().size(); // a JOIN b JOIN c ON x ON y: 2
+      boolean outerJoin = nested > i + 1;
+      for (int k = i - nested + 1; k <= i && !outerJoin; k++) {
+        Join n = joinNodes.get(k);
+        outerJoin = n.isLeft() || n.isRight() || n.isFull() || n.isOuter();
+      }
+      if (nested > 1 && outerJoin) {
+        // ponytail: a JOIN b JOIN c ON x ON y nests as a JOIN (b JOIN c ON x) ON y; the parser
+        // hangs every ON on the last join, which only inner joins do not mind; an outer one is
+        // refused until the tree is rebuilt
+        throw new PgException.Argument("0A000", "Unsupported outer JOIN with nested ON clauses");
+      }
       List<Expression> ons = new ArrayList<>(usingConditions.get(i));
       ons.addAll(joinNodes.get(i).getOnExpressions());
       for (Expression on : ons) {
@@ -3644,6 +3656,67 @@ class QueryParser {
    * column of the source at {@code index} equals the same column of the first earlier source that
    * has it. The column is recorded as merged on the right source.
    */
+  /** A table's columns for t.*, in its order. */
+  private static List<Map.Entry<LogicalPlan.Source, String>> starColumns(LogicalPlan.Source s) {
+    List<Map.Entry<LogicalPlan.Source, String>> out = new ArrayList<>();
+    for (String c : s.columns) {
+      out.add(new java.util.AbstractMap.SimpleEntry<>(s, c));
+    }
+    return out;
+  }
+
+  /**
+   * The columns of SELECT * in PostgreSQL's order: a join gives its USING (or NATURAL) columns
+   * once, first, then the rest of its left side and of its right side; a comma starts another FROM
+   * item.
+   */
+  private static List<Map.Entry<LogicalPlan.Source, String>> starColumns(
+      List<LogicalPlan.Source> sources, List<Join> joins) {
+    List<List<Map.Entry<LogicalPlan.Source, String>>> items = new ArrayList<>();
+    for (int k = 0; k < sources.size(); k++) {
+      LogicalPlan.Source s = sources.get(k);
+      List<Map.Entry<LogicalPlan.Source, String>> own = new ArrayList<>();
+      for (Map.Entry<LogicalPlan.Source, String> sc : starColumns(s)) {
+        if (!s.merged.containsKey(sc.getValue())) { // a USING column comes out from the left side
+          own.add(sc);
+        }
+      }
+      if (k == 0 || joins.get(k - 1).isSimple()) {
+        items.add(own);
+        continue;
+      }
+      List<Map.Entry<LogicalPlan.Source, String>> left = items.get(items.size() - 1);
+      List<Map.Entry<LogicalPlan.Source, String>> first = new ArrayList<>();
+      for (Map.Entry<LogicalPlan.Source, String> sc : new ArrayList<>(left)) {
+        // NATURAL's common columns in the left side's order, USING's in its own
+        if (joins.get(k - 1).isNatural() && s.merged.containsKey(sc.getValue())) {
+          first.add(sc);
+        }
+      }
+      if (!joins.get(k - 1).isNatural()) {
+        for (Map.Entry<String, String> m : s.merged.entrySet()) {
+          for (Map.Entry<LogicalPlan.Source, String> sc : left) {
+            if (sc.getValue().equals(m.getKey()) && sc.getKey().qualifier.equals(m.getValue())) {
+              first.add(sc);
+            }
+          }
+        }
+      }
+      if (first.size() != s.merged.size()) {
+        // the other side of USING is in an earlier comma-separated FROM item: PostgreSQL's 42703
+        throw new PgException.Argument(
+            "42703", "column in USING clause does not exist in left table: " + s.merged.keySet());
+      }
+      left.removeAll(first);
+      first.addAll(left);
+      first.addAll(own);
+      items.set(items.size() - 1, first);
+    }
+    List<Map.Entry<LogicalPlan.Source, String>> out = new ArrayList<>();
+    items.forEach(out::addAll);
+    return out;
+  }
+
   private static List<Expression> usingConditions(
       Join j, List<LogicalPlan.Source> sources, int index, LogicalPlan.Join.Kind kind) {
     LogicalPlan.Source right = sources.get(index);
@@ -3673,6 +3746,15 @@ class QueryParser {
       }
       if (left == null || !right.columns.contains(c)) {
         throw new IllegalArgumentException("USING column must exist on both sides: " + c);
+      }
+      if (sources.subList(0, index).stream()
+              .filter(x -> x.columns.contains(c) && !x.merged.containsKey(c))
+              .count()
+          > 1) {
+        // ponytail: counts every earlier FROM item, where PostgreSQL looks only at the join's own
+        // left side; that refuses a comma-separated duplicate it would allow
+        throw new PgException.Argument(
+            "42702", "common column name \"" + c + "\" appears more than once in left table");
       }
       if (left.mergedOuter.contains(c)) {
         // ponytail: the merged value (COALESCE of both sides) is not carried through joins; refused

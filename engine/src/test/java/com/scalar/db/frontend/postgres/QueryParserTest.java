@@ -495,6 +495,32 @@ public class QueryParserTest {
             map("a", 1L, "g", 0L, "n", 2L),
             map("a", null, "g", 0L, "n", 1L),
             map("a", null, "g", 1L, "n", 3L));
+    // SELECT * gives a join's USING columns first, then the rest of each side, as PostgreSQL
+    assertThat(
+            new ArrayList<>(
+                parser
+                    .parse(
+                        "SELECT * FROM (VALUES (1, 2)) a(i, j) JOIN (VALUES (3, 2)) b(k, j)"
+                            + " USING (j)")
+                    .execute(transaction)
+                    .get(0)
+                    .keySet()))
+        .containsExactly("j", "a.i", "b.k");
+    // ON clauses nesting joins are refused rather than attached to the wrong join
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "SELECT 1 FROM (VALUES (1)) a(x) LEFT JOIN (VALUES (1)) b(y)"
+                        + " LEFT JOIN (VALUES (1)) c(z) ON y = z ON x = y"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThat( // inner joins give the same rows wherever their ON applies
+            parser
+                .parse(
+                    "SELECT x, y, z FROM (VALUES (1), (2)) a(x) JOIN (VALUES (1), (2)) b(y)"
+                        + " JOIN (VALUES (1)) c(z) ON y = z ON x = y")
+                .execute(transaction))
+        .containsExactly(map("x", 1L, "y", 1L, "z", 1L));
     // a set leaving an item out nulls it in the output, while aggregates still see the values
     assertThat(
             parser

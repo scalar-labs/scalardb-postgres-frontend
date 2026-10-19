@@ -34,7 +34,7 @@ final class LogicalPlan {
     @Nullable List<Map<String, Object>> catalogRows;
     // USING/NATURAL columns of this source, mapped to the qualifier of the earlier source they are
     // merged with: SELECT * outputs them once, and an unqualified reference binds to that source
-    final Map<String, String> merged = new HashMap<>();
+    final Map<String, String> merged = new java.util.LinkedHashMap<>(); // in USING order
     // this source's columns that a later RIGHT or FULL JOIN USING merged: an unqualified reference
     // to one would read this source's copy, NULL where only the later side has the row
     final java.util.Set<String> mergedOuter = new java.util.HashSet<>();
