@@ -611,6 +611,14 @@ public class QueryParserTest {
     assertThat(plan.getOutputColumns()).containsExactly("one", "ab", "?column?");
     assertThat(plan.execute(transaction))
         .containsExactly(map("one", 1L, "ab", "ab", "?column?", true));
+    // typed literals, subscripted casts and AT TIME ZONE are named as PostgreSQL's FigureColname
+    assertThat(
+            parser
+                .parse(
+                    "SELECT date '2020-01-01', timestamp '2020-01-01' AT TIME ZONE 'UTC',"
+                        + " ('{1,2}'::int[])[1]")
+                .getColumnLabels())
+        .containsExactly("date", "timezone", "int4");
   }
 
   @Test

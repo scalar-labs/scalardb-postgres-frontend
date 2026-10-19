@@ -3644,11 +3644,19 @@ class QueryParser {
     if (name != null) {
       return name;
     }
+    e = unwrap(e);
     if (e instanceof CastExpression) {
       return castTypeLabel(((CastExpression) e).getColDataType().getDataType());
     }
     if (e instanceof net.sf.jsqlparser.expression.IntervalExpression) {
       return "interval"; // INTERVAL '1 day' is a typed literal, named by its type
+    }
+    if (e instanceof DateTimeLiteralExpression) {
+      return ((DateTimeLiteralExpression) e).getType().name().toLowerCase(Locale.ROOT);
+    }
+    if (e instanceof net.sf.jsqlparser.expression.ArrayExpression) {
+      // a subscript is named after what it indexes: ('{1}'::int[])[1] is int4
+      return label(((net.sf.jsqlparser.expression.ArrayExpression) e).getObjExpression());
     }
     return "?column?";
   }
@@ -3695,6 +3703,9 @@ class QueryParser {
     if (e instanceof net.sf.jsqlparser.expression.ExtractExpression) {
       return "extract";
     }
+    if (e instanceof net.sf.jsqlparser.expression.TimezoneExpression) {
+      return "timezone"; // AT TIME ZONE is the function timezone()
+    }
     if (e instanceof net.sf.jsqlparser.expression.TimeKeyExpression) {
       return ((net.sf.jsqlparser.expression.TimeKeyExpression) e)
           .getStringValue()
@@ -3739,6 +3750,10 @@ class QueryParser {
         return "timestamp";
       case "timestamp with time zone":
         return "timestamptz";
+      case "time without time zone":
+        return "time";
+      case "time with time zone":
+        return "timetz";
       default:
         return t.startsWith("pg_catalog.") ? t.substring("pg_catalog.".length()) : t;
     }
