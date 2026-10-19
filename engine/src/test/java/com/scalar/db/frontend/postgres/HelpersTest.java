@@ -161,6 +161,19 @@ public class HelpersTest {
   }
 
   @Test
+  public void rounded_ShouldRoundAsPostgreSqlCasts() {
+    // a float rounds half to even and converts exactly; a numeric rounds half away from zero
+    assertThat(Evaluator.rounded(-2.5d)).isEqualTo(-2);
+    assertThat(Evaluator.rounded(0.5d)).isZero();
+    assertThat(Evaluator.rounded(1.5f)).isEqualTo(2);
+    assertThat(Evaluator.rounded(9223372036854773760d)).isEqualTo(9223372036854773760L);
+    assertThat(Evaluator.rounded(new java.math.BigDecimal("2.5"))).isEqualTo(3);
+    assertThat(Evaluator.rounded(new java.math.BigDecimal("-2.5"))).isEqualTo(-3);
+    assertThatThrownBy(() -> Evaluator.rounded(Double.NaN)).isInstanceOf(ArithmeticException.class);
+    assertThatThrownBy(() -> Evaluator.rounded(9.3e18)).isInstanceOf(ArithmeticException.class);
+  }
+
+  @Test
   public void jsonEquality_ShouldFollowPostgreSql() {
     // jsonb: equal by value, so one DISTINCT or GROUP BY member; json: no equality at all
     Json.Value one = Json.cast("[1, {\"a\": 1}]", true);

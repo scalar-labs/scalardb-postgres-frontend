@@ -3149,11 +3149,18 @@ final class Evaluator {
   }
 
   /**
-   * A number rounded to an integer the way PostgreSQL casts numeric (half away from zero), failing
-   * when out of range. NUMERIC columns are doubles here, so this also applies to them; a true
-   * float8 .5 rounds to even in PostgreSQL.
+   * A number rounded to an integer as PostgreSQL casts it, failing (ArithmeticException) when it is
+   * beyond bigint: a real or double precision rounds half to even (rint, so -2.5 is -2) and
+   * converts exactly, a numeric rounds half away from zero (2.5 is 3).
    */
-  private static long rounded(Number n) {
+  static long rounded(Number n) {
+    if (n instanceof Double || n instanceof Float) {
+      double d = Math.rint(n.doubleValue());
+      if (!Double.isFinite(d)) {
+        throw new ArithmeticException("out of range"); // NaN and the infinities
+      }
+      return new BigDecimal(d).longValueExact(); // exact: not through the shortest decimal text
+    }
     return new BigDecimal(n.toString()).setScale(0, RoundingMode.HALF_UP).longValueExact();
   }
 

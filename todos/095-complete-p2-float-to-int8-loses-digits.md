@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "095"
 tags: [types, float, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ The cast goes through a 17-digit decimal string, so the exact integer value of a
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done with 067: Evaluator.rounded converted a double through Double.toString (shortest decimal, so 9223372036854773760 became ...800); it now converts the rint'ed double exactly (new BigDecimal(double)). '9223372036854773760'::float8::int8 matches PostgreSQL 16. The float4 case in float4.sql #68 needs single-precision rounding (todo 094).

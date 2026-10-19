@@ -42,7 +42,6 @@ import com.scalar.db.io.TimeColumn;
 import com.scalar.db.io.TimestampColumn;
 import com.scalar.db.io.TimestampTZColumn;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -5287,8 +5286,14 @@ class QueryParser {
         && v instanceof Number
         && !Evaluator.isIntegral(v)
         && Evaluator.isFinite(v)) {
-      // a decimal written to an integer column is rounded, as PostgreSQL does (2.5 is 3)
-      v = new BigDecimal(Evaluator.text(v)).setScale(0, RoundingMode.HALF_UP);
+      // a decimal written to an integer column is rounded as a cast rounds it (numeric 2.5 is 3,
+      // float8 2.5 is 2)
+      try {
+        v = Evaluator.rounded((Number) v);
+      } catch (ArithmeticException outOfRange) {
+        throw new ArithmeticException(
+            (type == DataType.INT ? "integer" : "bigint") + " out of range");
+      }
     }
     return columnFromValue(t, name, v);
   }

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "067"
 tags: [types, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ PostgreSQL rounds a `float4`/`float8` cast to `int2`/`int4`/`int8` to the neares
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done. Evaluator.rounded, shared by casts to smallint, integer and bigint and now by the INSERT/UPDATE path into an integer column, rounds a real or double precision with Math.rint (half to even) and converts it exactly; a numeric still rounds half away from zero. NaN and values beyond bigint raise 22003. Live check against PostgreSQL 16: the six halves, int2/int8 targets, INSERT into int and bigint columns all match. HelpersTest pins it. The same change closes 095.
