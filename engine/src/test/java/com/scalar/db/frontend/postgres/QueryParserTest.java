@@ -1552,6 +1552,19 @@ public class QueryParserTest {
     verify(transaction, times(1)).mutate(any());
     assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE seq = 1"))
         .hasMessageContaining("primary key column");
+    // a subscripted target assigns one element; it is refused rather than overwriting the column
+    for (String sql :
+        new String[] {
+          "UPDATE t SET price['a'] = '1' WHERE id = 1 AND seq = 1",
+          "UPDATE t SET price[2] = 1 WHERE id = 1",
+          "INSERT INTO t (id, seq, price[1]) VALUES (1, 1, 2)",
+          "INSERT INTO t VALUES (1, 1, 2) ON CONFLICT (id, seq) DO UPDATE SET price[1] = 3"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
   }
 
   @Test
@@ -1634,6 +1647,27 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // jsonb subscripts read as -> does: a key, an index from 0 or the end, a numeric key on an
+    // object
+    assertThat(
+            parser
+                .parse(
+                    "SELECT ('{\"a\":{\"b\":[1,2]}}'::jsonb)['a']['b'][-1] AS l,"
+                        + " ('[1,2]'::jsonb)['1'] AS t, ('{\"1\":5}'::jsonb)[1] AS k,"
+                        + " ('[1]'::jsonb)['x'] AS n")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "l",
+                Json.cast("2", true),
+                "t",
+                Json.cast("2", true),
+                "k",
+                Json.cast("5", true),
+                "n",
+                null));
+    assertThatThrownBy(() -> parser.parse("SELECT ('{}'::json)['a']").execute(transaction))
+        .hasMessageContaining("does not support subscripting");
     // chains JSQLParser misreads: -> -1 -> (a sign) and (j -> 'a') -> (a lambda)
     assertThat(
             parser

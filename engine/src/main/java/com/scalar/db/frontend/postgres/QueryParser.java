@@ -1590,7 +1590,7 @@ class QueryParser {
       if (insert.getColumns() != null) {
         Set<String> seen = new HashSet<>();
         for (Expression c : insert.getColumns()) {
-          if (!seen.add(columnName(c))) {
+          if (!seen.add(assignedColumn(c))) {
             throw new PgException.Argument(
                 "42701", "column \"" + columnName(c) + "\" specified more than once");
           }
@@ -4527,7 +4527,7 @@ class QueryParser {
     Set<String> seen = new HashSet<>();
     for (UpdateSet set : sets) {
       for (int i = 0; i < set.getColumns().size(); i++) {
-        String name = columnName(set.getColumn(i));
+        String name = assignedColumn(set.getColumn(i));
         if (!seen.add(name)) {
           throw new PgException.Argument(
               "42601", "multiple assignments to same column \"" + name + "\"");
@@ -6365,6 +6365,26 @@ class QueryParser {
       return name.contains("[") ? name.substring(0, name.indexOf('[')) : name;
     }
     throw new IllegalArgumentException("Expected a column name: " + e);
+  }
+
+  /**
+   * A column an INSERT or UPDATE assigns to. A subscript ({@code SET j['a'] = v}, {@code INSERT
+   * INTO t (a[1])}) would assign one element, but {@link #columnName} drops it and the whole column
+   * would be overwritten, so it is refused.
+   */
+  // ponytail: refused, not implemented; rewrite as jsonb_set(col, path, v, true) (and an array
+  // element update) when a client needs it
+  private static String assignedColumn(Expression e) {
+    if (isColumn(e)
+        && (((net.sf.jsqlparser.schema.Column) e).getArrayConstructor() != null
+            || ((net.sf.jsqlparser.schema.Column) e).getColumnName().contains("["))) {
+      throw new PgException.Argument(
+          "0A000",
+          "Unsupported: assigning to a subscript of a column ("
+              + e
+              + "); assign the whole new value instead");
+    }
+    return columnName(e);
   }
 
   /** {@code col = DEFAULT} in SET: there are no column defaults here, so it means NULL. */

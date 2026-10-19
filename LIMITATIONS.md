@@ -215,6 +215,9 @@ at the end of this section.
   psql's and drivers' catalog queries work.
 - **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
   fail with a clear error.
+- **Assigning to a subscript is refused** (`UPDATE t SET j['a'] = v`, `SET a[2] = v`, the same in
+  `INSERT ... (col[1])` and `ON CONFLICT DO UPDATE`), with `0A000`; assign the whole new value instead.
+  Reading a jsonb subscript (`j['a'][0]`) works as in PostgreSQL.
 - **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` naming a collation other than
   ScalarDB's (`"C"`/`POSIX` under `BINARY`, the ICU one that `pg_collation` lists under `ICU`), a
   `COLLATE` other than `"default"` in a column definition,

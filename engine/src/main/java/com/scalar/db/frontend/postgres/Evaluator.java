@@ -1467,6 +1467,11 @@ final class Evaluator {
       if (array == null) {
         return null;
       }
+      if (array instanceof Json.Value && a.getIndexExpression() != null) {
+        return jsonSubscript(
+            (Json.Value) array,
+            Collections.singletonList(eval(a.getIndexExpression(), group, ctx)));
+      }
       List<?> items = elements(array);
       Expression index = a.getIndexExpression();
       Expression startIndex = a.getStartIndexExpression();
@@ -1933,6 +1938,13 @@ final class Evaluator {
     if (bracket < 0 && c.getArrayConstructor() == null) {
       return value;
     }
+    if (value instanceof Json.Value && c.getArrayConstructor() != null) {
+      List<Object> keys = new ArrayList<>();
+      for (Expression k : c.getArrayConstructor().getExpressions()) {
+        keys.add(eval(k, group, ctx));
+      }
+      return jsonSubscript((Json.Value) value, keys);
+    }
     Object subscript =
         bracket >= 0
             ? Long.parseLong(raw.substring(bracket + 1, raw.length() - 1).trim())
@@ -1944,6 +1956,39 @@ final class Evaluator {
     int index = ((Number) subscript).intValue() + 1 - (int) lowerBound(value);
     List<?> array = value instanceof List ? (List<?>) value : null;
     return array == null || index < 1 || index > array.size() ? null : array.get(index - 1);
+  }
+
+  /**
+   * {@code j['a'][0]}: jsonb subscripting, a member by text key or an element by integer index
+   * (negative from the end), in turn; NULL where there is none. json has no subscripts.
+   */
+  @Nullable private static Object jsonSubscript(Json.Value value, List<Object> keys) {
+    if (!value.binary) {
+      throw new PgException.Argument(
+          "42804", "cannot subscript type json because it does not support subscripting");
+    }
+    com.fasterxml.jackson.databind.JsonNode node = value.node;
+    for (Object key : keys) {
+      if (key == null || node == null) {
+        return null;
+      }
+      if (!(key instanceof String || key instanceof Integer || key instanceof Long)) {
+        throw new PgException.Argument(
+            "42804", "subscript type " + pgTypeName(key) + " is not supported");
+      }
+      Object k = key;
+      if (node.isArray() && key instanceof String) {
+        try {
+          k = Long.parseLong(((String) key).trim()); // '1' indexes an array, as in PostgreSQL
+        } catch (NumberFormatException notAnIndex) {
+          return null;
+        }
+      } else if (node.isObject() && !(key instanceof String)) {
+        k = text(key);
+      }
+      node = Json.get(node, k);
+    }
+    return node == null ? null : new Json.Value(node, true, null);
   }
 
   @Nullable private static Object columnValue(
