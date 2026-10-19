@@ -5857,6 +5857,22 @@ class QueryParser {
       }
     }
     if (!plain) {
+      // ponytail: an item named by an output name or position nulls only that output column in a
+      // set leaving it out (PostgreSQL's sortgroupref), which matching by expression cannot tell
+      // from the same expression listed again: refused then
+      List<Expression> members = flatten(product);
+      for (Expression e : members) {
+        boolean byOutput = plan.outputExpressions.stream().anyMatch(o -> o == e);
+        long same =
+            java.util.stream.Stream.concat(plan.outputExpressions.stream(), members.stream())
+                .filter(o -> o != e && o.toString().equals(e.toString()))
+                .count();
+        if (byOutput && same > 0) {
+          throw new PgException.Argument(
+              "0A000",
+              "Unsupported GROUPING SETS item: " + e + " named by an output column is also listed");
+        }
+      }
       plan.groupingSets = product;
     }
   }

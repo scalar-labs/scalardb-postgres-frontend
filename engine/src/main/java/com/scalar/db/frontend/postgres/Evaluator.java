@@ -928,6 +928,19 @@ final class Evaluator {
         && AGGREGATES.contains(((AnalyticExpression) e).getName().toUpperCase(Locale.ROOT));
   }
 
+  /** A grouping set's rows as read, before the set's NULLs: what an aggregate's arguments see. */
+  @SuppressWarnings("unchecked")
+  private static List<Map<String, Object>> originals(List<Map<String, Object>> group) {
+    if (group.isEmpty() || !group.get(0).containsKey(Operators.ORIGINAL_KEY)) {
+      return group;
+    }
+    List<Map<String, Object>> out = new ArrayList<>(group.size());
+    for (Map<String, Object> row : group) {
+      out.add((Map<String, Object>) row.get(Operators.ORIGINAL_KEY));
+    }
+    return out;
+  }
+
   /** The upper-cased function name without a {@code pg_catalog.} schema prefix. */
   private static String functionName(Function f) {
     String name = f.getName().toUpperCase(Locale.ROOT);
@@ -997,6 +1010,14 @@ final class Evaluator {
 
   @Nullable static Object eval(Expression e, List<Map<String, Object>> group, Context ctx) {
     e = QueryParser.unwrap(e);
+    if (!group.isEmpty() && !(e instanceof Column)) {
+      // a grouping item this grouping set leaves out is NULL in its rows, as q1 + 0 in the total
+      // row of ROLLUP(q1 + 0); a column is blanked in the rows themselves
+      Object outside = group.get(0).get(Operators.GROUPING_KEY);
+      if (outside instanceof Set && ((Set<?>) outside).contains(e.toString())) {
+        return null;
+      }
+    }
     if (e instanceof net.sf.jsqlparser.expression.BooleanValue) {
       return ((net.sf.jsqlparser.expression.BooleanValue) e).getValue();
     }
@@ -1094,7 +1115,7 @@ final class Evaluator {
       f.setParameters(new ExpressionList<Expression>(a.getExpression()));
       f.setDistinct(a.isDistinct());
       List<Map<String, Object>> kept = new ArrayList<>();
-      for (Map<String, Object> row : group) {
+      for (Map<String, Object> row : originals(group)) {
         if (isTrue(eval(a.getFilterExpression(), Collections.singletonList(row), ctx))) {
           kept.add(row);
         }
@@ -4253,6 +4274,7 @@ final class Evaluator {
   }
 
   @Nullable private static Object aggregate(Function f, List<Map<String, Object>> group, Context ctx) {
+    group = originals(group);
     String name = functionName(f); // pg_catalog.string_agg, as psql's \dAf writes it
     ExpressionList<?> params = f.getParameters();
     boolean star =

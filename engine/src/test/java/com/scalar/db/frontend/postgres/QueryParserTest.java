@@ -495,6 +495,18 @@ public class QueryParserTest {
             map("a", 1L, "g", 0L, "n", 2L),
             map("a", null, "g", 0L, "n", 1L),
             map("a", null, "g", 1L, "n", 3L));
+    // a set leaving an item out nulls it in the output, while aggregates still see the values
+    assertThat(
+            parser
+                .parse(
+                    "SELECT a + 0 AS k, sum(a) AS s FROM (VALUES (1), (2)) AS v(a)"
+                        + " GROUP BY ROLLUP (a + 0) ORDER BY k")
+                .execute(transaction))
+        .containsExactly(map("k", 1L, "s", 1L), map("k", 2L, "s", 2L), map("k", null, "s", 3L));
+    assertThatThrownBy(
+            () -> parser.parse("SELECT a, a AS y FROM (VALUES (1)) AS v(a) GROUP BY a, ROLLUP (y)"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     assertThat(
             parser
                 .parse("SELECT v, n FROM unnest(ARRAY['x', 'y']) WITH ORDINALITY AS u(v, n)")

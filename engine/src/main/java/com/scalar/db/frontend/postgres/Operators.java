@@ -717,6 +717,8 @@ final class Operators {
   /** Row key under which a grouping-set row carries the grouping expressions it left out. */
   static final String GROUPING_KEY = "$grouping";
 
+  static final String ORIGINAL_KEY = "$original"; // a grouping set's row before its NULLs
+
   static final class Aggregate extends Unary {
     @Nullable private final List<Expression> groupBy;
     // GROUPING SETS / ROLLUP / CUBE: the sets to group by, each a subset of groupBy
@@ -865,11 +867,13 @@ final class Operators {
       Map<List<Object>, List<Map<String, Object>>> byKey = new LinkedHashMap<>();
       for (Map<String, Object> row : rows) {
         if (!nulled.isEmpty() || !outside.isEmpty()) {
+          Map<String, Object> original = row;
           row = new LinkedHashMap<>(row);
           for (String k : nulled) {
             row.put(k, null);
           }
           row.put(GROUPING_KEY, outside);
+          row.put(ORIGINAL_KEY, original);
         }
         List<Object> values = new ArrayList<>();
         for (Expression g : key) {

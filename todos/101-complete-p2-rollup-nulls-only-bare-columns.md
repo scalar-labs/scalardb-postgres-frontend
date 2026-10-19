@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "101"
 tags: [aggregates, grouping-sets, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ In a grouping set that omits a grouping item, every output column that is that i
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: A grouping item a set leaves out now reads NULL whatever it is (q1 + 0, lower(f1)), matched by expression at group level; aggregates read each row as it was before the set's NULLs, which also fixes sum(q1) reading NULL in ROLLUP(q1)'s total row (found while fixing). An item named by an output name or position whose expression is listed again (group by q1, rollup(y) with q1 as y) is refused with 0A000, since telling them apart needs PostgreSQL's sortgroupref. regress groupingsets: 2 wrong results fixed, none new; the 3 left are todo 102 (grouping() at another query level) and a COMMIT after an earlier error. aggregates, select_having, window: no new DIFF or PG_ERR. Still errors: (q1+0)*2 and grouping(q1+0) under GROUP BY q1+0.
