@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "071"
 tags: [join, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ int4, numeric, join, aggregates, window).
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done. A table, catalog table or CTE named with an alias column list (t AS x (a, b)) is planned as the derived table (SELECT * FROM t) AS x (a, b), whose list renames the first columns, so SELECT *, qualified references and NATURAL JOIN see the new names (marked ponytail: no key or index lookup through the renamed names). More names than columns is 42P10 with PostgreSQL's wording ('table \"f\" has 1 columns available but 2 columns specified'), also for subqueries. Twelve statements from join.sql's shapes match PostgreSQL 16 live; QueryParserTest covers it.

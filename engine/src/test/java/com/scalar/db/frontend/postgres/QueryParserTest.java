@@ -884,6 +884,15 @@ public class QueryParserTest {
     assertThat(plan.execute(transaction))
         .containsExactly(
             map("Schema", "public", "Name", "t", "Type", "table", "Owner", "scalardb"));
+    // an alias's column list renames the table's first columns; more names than columns is 42P10
+    assertThat(
+            parser
+                .parse("SELECT n FROM pg_catalog.pg_namespace AS ns (x, n) WHERE n = 'public'")
+                .execute(transaction))
+        .containsExactly(map("n", "public"));
+    assertThatThrownBy(() -> parser.parse("SELECT * FROM pg_catalog.pg_am AS a (p, q, r, s, t)"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P10"));
     // count(c.*) skips a row the outer join extended with NULLs for c; count(*) counts it
     assertThat(
             parser

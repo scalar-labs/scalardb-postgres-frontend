@@ -2695,9 +2695,23 @@ class QueryParser {
 
   /** {@code names} replaces the first output column names, as a column list does. */
   private static List<String> renamed(List<String> columns, List<String> names) {
+    return renamed(columns, names, null);
+  }
+
+  private static List<String> renamed(
+      List<String> columns, List<String> names, @Nullable String table) {
     if (names.size() > columns.size()) {
-      throw new IllegalArgumentException(
-          "The column list " + names + " has more names than the query has columns");
+      throw new PgException.Argument(
+          "42P10",
+          table == null
+              ? "The column list " + names + " has more names than the query has columns"
+              : "table \""
+                  + table
+                  + "\" has "
+                  + columns.size()
+                  + " columns available but "
+                  + names.size()
+                  + " columns specified");
     }
     List<String> out = new ArrayList<>(names);
     out.addAll(columns.subList(names.size(), columns.size()));
@@ -3667,6 +3681,13 @@ class QueryParser {
       if (table.getSampleClause() != null) {
         throw new PgException.Argument("0A000", "TABLESAMPLE is not supported");
       }
+      if (item.getAlias() != null && item.getAlias().getAliasColumns() != null) {
+        // t AS x (a, b) renames t's first columns: read as (SELECT * FROM t) AS x (a, b)
+        // ponytail: a derived table, so no key or index lookup through the renamed names
+        Table bare = new Table(table.getSchemaName(), table.getName());
+        Statement star = parseStatement("SELECT * FROM " + bare);
+        return derived(select((Select) star, outer), item);
+      }
       String schema = table.getSchemaName() == null ? null : unquote(table.getSchemaName());
       String name = unquote(table.getName());
       Cte cte = schema == null ? ctes.get(name) : null;
@@ -4000,7 +4021,7 @@ class QueryParser {
       for (Alias.AliasColumn column : item.getAlias().getAliasColumns()) {
         names.add(unquote(column.name));
       }
-      columns = renamed(columns, names);
+      columns = renamed(columns, names, unquote(item.getAlias().getName()));
     }
     return new LogicalPlan.Source(unquote(item.getAlias().getName()), columns, null, derived);
   }
