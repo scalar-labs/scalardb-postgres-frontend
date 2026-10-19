@@ -1,0 +1,346 @@
+{
+ "aggregates": {
+  "CODE": 52,
+  "CODE~": 1,
+  "DIFF": 12,
+  "FE_ERR": 212,
+  "FE_ERR~": 13,
+  "META": 2,
+  "PG_ERR": 6,
+  "SAME": 133,
+  "SKIP": 44
+ },
+ "arrays": {
+  "CODE": 31,
+  "CODE~": 9,
+  "DIFF": 33,
+  "FE_ERR": 184,
+  "FE_ERR~": 35,
+  "META": 4,
+  "PG_ERR": 8,
+  "SAME": 134,
+  "SKIP": 1
+ },
+ "bit": {
+  "CODE": 8,
+  "CODE~": 3,
+  "DIFF": 1,
+  "FE_ERR": 29,
+  "FE_ERR~": 46,
+  "META": 1,
+  "PG_ERR": 2,
+  "SAME": 39,
+  "SKIP": 2
+ },
+ "boolean": {
+  "FE_ERR": 33,
+  "META": 1,
+  "SAME": 62
+ },
+ "case": {
+  "CODE": 2,
+  "DIFF": 1,
+  "FE_ERR": 16,
+  "PG_ERR": 1,
+  "SAME": 40,
+  "SKIP": 3
+ },
+ "char": {
+  "DIFF": 11,
+  "FE_ERR": 5,
+  "SAME": 16
+ },
+ "date": {
+  "CODE": 38,
+  "DIFF": 6,
+  "FE_ERR": 176,
+  "PG_ERR": 3,
+  "SAME": 47
+ },
+ "delete": {
+  "CODE": 1,
+  "DIFF": 4,
+  "FE_ERR": 3,
+  "SAME": 2
+ },
+ "float4": {
+  "DIFF": 7,
+  "FE_ERR": 43,
+  "PG_ERR": 1,
+  "SAME": 49
+ },
+ "float8": {
+  "CODE": 10,
+  "DIFF": 3,
+  "FE_ERR": 86,
+  "PG_ERR": 4,
+  "SAME": 66
+ },
+ "groupingsets": {
+  "CODE": 3,
+  "CODE~": 2,
+  "DIFF": 16,
+  "FE_ERR": 81,
+  "FE_ERR~": 4,
+  "PG_ERR": 1,
+  "SAME": 34,
+  "SKIP": 33
+ },
+ "insert": {
+  "CODE": 30,
+  "CODE~": 66,
+  "FE_ERR": 97,
+  "FE_ERR~": 169,
+  "META": 13,
+  "SAME": 25,
+  "SKIP": 1
+ },
+ "insert_conflict": {
+  "CODE": 25,
+  "CODE~": 4,
+  "DIFF": 6,
+  "FE_ERR": 84,
+  "FE_ERR~": 55,
+  "PG_ERR": 1,
+  "SAME": 59,
+  "SKIP": 22
+ },
+ "int2": {
+  "CODE": 1,
+  "DIFF": 1,
+  "FE_ERR": 7,
+  "PG_ERR": 6,
+  "SAME": 61
+ },
+ "int4": {
+  "CODE": 4,
+  "DIFF": 1,
+  "FE_ERR": 10,
+  "SAME": 79
+ },
+ "int8": {
+  "CODE": 12,
+  "DIFF": 3,
+  "FE_ERR": 11,
+  "PG_ERR": 1,
+  "SAME": 140
+ },
+ "interval": {
+  "CODE": 108,
+  "CODE~": 6,
+  "DIFF": 48,
+  "FE_ERR": 70,
+  "FE_ERR~": 33,
+  "PG_ERR": 46,
+  "SAME": 31,
+  "SKIP": 2
+ },
+ "join": {
+  "CODE": 16,
+  "CODE~": 6,
+  "DIFF": 19,
+  "DIFF~": 2,
+  "FE_ERR": 122,
+  "FE_ERR~": 33,
+  "ORDER": 1,
+  "PG_ERR": 2,
+  "SAME": 312,
+  "SKIP": 186
+ },
+ "json": {
+  "CODE": 56,
+  "DIFF": 8,
+  "FE_ERR": 209,
+  "PG_ERR": 5,
+  "SAME": 181
+ },
+ "jsonb": {
+  "CODE": 88,
+  "CODE~": 1,
+  "DIFF": 28,
+  "FE_ERR": 381,
+  "FE_ERR~": 125,
+  "META": 6,
+  "PG_ERR": 8,
+  "SAME": 395,
+  "SKIP": 4
+ },
+ "limit": {
+  "CODE": 1,
+  "FE_ERR": 52,
+  "META": 4,
+  "PG_ERR": 2,
+  "SAME": 17,
+  "SKIP": 7
+ },
+ "numeric": {
+  "CODE": 68,
+  "CODE~": 38,
+  "DIFF": 39,
+  "FE_ERR": 196,
+  "FE_ERR~": 56,
+  "META": 1,
+  "PG_ERR": 5,
+  "SAME": 616,
+  "SKIP": 1
+ },
+ "numeric_big": {
+  "CODE": 10,
+  "DIFF": 8,
+  "FE_ERR": 20,
+  "SAME": 514
+ },
+ "prepare": {
+  "CODE": 6,
+  "FE_ERR": 27
+ },
+ "returning": {
+  "CODE": 1,
+  "CODE~": 1,
+  "FE_ERR": 14,
+  "FE_ERR~": 43,
+  "SAME": 5
+ },
+ "select": {
+  "CODE": 2,
+  "FE_ERR": 31,
+  "FE_ERR~": 4,
+  "SAME": 39,
+  "SKIP": 11
+ },
+ "select_distinct": {
+  "CODE": 1,
+  "FE_ERR": 33,
+  "SAME": 25,
+  "SKIP": 10
+ },
+ "select_distinct_on": {
+  "CODE": 1,
+  "FE_ERR": 3,
+  "SAME": 1,
+  "SKIP": 3
+ },
+ "select_having": {
+  "FE_ERR": 1,
+  "SAME": 22
+ },
+ "select_implicit": {
+  "CODE": 1,
+  "FE_ERR": 6,
+  "PG_ERR": 2,
+  "SAME": 35
+ },
+ "strings": {
+  "CODE": 69,
+  "DIFF": 15,
+  "FE_ERR": 229,
+  "META": 2,
+  "PG_ERR": 12,
+  "SAME": 127
+ },
+ "subselect": {
+  "CODE~": 3,
+  "DIFF": 2,
+  "FE_ERR": 68,
+  "FE_ERR~": 5,
+  "META": 2,
+  "PG_ERR": 1,
+  "SAME": 123,
+  "SKIP": 41
+ },
+ "text": {
+  "CODE": 8,
+  "FE_ERR": 40,
+  "PG_ERR": 2,
+  "SAME": 23
+ },
+ "time": {
+  "CODE": 9,
+  "DIFF": 5,
+  "FE_ERR": 21,
+  "SAME": 9
+ },
+ "timestamp": {
+  "CODE": 32,
+  "DIFF": 20,
+  "FE_ERR": 79,
+  "PG_ERR": 1,
+  "SAME": 25
+ },
+ "timestamptz": {
+  "CODE": 40,
+  "DIFF": 41,
+  "FE_ERR": 212,
+  "PG_ERR": 1,
+  "SAME": 58,
+  "SKIP": 1
+ },
+ "timetz": {
+  "CODE": 5,
+  "CODE~": 4,
+  "DIFF": 3,
+  "FE_ERR": 19,
+  "FE_ERR~": 19,
+  "PG_ERR": 1,
+  "SAME": 6
+ },
+ "transactions": {
+  "CODE": 18,
+  "CODE~": 1,
+  "DIFF": 35,
+  "DIFF~": 1,
+  "FE_ERR": 140,
+  "FE_ERR~": 5,
+  "PG_ERR": 7,
+  "SAME": 220
+ },
+ "union": {
+  "DIFF": 1,
+  "FE_ERR": 65,
+  "FE_ERR~": 2,
+  "ORDER": 2,
+  "PG_ERR": 2,
+  "SAME": 75,
+  "SKIP": 39
+ },
+ "update": {
+  "CODE": 4,
+  "CODE~": 7,
+  "FE_ERR": 82,
+  "FE_ERR~": 127,
+  "META": 3,
+  "SAME": 63,
+  "SKIP": 2
+ },
+ "uuid": {
+  "CODE~": 7,
+  "DIFF": 1,
+  "FE_ERR": 4,
+  "FE_ERR~": 26
+ },
+ "varchar": {
+  "DIFF": 4,
+  "FE_ERR": 4,
+  "SAME": 14
+ },
+ "window": {
+  "CODE": 34,
+  "DIFF": 13,
+  "FE_ERR": 151,
+  "FE_ERR~": 11,
+  "ORDER": 44,
+  "PG_ERR": 1,
+  "SAME": 65,
+  "SKIP": 34
+ },
+ "with": {
+  "CODE": 34,
+  "DIFF": 21,
+  "FE_ERR": 108,
+  "FE_ERR~": 4,
+  "META": 1,
+  "PG_ERR": 15,
+  "SAME": 90,
+  "SKIP": 12
+ }
+}
