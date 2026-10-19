@@ -292,6 +292,9 @@ public class QueryProcessor {
     if ("TimeZone".equals(key)) {
       value = zoneOf(value).getId().equals("Z") ? "UTC" : value; // validated here
     }
+    if ("DateStyle".equals(key)) {
+      value = dateStyle(value, current("DateStyle"));
+    }
     if ("transaction_isolation".equals(key) || "default_transaction_isolation".equals(key)) {
       value = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
       checkIsolation(value);
@@ -323,6 +326,45 @@ public class QueryProcessor {
       }
     }
     return value;
+  }
+
+  /**
+   * DateStyle as PostgreSQL stores it, "ISO, MDY": an output style and a field order, each kept
+   * from the current value when not given (ymd is "ISO, YMD"). Clients parse the reported value
+   * (psycopg fails on a bare "ymd"). Only ISO output is implemented, so another style is refused.
+   */
+  private static String dateStyle(String value, String current) {
+    String style = null;
+    String order = null;
+    for (String word : value.replace("'", "").split("[,\\s]+")) {
+      String w = word.toUpperCase(Locale.ROOT);
+      String o =
+          w.equals("YMD")
+              ? "YMD"
+              : w.equals("DMY") || w.startsWith("EURO")
+                  ? "DMY"
+                  : w.equals("MDY") || w.equals("US") || w.startsWith("NONEURO") ? "MDY" : null;
+      if (w.isEmpty()) {
+        continue;
+      } else if (o != null) {
+        if (order != null && !order.equals(o)) {
+          throw new PgException.Argument(
+              "22023", "invalid value for parameter \"DateStyle\": \"" + value + "\"");
+        }
+        order = o;
+      } else if (w.equals("ISO") || w.equals("SQL") || w.equals("POSTGRES") || w.equals("GERMAN")) {
+        style = w;
+      } else if (!w.equals("DEFAULT")) {
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"DateStyle\": \"" + value + "\"");
+      }
+    }
+    if (style != null && !style.equals("ISO")) {
+      throw new PgException.Argument(
+          "0A000", "DateStyle " + style + " is not supported: dates are written in ISO style here");
+    }
+    String[] now = current == null ? new String[0] : current.split(",\\s*");
+    return "ISO, " + (order != null ? order : now.length > 1 ? now[1].trim() : "MDY");
   }
 
   /**

@@ -508,6 +508,19 @@ public class QueryProcessorTest {
     }
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
+    // DateStyle is stored as PostgreSQL stores it, which clients parse: style and order
+    processor.execute("SET DateStyle = ymd");
+    assertThat(processor.execute("SHOW DateStyle"))
+        .containsExactly(Collections.singletonMap("DateStyle", "ISO, YMD"));
+    processor.execute("SET DateStyle = ISO");
+    assertThat(processor.execute("SHOW DateStyle"))
+        .containsExactly(Collections.singletonMap("DateStyle", "ISO, YMD"));
+    assertThatThrownBy(() -> processor.execute("SET DateStyle = German"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThatThrownBy(() -> processor.execute("SET DateStyle = 'ISO, YMD, DMY'"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
     // as PostgreSQL: a name it does not know fails, unless it is a custom dotted one
     for (String sql :
         new String[] {

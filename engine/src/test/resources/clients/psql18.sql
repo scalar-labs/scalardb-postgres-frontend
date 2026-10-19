@@ -1995,7 +1995,7 @@ SELECT pg_catalog.pg_get_functiondef(0)
 -----
 -- [dconfig]
 -- postgres16: 13 dfd57615e6f8
--- expect: 3  # what pgjdbc set at connection
+-- expect: 2  # what pgjdbc set at connection; its DateStyle=ISO is stored as the boot value "ISO, MDY"
 SELECT s.name AS "Parameter", pg_catalog.current_setting(s.name) AS "Value"
 FROM pg_catalog.pg_settings s
 WHERE s.source <> 'default' AND
