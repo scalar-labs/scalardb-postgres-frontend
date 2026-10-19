@@ -5992,6 +5992,12 @@ class QueryParser {
           @Override
           public <S> Void visit(
               net.sf.jsqlparser.expression.AnalyticExpression analytic, S context) {
+            if (analytic.getType().name().startsWith("WITHIN_GROUP")) {
+              // ordered-set aggregates are not implemented; refused here, at planning, so an empty
+              // input, where nothing is evaluated, cannot hide that behind an empty result
+              throw new PgException.Argument(
+                  "0A000", "Unsupported: ordered-set aggregates (WITHIN GROUP): " + analytic);
+            }
             if (analytic.getType() == net.sf.jsqlparser.expression.AnalyticType.OVER) {
               for (Expression part : Windows.parts(analytic)) {
                 part.accept(this, context);

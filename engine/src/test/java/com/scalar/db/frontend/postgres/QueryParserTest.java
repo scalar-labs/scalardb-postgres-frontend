@@ -1561,6 +1561,13 @@ public class QueryParserTest {
     verify(transaction, times(1)).mutate(any());
     assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE seq = 1"))
         .hasMessageContaining("primary key column");
+    // ordered-set aggregates are refused at planning, even over no rows
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "select percent_rank(0) within group (order by x) from generate_series(1,0) x"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // a subscripted target assigns one element; it is refused rather than overwriting the column
     for (String sql :
         new String[] {

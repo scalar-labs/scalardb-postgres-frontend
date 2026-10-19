@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "076"
 tags: [aggregates, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ An aggregate without GROUP BY returns one row even over no input. For an ordered
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done by refusing: WITHIN GROUP aggregates were not implemented at all (over rows they failed with Unsupported expression, percentile_disc was not even recognised as an aggregate), and over no rows nothing was evaluated, so the failure showed as an empty result. QueryParser.hasAggregate, which every select item and WHERE pass through, now raises 0A000 for WITHIN GROUP at planning. LIMITATIONS lists it; QueryParserTest covers the empty-input case. Implementing percentile_cont/disc, mode and the hypothetical aggregates is left for when a client needs them.
