@@ -287,6 +287,21 @@ public class HelpersTest {
     assertThat(QueryParser.escapeStringQuotes("SELECT E'it\\'s', 'a\\'"))
         .isEqualTo("SELECT E'it''s', 'a\\'");
     assertThat(QueryParser.unescape("a\\tb\\n\\x41\\101\\u00e9\\\\")).isEqualTo("a\tb\nAAé\\");
+    // escapes make bytes, valid UTF-8 together; a surrogate pair makes one character
+    assertThat(QueryParser.unescape("\\xc3\\xa9\\uD83D\\uDE00")).isEqualTo("é\uD83D\uDE00");
+    for (String[] bad :
+        new String[][] {
+          {"\\xDE", "22021"}, {"\\x00", "22021"}, {"\\u061", "22025"}, {"\\udb99", "42601"}
+        }) {
+      assertThatThrownBy(() -> QueryParser.unescape(bad[0]))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
+    }
+    // adjacent literals join only across a newline, as PostgreSQL's lexer does
+    assertThat(QueryParser.normalize("SELECT 'a'\n-- c\n'b'")).isEqualTo("SELECT 'a'\n-- c\n'b'");
+    assertThatThrownBy(() -> QueryParser.normalize("SELECT 'a' 'b'"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42601"));
   }
 
   @Test

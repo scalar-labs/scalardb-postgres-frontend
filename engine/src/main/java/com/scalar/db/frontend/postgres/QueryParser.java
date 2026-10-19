@@ -42,6 +42,7 @@ import com.scalar.db.io.TimeColumn;
 import com.scalar.db.io.TimestampColumn;
 import com.scalar.db.io.TimestampTZColumn;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -1246,10 +1247,19 @@ class QueryParser {
   static String outsideLiterals(String sql, java.util.function.UnaryOperator<String> rewrite) {
     StringBuilder out = new StringBuilder(sql.length());
     int code = 0; // start of the code not yet rewritten
+    int literalEnd = -1; // the end of a '...' followed so far only by whitespace and comments
+    boolean dollar = false; // that literal was dollar-quoted, which never continues
     int i = 0;
     while (i < sql.length()) {
       char c = sql.charAt(i);
       int end = -1;
+      if (c == '\'' && literalEnd >= 0) {
+        // as PostgreSQL's lexer: adjacent literals join only across a newline and -- comments
+        String gap = sql.substring(literalEnd, i);
+        if (dollar || gap.contains("/*") || gap.indexOf('\n') < 0 && gap.indexOf('\r') < 0) {
+          throw new PgException.Argument("42601", "syntax error at or near \"'\"");
+        }
+      }
       if (c == '\'' || c == '"') {
         end = sql.indexOf(c, i + 1);
         while (end > 0 && end + 1 < sql.length() && sql.charAt(end + 1) == c) {
@@ -1270,8 +1280,15 @@ class QueryParser {
         }
       }
       if (end < 0) {
+        literalEnd = isSpace(c) ? literalEnd : -1;
         i++;
         continue;
+      }
+      if (c == '\'' || c == '$') {
+        literalEnd = end;
+        dollar = c == '$';
+      } else if (c == '"') {
+        literalEnd = -1;
       }
       out.append(rewrite.apply(sql.substring(code, i))).append(sql, i, end);
       code = end;
@@ -6682,29 +6699,35 @@ class QueryParser {
    * points.
    */
   static String unescape(String v) {
-    StringBuilder out = new StringBuilder();
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    int high = -1; // a \\u high surrogate waiting for its low half
     for (int i = 0; i < v.length(); i++) {
       char c = v.charAt(i);
+      if (high >= 0 && (c != '\\' || i + 1 >= v.length() || "uU".indexOf(v.charAt(i + 1)) < 0)) {
+        throw new PgException.Argument("42601", "invalid Unicode surrogate pair");
+      }
       if (c != '\\' || i + 1 >= v.length()) {
-        out.append(c);
+        int cp = v.codePointAt(i);
+        i += Character.charCount(cp) - 1;
+        out.writeBytes(new String(Character.toChars(cp)).getBytes(StandardCharsets.UTF_8));
         continue;
       }
       char n = v.charAt(++i);
       switch (n) {
         case 'b':
-          out.append('\b');
+          out.write('\b');
           break;
         case 'f':
-          out.append('\f');
+          out.write('\f');
           break;
         case 'n':
-          out.append('\n');
+          out.write('\n');
           break;
         case 'r':
-          out.append('\r');
+          out.write('\r');
           break;
         case 't':
-          out.append('\t');
+          out.write('\t');
           break;
         case 'x':
           {
@@ -6713,9 +6736,9 @@ class QueryParser {
               end++;
             }
             if (end == i + 1) {
-              out.append('x');
+              out.write('x');
             } else {
-              out.append((char) Integer.parseInt(v.substring(i + 1, end), 16));
+              out.write(Integer.parseInt(v.substring(i + 1, end), 16)); // a byte, as in PostgreSQL
               i = end - 1;
             }
             break;
@@ -6724,12 +6747,30 @@ class QueryParser {
         case 'U':
           {
             int len = n == 'u' ? 4 : 8;
-            if (i + len < v.length()) {
-              out.appendCodePoint(Integer.parseInt(v.substring(i + 1, i + 1 + len), 16));
-              i += len;
-            } else {
-              out.append(n);
+            if (i + len >= v.length()
+                || !v.substring(i + 1, i + 1 + len)
+                    .chars()
+                    .allMatch(d -> Character.digit(d, 16) >= 0)) {
+              throw new PgException.Argument("22025", "invalid Unicode escape");
             }
+            long cp = Long.parseLong(v.substring(i + 1, i + 1 + len), 16);
+            i += len;
+            if (cp >= 0xD800 && cp <= 0xDBFF && high < 0) {
+              high = (int) cp;
+              break;
+            }
+            if (high >= 0 ? cp < 0xDC00 || cp > 0xDFFF : cp >= 0xDC00 && cp <= 0xDFFF) {
+              throw new PgException.Argument("42601", "invalid Unicode surrogate pair");
+            }
+            if (high >= 0) {
+              cp = Character.toCodePoint((char) high, (char) cp);
+              high = -1;
+            }
+            if (cp == 0 || cp > Character.MAX_CODE_POINT) {
+              throw new PgException.Argument("42601", "invalid Unicode escape value");
+            }
+            out.writeBytes(
+                new String(Character.toChars((int) cp)).getBytes(StandardCharsets.UTF_8));
             break;
           }
         default:
@@ -6741,14 +6782,29 @@ class QueryParser {
                 && v.charAt(end) <= '7') {
               end++;
             }
-            out.append((char) Integer.parseInt(v.substring(i, end), 8));
+            out.write(Integer.parseInt(v.substring(i, end), 8) & 0xff);
             i = end - 1;
           } else {
-            out.append(n); // backslash, quote, or an unknown escape stands for itself
+            // backslash, quote, or an unknown escape stands for itself
+            out.writeBytes(String.valueOf(n).getBytes(StandardCharsets.UTF_8));
           }
       }
     }
-    return out.toString();
+    if (high >= 0) {
+      throw new PgException.Argument("42601", "invalid Unicode surrogate pair");
+    }
+    byte[] bytes = out.toByteArray();
+    try {
+      for (byte b : bytes) {
+        if (b == 0) {
+          throw new java.nio.charset.MalformedInputException(1);
+        }
+      }
+      // the escapes make bytes, which must be valid UTF-8 together, as PostgreSQL checks
+      return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+    } catch (java.nio.charset.CharacterCodingException e) {
+      throw new PgException.Argument("22021", "invalid byte sequence for encoding \"UTF8\"");
+    }
   }
 
   /** FETCH FIRST n ROWS ONLY; a bare FETCH FIRST ROW ONLY is one row. */
