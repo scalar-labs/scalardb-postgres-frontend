@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "068"
 tags: [parser, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ In PostgreSQL `^` (exponentiation) binds tighter than `*` and `/`. The frontend 
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-19: Done. JSqlParser gives ^ the precedence of * / %, left to right. Evaluator.caret rotates a ^ whose left operand is an unparenthesised * / %, so that it takes only that operation's right operand (a * b ^ c is a * (b ^ c); a * b ^ c ^ d is a * ((b ^ c) ^ d)), once per expression (cached by node). Eleven expressions, including a column, match PostgreSQL 16 live; QueryParserTest covers it. Side finding, added to todo 117: integer % double precision runs here, where PostgreSQL has no such operator.

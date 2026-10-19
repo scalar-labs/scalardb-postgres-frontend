@@ -33,3 +33,4 @@ on both servers.
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Also: `10 % 3 ^ 2` (integer % double precision) answers here; PostgreSQL has no such operator (42883).

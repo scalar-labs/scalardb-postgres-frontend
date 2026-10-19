@@ -1670,6 +1670,12 @@ public class QueryParserTest {
                     .map(String::valueOf)
                     .collect(java.util.stream.Collectors.toList()))
         .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
+    // ^ binds tighter than * / % and associates to the left, as in PostgreSQL
+    assertThat(
+            parser
+                .parse("SELECT 2 * 3 ^ 2 AS a, 2 ^ 3 ^ 2 AS b, 64 / 2 ^ 3 AS c, 2 * 3 ^ 2 ^ 2 AS d")
+                .execute(transaction))
+        .containsExactly(map("a", 18.0, "b", 64.0, "c", 8.0, "d", 162.0));
     // the empty grouping set yields its row over no input, grouping columns NULL, GROUPING() 1
     assertThat(
             parser

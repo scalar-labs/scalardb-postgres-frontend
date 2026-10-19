@@ -295,6 +295,48 @@ final class Evaluator {
     return v;
   }
 
+  private static final Map<BitwiseXor, Expression> CARETS =
+      Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+  /**
+   * {@code a * b ^ c} as PostgreSQL reads it, {@code a * (b ^ c)}: JSQLParser gives {@code ^} the
+   * precedence of {@code * / %}, left to right, where PostgreSQL binds it tighter (and left to
+   * right among {@code ^}). A {@code ^} whose left operand is an unparenthesised {@code * / %}
+   * takes only that operation's right operand. Rotated once per expression.
+   */
+  static Expression caret(BitwiseXor e) {
+    return CARETS.computeIfAbsent(
+        e,
+        k -> {
+          Expression left = k.getLeftExpression();
+          if (left instanceof BitwiseXor) {
+            left = caret((BitwiseXor) left); // ((a * b) ^ c) ^ d: the inner one first
+          }
+          if (left instanceof Multiplication
+              || left instanceof Division
+              || left instanceof Modulo) {
+            BinaryExpression m = (BinaryExpression) left;
+            BitwiseXor inner = new BitwiseXor();
+            inner.setLeftExpression(m.getRightExpression());
+            inner.setRightExpression(k.getRightExpression());
+            BinaryExpression out =
+                left instanceof Multiplication
+                    ? new Multiplication()
+                    : left instanceof Division ? new Division() : new Modulo();
+            out.setLeftExpression(m.getLeftExpression());
+            out.setRightExpression(caret(inner));
+            return out;
+          }
+          if (left != k.getLeftExpression()) {
+            BitwiseXor out = new BitwiseXor();
+            out.setLeftExpression(left);
+            out.setRightExpression(k.getRightExpression());
+            return out;
+          }
+          return k;
+        });
+  }
+
   /**
    * A local timestamp in a zone, as PostgreSQL resolves it: a time that occurs twice (when DST
    * ends) takes the later, standard-time offset; one that does not occur (when DST starts) is moved
@@ -1057,6 +1099,10 @@ final class Evaluator {
       return aggregate(f, kept, ctx);
     }
     if (e instanceof BitwiseXor) {
+      Expression rotated = caret((BitwiseXor) e);
+      if (rotated != e) {
+        return eval(rotated, group, ctx);
+      }
       // PostgreSQL's ^ is exponentiation (# is XOR)
       Object l = eval(((BitwiseXor) e).getLeftExpression(), group, ctx);
       Object r = eval(((BitwiseXor) e).getRightExpression(), group, ctx);
