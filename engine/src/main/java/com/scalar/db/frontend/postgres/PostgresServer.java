@@ -176,6 +176,9 @@ public final class PostgresServer implements AutoCloseable {
   // the NOTICE after DDL on an existing table when the cache is too long to wait out
   @Nullable String ddlNotice;
 
+  // how often sessions compare cached tables for DDL from another process: the cache expiry
+  long metadataCheckNanos = 1_000_000_000L;
+
   private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling
   // numeric(p,s) up to this many digits is stored as a scaled bigint
@@ -240,6 +243,7 @@ public final class PostgresServer implements AutoCloseable {
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
+    metadataCheckNanos = cacheSecs < 0 ? 0 : Math.max(cacheSecs, 1) * 1_000_000_000L;
     if (cacheSecs >= 0 && cacheSecs <= MAX_SETTLE_SECS) {
       ddlSettleMillis = cacheSecs * 1000 + 50;
     } else {
@@ -631,6 +635,7 @@ public final class PostgresServer implements AutoCloseable {
         Evaluator.setSession(registered); // this thread serves the session from here on
         processor.setDdlSettleMillis(ddlSettleMillis);
         processor.setDdlNotice(ddlNotice);
+        processor.setMetadataCheckNanos(metadataCheckNanos);
         processor.setAllowCoordinatorDrop(allowCoordinatorDrop);
         processor.setMaxRowsPerWriteCeiling(maxRowsPerWriteCeiling);
         processor.setMaxScaledPrecision(maxScaledPrecision);

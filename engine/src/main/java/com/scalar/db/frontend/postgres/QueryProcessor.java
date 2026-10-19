@@ -1126,6 +1126,11 @@ public class QueryProcessor {
     ddlNotice = notice;
   }
 
+  /** How often cached tables are compared for DDL from another process; 0 for never. */
+  void setMetadataCheckNanos(long nanos) {
+    parser.setCheckIntervalNanos(nanos);
+  }
+
   /**
    * The most digits a numeric(p,s) column created in this session may have to be stored as a scaled
    * bigint: 18, or 15 where the storage keeps a bigint exact only up to 2^53 (see {@link

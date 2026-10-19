@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -579,6 +581,16 @@ public class QueryProcessorTest {
     assertThatThrownBy(() -> a.execute("SELECT id FROM t"))
         .hasMessageContaining("Unknown column: t.id");
     a.execute("SELECT key FROM t");
+
+    // the sessions of a process share one read per table and interval
+    QueryProcessor b = new QueryProcessor(manager, admin, "ns");
+    a.execute("SELECT key FROM t");
+    b.execute("SELECT key FROM t");
+    Thread.sleep(1100);
+    clearInvocations(admin);
+    a.execute("SELECT 1");
+    b.execute("SELECT 1");
+    verify(admin, times(1)).getTableMetadata("ns", "t");
   }
 
   private static Map<String, Object> map(Object... namesAndValues) {

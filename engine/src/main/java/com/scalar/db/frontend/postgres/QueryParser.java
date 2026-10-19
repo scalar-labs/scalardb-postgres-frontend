@@ -167,11 +167,33 @@ class QueryParser {
       new java.util.concurrent.atomic.AtomicLong();
   private long seenGeneration = DDL_GENERATION.get();
   private long checkedNanos = System.nanoTime();
+  // How often a table's metadata is compared for DDL from another process: ScalarDB's own cache
+  // expiry (at least 1 s), since the engine does not see such DDL sooner either; 0 for never, as a
+  // negative expiry never refreshes the engine's cache
+  private volatile long checkIntervalNanos = 1_000_000_000L;
+  // namespace.table -> its metadata as last read, shared by the sessions of this process, so a
+  // table is read at most once per interval however many sessions use it
+  private static final Map<String, Checked> CHECKED =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private static final class Checked {
+    final long nanos;
+    @Nullable final TableMetadata metadata; // null when the read failed
+
+    Checked(long nanos, @Nullable TableMetadata metadata) {
+      this.nanos = nanos;
+      this.metadata = metadata;
+    }
+  }
 
   public QueryParser(DistributedTransactionAdmin admin, String defaultNamespace) {
     this.admin = admin;
     this.defaultNamespace = defaultNamespace;
     this.catalog = new Catalog(admin, defaultNamespace);
+  }
+
+  void setCheckIntervalNanos(long nanos) {
+    checkIntervalNanos = nanos;
   }
 
   void setMaxScaledPrecision(int digits) {
@@ -210,21 +232,32 @@ class QueryParser {
 
   /**
    * True when a table this session cached has other ScalarDB metadata now: DDL from another
-   * process. ponytail: once a second, a metadata read per cached table; a cluster-wide schema
-   * version would spare the reads
+   * process. ponytail: a metadata read per table and interval in each process; a cluster-wide
+   * schema version would spare the reads
    */
   private boolean changedElsewhere() {
-    if (System.nanoTime() - checkedNanos < 1_000_000_000L) {
+    long interval = checkIntervalNanos;
+    if (interval <= 0 || System.nanoTime() - checkedNanos < interval) {
       return false;
     }
     checkedNanos = System.nanoTime();
     for (ColumnMap columns : columnMaps.values()) {
-      try {
-        if (!columns.metadata().equals(admin.getTableMetadata(columns.namespace, columns.table))) {
-          return true;
-        }
-      } catch (ExecutionException e) {
-        return true; // read it afresh, and fail there if it still fails
+      Checked checked =
+          CHECKED.compute(
+              columns.namespace + "." + columns.table,
+              (key, last) -> {
+                long now = System.nanoTime();
+                if (last != null && now - last.nanos < interval) {
+                  return last;
+                }
+                try {
+                  return new Checked(now, admin.getTableMetadata(columns.namespace, columns.table));
+                } catch (ExecutionException e) {
+                  return new Checked(now, null); // read afresh, and fail there if it still fails
+                }
+              });
+      if (!columns.metadata().equals(checked.metadata)) {
+        return true;
       }
     }
     return false;

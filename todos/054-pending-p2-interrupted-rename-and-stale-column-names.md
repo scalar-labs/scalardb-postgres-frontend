@@ -59,3 +59,21 @@ Two cases the plan put in Phase 5 are not handled:
   maps and plans in every session of the process. Verified live with two frontends on one backend, and by
   `QueryProcessorTest#plan_AfterAnotherProcessesDdl_ShouldSeeTheNewColumns`. Case 1 (orphan `before_` column)
   stays open: it needs the core fix (solution B).
+
+### 2026-10-19 - The check of case 2 shared by the sessions of a process
+
+**By:** Claude Code
+
+**Actions:**
+- Each session compared its cached tables with `admin.getTableMetadata` once a second, an uncached read
+  per table, so the reads grew with the number of sessions. The last read of each table is now shared by
+  the process (`QueryParser.CHECKED`): a table is read at most once per interval, however many sessions
+  use it.
+- The interval is ScalarDB's cache expiry (at least 1 s; never for a negative expiry), since the engine
+  does not see DDL from another process sooner either. PostgresServer passes it to each session.
+- QueryProcessorTest: two sessions after the interval make one read of the table.
+- Measured with pgbench, 20 clients reading 5 tables for 20 s, 1 s cache, jdbc backend, counting scans of
+  `scalardb.metadata`: 108 reads/s before (20 sessions x 5 tables, plus ScalarDB's own caches), 20/s after
+  (ScalarDB's caches plus 5 for the check). Throughput did not change measurably (3,700-5,000 tps in
+  both, noise on a laptop).
+

@@ -136,7 +136,11 @@ at the end of this section.
   statements use the old definition: an insert into a new column fails with `DB-CORE-10017`. The
   statement answers with a NOTICE saying so. Migration tools and ORMs that use a change on the next
   statement need the cache set to 5 s or less (the sample configuration sets 1); the frontend then
-  answers such DDL only after the cache has expired, which takes that long per statement.
+  answers such DDL only after the cache has expired, which takes that long per statement. A short
+  cache also costs database load: ScalarDB rereads each table's metadata about three times per
+  expiry in every frontend process and Cluster node, and the frontend reads it once more to notice
+  DDL from other processes, so 1,000 tables in use at 1 s are a few thousand metadata queries per
+  second per process.
 - **Against ScalarDB Cluster, the nodes' metadata cache must be as short as the frontend's.** The nodes
   run the reads and writes with their own cache, so after `ALTER TABLE` on an existing table they keep
   using the old columns (`DB-CORE-30040`, column not found) until it expires; set
