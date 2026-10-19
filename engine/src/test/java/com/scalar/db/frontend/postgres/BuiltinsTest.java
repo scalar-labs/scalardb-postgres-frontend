@@ -113,6 +113,28 @@ public class BuiltinsTest {
   }
 
   @Test
+  public void arrayConcatenation_ShouldTakeTheCommonType() throws Exception {
+    // anycompatible: the common type of all the arguments, not the first one's
+    try (Connection connection = connect(new Properties());
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                "SELECT ARRAY[1] || 2.5, ARRAY[1] || ARRAY[2.5], 2.5 || ARRAY[1],"
+                    + " ARRAY[1] || 2::bigint, ARRAY[1] || 2.5::float8, ARRAY[1] || 2,"
+                    + " ARRAY[ARRAY[1]]")) {
+      List<String> types = new ArrayList<>();
+      for (int i = 1; i <= 7; i++) {
+        types.add(rs.getMetaData().getColumnTypeName(i));
+      }
+      assertThat(types)
+          .containsExactly(
+              "_numeric", "_numeric", "_numeric", "_int8", "_float8", "_int4", "_int4");
+      assertThat(rs.next()).isTrue();
+      assertThat(rs.getString(2)).isEqualTo("{1,2.5}");
+    }
+  }
+
+  @Test
   public void pgTypeof_ShouldNameTheDeclaredType() throws Exception {
     Properties properties = new Properties();
     try (Connection connection = connect(properties);

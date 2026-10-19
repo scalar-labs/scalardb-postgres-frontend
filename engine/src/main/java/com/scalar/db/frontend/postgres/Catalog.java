@@ -1175,7 +1175,8 @@ final class Catalog {
 
   /** The array type's OID for an element type; text[] when the element type is unknown. */
   static long arrayOid(long element) {
-    return ARRAY_OIDS.getOrDefault(element, 1009L);
+    // an array of arrays is the element's array type, as PostgreSQL's arrays have no nesting type
+    return elementOid(element) != 0 ? element : ARRAY_OIDS.getOrDefault(element, 1009L);
   }
 
   /** The element type of an array type's OID, or 0. */

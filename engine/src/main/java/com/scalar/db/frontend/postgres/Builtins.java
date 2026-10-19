@@ -60,6 +60,8 @@ final class Builtins {
   private static final Set<Long> ANY_ELEMENT = Set.of(2276L, 2283L, 5077L);
   private static final long ANY_NONARRAY = 2776;
   private static final Set<Long> ANY_ARRAY = Set.of(2277L, 5078L);
+  private static final long ANY_COMPATIBLE = 5077;
+  private static final long ANY_COMPATIBLE_ARRAY = 5078;
   // PostgreSQL's preferred types, which win a tie: text among strings, float8 among numbers
   private static final Set<Long> PREFERRED = Set.of(25L, 701L);
 
@@ -223,8 +225,9 @@ final class Builtins {
 
   /**
    * How well arguments fit parameters, -1 if one cannot: 100 for each exact match, and 1 for each
-   * argument an implicit cast takes to a preferred type, or an unknown literal to text, which are
-   * PostgreSQL's tie-breaks (ceil(int) is ceil(float8), length('a') is length(text)).
+   * argument an implicit cast takes to a preferred type, an unknown literal to text, or an array to
+   * anyarray, which are PostgreSQL's tie-breaks (ceil(int) is ceil(float8), length('a') is
+   * length(text)).
    */
   private static int score(long[] params, long[] args, boolean variadic) {
     int score = 0;
@@ -242,6 +245,9 @@ final class Builtins {
         score += PREFERRED.contains(p) ? 1 : 0;
       } else if (!polymorphic(p, a)) {
         return -1;
+      } else if (ANY_ARRAY.contains(p)) {
+        score +=
+            1; // an array fits anyarray closer than anyelement: ARRAY[1] || ARRAY[2] is array_cat
       }
     }
     return score;
@@ -254,20 +260,42 @@ final class Builtins {
         || ANY_ARRAY.contains(param) && array;
   }
 
+  /**
+   * The type both convert to: the one the other casts to implicitly, as int to numeric and numeric
+   * to float8 do.
+   *
+   * <p>ponytail: types with no implicit cast either way keep the first; PostgreSQL fails the call
+   * (text[] || integer)
+   */
+  private static long common(long a, long b) {
+    return IMPLICIT.getOrDefault(a, List.of()).contains(b)
+            && !IMPLICIT.getOrDefault(b, List.of()).contains(a)
+        ? b
+        : a;
+  }
+
   /** A polymorphic result type as the arguments decide it. */
   private static long resolved(long result, long[] params, long[] args) {
     if (!ANY_ELEMENT.contains(result) && result != ANY_NONARRAY && !ANY_ARRAY.contains(result)) {
       return result;
     }
-    // ponytail: the first polymorphic argument decides; anycompatible's common type of them all
-    // (array_append(ARRAY[1], 2.5) is numeric[]) is todo 061
+    // anyelement's type is the first polymorphic argument's; anycompatible's the common type of
+    // them all (ARRAY[1] || 2.5 is numeric[])
+    boolean compatible = result == ANY_COMPATIBLE || result == ANY_COMPATIBLE_ARRAY;
     long element = 0;
-    for (int i = 0; i < args.length && i < params.length && element == 0; i++) {
+    for (int i = 0; i < args.length && i < params.length; i++) {
       long p = params[i];
-      element =
+      long e =
           ANY_ARRAY.contains(p)
               ? Catalog.elementOid(args[i])
               : ANY_ELEMENT.contains(p) || p == ANY_NONARRAY ? args[i] : 0;
+      if (e != 0 && element == 0) {
+        element = e;
+      } else if (e != 0 && compatible) {
+        element = common(element, e);
+      } else if (e != 0) {
+        break;
+      }
     }
     if (element == 0) {
       return 0;
