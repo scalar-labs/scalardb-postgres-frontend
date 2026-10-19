@@ -34,4 +34,4 @@ Todo 059 added IntervalStyle as a setting that is stored but not applied (docume
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
-- 2026-10-19: Fixed by todo 120 (c1995d1): output follows IntervalStyle; postgres_verbose '1 day 2 hours' is '@ 1 day 2 hours', as in PostgreSQL.
+- 2026-10-20: Fixed by todo 120 (c1995d1): output follows IntervalStyle; postgres_verbose '1 day 2 hours' is '@ 1 day 2 hours', as in PostgreSQL.

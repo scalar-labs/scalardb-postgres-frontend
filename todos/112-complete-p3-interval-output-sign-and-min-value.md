@@ -34,4 +34,4 @@ A positive time part after a negative day part is written with `+`, and the smal
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
-- 2026-10-19: Fixed by todo 111 (e93ef5f): '-1 days +02:03' is '-1 days +02:03:00' and the smallest interval is '-2562047788:00:54.775808', checked live against PostgreSQL.
+- 2026-10-20: Fixed by todo 111 (e93ef5f): '-1 days +02:03' is '-1 days +02:03:00' and the smallest interval is '-2562047788:00:54.775808', checked live against PostgreSQL.

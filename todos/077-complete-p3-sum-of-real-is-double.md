@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "077"
 tags: [aggregates, types, wrong-result, regress-suite]
@@ -29,9 +29,10 @@ In PostgreSQL `sum(float4)` is `float4`. The frontend sums in and returns `float
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite calibration run.
+- 2026-10-20: Fixed by todo 094 (ea4725b): sum(real) is real. aggtest's values give 431.7726 in both PostgreSQL 18 and the frontend, and the types (sum real, avg double precision, min real) match. PG16's 431.773 was written with extra_float_digits=0 by pg_regress.
