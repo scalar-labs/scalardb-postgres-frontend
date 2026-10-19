@@ -3249,6 +3249,11 @@ final class Evaluator {
       if (t.equals("time")) {
         return v instanceof LocalTime ? v : time(s);
       }
+      if (t.startsWith("time with time zone") || t.equals("timetz")) {
+        // a time with an offset has no type here; "with time zone" below would read it as a
+        // timestamptz and convert it to UTC
+        throw new PgException.Argument("0A000", "Unsupported cast type: time with time zone");
+      }
       if (t.equals("timestamptz") || t.contains("with time zone")) {
         return v instanceof Instant
             ? v

@@ -197,6 +197,15 @@ public class QueryProcessorTest {
     processor.execute("RESET TIME ZONE");
     assertThat(processor.execute("SELECT '2024-01-01 00:00:00+00'::timestamptz::text AS t"))
         .containsExactly(Collections.singletonMap("t", "2024-01-01 00:00:00+00"));
+    // a time with an offset is refused, not read as a timestamptz
+    for (String sql :
+        Arrays.asList(
+            "SELECT TIME WITH TIME ZONE '2020-05-26 13:30:25-04'",
+            "SELECT '13:30:25-04'::timetz")) {
+      assertThatThrownBy(() -> processor.execute(sql))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
     // the other spellings PostgreSQL accepts: an interval (Sequelize), hours, and a POSIX spec
     // whose sign counts west of UTC
     processor.execute("SET TIME ZONE INTERVAL '+09:00' HOUR TO MINUTE");
