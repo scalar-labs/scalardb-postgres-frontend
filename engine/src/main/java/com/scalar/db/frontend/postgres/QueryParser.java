@@ -4251,6 +4251,25 @@ class QueryParser {
    */
   static int inferTypmod(Expression e, List<LogicalPlan.Source> sources) {
     e = unwrap(e);
+    if (e instanceof CastExpression) {
+      // x::char(5) is char(5), so its value is blank-padded on output; numeric(p,s), varchar(n)
+      net.sf.jsqlparser.statement.create.table.ColDataType type =
+          ((CastExpression) e).getColDataType();
+      if (type.getArrayData() != null && !type.getArrayData().isEmpty()
+          || !type.getDataType()
+              .toLowerCase(Locale.ROOT)
+              .matches(
+                  "\\s*(char|character|bpchar|varchar|character varying|numeric|decimal)\\b.*")) {
+        return -1; // only these types have a modifier here
+      }
+      List<String> args = type.getArgumentsStringList();
+      String text =
+          args == null || args.isEmpty() || type.getDataType().contains("(")
+              ? type.getDataType()
+              : type.getDataType() + "(" + String.join(",", args) + ")";
+      ColumnType declared = ColumnType.declared(text, ColumnType.MAX_SCALED_PRECISION);
+      return declared.encoded() ? declared.typmod() : -1;
+    }
     if (!isColumn(e)) {
       return -1;
     }

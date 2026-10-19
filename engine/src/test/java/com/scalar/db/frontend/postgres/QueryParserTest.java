@@ -1561,6 +1561,13 @@ public class QueryParserTest {
     verify(transaction, times(1)).mutate(any());
     assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE seq = 1"))
         .hasMessageContaining("primary key column");
+    // a cast to char(n), varchar(n) or numeric(p,s) reports the modifier, so char(n) is padded
+    assertThat(
+            parser
+                .parse(
+                    "SELECT 'ab'::char(5) AS c, 'x'::varchar(3) AS v, 1::numeric(10,2) AS n, 1::int AS i")
+                .outputTypmods())
+        .containsExactly(9, 7, (10 << 16 | 2) + 4, -1);
     // ordered-set aggregates are refused at planning, even over no rows
     assertThatThrownBy(
             () ->
