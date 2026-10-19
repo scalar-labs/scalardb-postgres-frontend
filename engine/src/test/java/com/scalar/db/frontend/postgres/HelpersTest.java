@@ -181,6 +181,17 @@ public class HelpersTest {
   }
 
   @Test
+  public void time_ShouldRoundToMicrosecondsAsPostgreSqlDoes() {
+    // half to even; a value rounding past the last microsecond is 24:00:00
+    assertThat(Evaluator.text(Evaluator.time("12:00:00.1234565"))).isEqualTo("12:00:00.123456");
+    assertThat(Evaluator.text(Evaluator.time("12:00:00.1234567"))).isEqualTo("12:00:00.123457");
+    assertThat(Evaluator.text(Evaluator.time("12:00:00.0000005"))).isEqualTo("12:00:00");
+    assertThat(Evaluator.text(Evaluator.time("23:59:59.9999999"))).isEqualTo("24:00:00");
+    assertThat(Evaluator.text(Evaluator.time(" 24:00 "))).isEqualTo("24:00:00");
+    assertThat(Evaluator.time("24:00:00")).isAfter(Evaluator.time("23:59:59.999999"));
+  }
+
+  @Test
   public void rounded_ShouldRoundAsPostgreSqlCasts() {
     // a float rounds half to even and converts exactly; a numeric rounds half away from zero
     assertThat(Evaluator.rounded(-2.5d)).isEqualTo(-2);

@@ -44,7 +44,6 @@ import com.scalar.db.io.TimestampTZColumn;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -6078,6 +6077,8 @@ class QueryParser {
     }
     try {
       return parseColumn(type, name, s);
+    } catch (PgException.Argument e) {
+      throw e; // already PostgreSQL's code and wording
     } catch (RuntimeException e) {
       String pgType = pgTypeName(type);
       String failure = String.valueOf(e.getMessage());
@@ -6208,10 +6209,18 @@ class QueryParser {
       case DATE:
         return s == null ? DateColumn.ofNull(name) : DateColumn.of(name, LocalDate.parse(s));
       case TIME:
-        // ScalarDB keeps microseconds, as PostgreSQL does; a finer fraction rounds half up as there
-        return s == null
-            ? TimeColumn.ofNull(name)
-            : TimeColumn.of(name, (LocalTime) Evaluator.roundedTo(LocalTime.parse(s), 6));
+        {
+          // ScalarDB keeps microseconds, as PostgreSQL does; a finer fraction rounds as there
+          if (s == null) {
+            return TimeColumn.ofNull(name);
+          }
+          java.time.LocalTime time = Evaluator.time(s);
+          if (time.equals(java.time.LocalTime.MAX)) {
+            throw new PgException.Argument(
+                "0A000", "time 24:00:00 cannot be stored: ScalarDB's TIME ends at 23:59:59.999999");
+          }
+          return TimeColumn.of(name, time);
+        }
       case TIMESTAMP:
         // ScalarDB keeps milliseconds (said at CREATE TABLE); of() would truncate, so round first
         return s == null

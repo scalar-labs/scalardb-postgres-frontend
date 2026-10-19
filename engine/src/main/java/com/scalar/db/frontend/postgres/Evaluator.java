@@ -295,6 +295,29 @@ final class Evaluator {
     return v;
   }
 
+  /**
+   * time input as PostgreSQL reads it: rounded half to even to microseconds. 24:00:00, given or
+   * rounded to (23:59:59.9999999), is {@link LocalTime#MAX}, which prints as 24:00:00 and sorts
+   * last.
+   */
+  static LocalTime time(String s) {
+    String t = s.trim();
+    String rest = t.startsWith("24:00") ? t.substring(5) : null;
+    if (rest != null
+        && (rest.isEmpty()
+            || rest.equals(":00")
+            || rest.startsWith(":00.") && rest.substring(4).chars().allMatch(c -> c == '0'))) {
+      return LocalTime.MAX;
+    }
+    long nanos = LocalTime.parse(t).toNanoOfDay();
+    long micros = nanos / 1000;
+    long remainder = nanos % 1000;
+    if (remainder > 500 || remainder == 500 && micros % 2 == 1) {
+      micros++; // rint, as PostgreSQL rounds the fraction
+    }
+    return micros >= 86_400_000_000L ? LocalTime.MAX : LocalTime.ofNanoOfDay(micros * 1000);
+  }
+
   private static long rounded(long nanos, long unit) {
     return (nanos + unit / 2) / unit * unit;
   }
@@ -1901,7 +1924,7 @@ final class Evaluator {
         return date(s);
       }
       if (target instanceof LocalTime) {
-        return LocalTime.parse(s.trim());
+        return time(s);
       }
       if (target instanceof LocalDateTime) {
         return QueryParser.localDateTime(s);
@@ -2041,7 +2064,7 @@ final class Evaluator {
       case DATE:
         return date(v);
       case TIME:
-        return LocalTime.parse(v.trim());
+        return time(v);
       case TIMESTAMP:
         return QueryParser.localDateTime(v);
       default:
@@ -2204,6 +2227,9 @@ final class Evaluator {
     }
     if (v instanceof LocalTime) {
       LocalTime t = (LocalTime) v;
+      if (t.equals(LocalTime.MAX)) {
+        return "24:00:00"; // see time(String)
+      }
       StringBuilder sb = new StringBuilder();
       pad(sb, t.getHour(), 2).append(':');
       pad(sb, t.getMinute(), 2).append(':');
@@ -2293,7 +2319,7 @@ final class Evaluator {
 
   /** Appends the microseconds' fraction without trailing zeros, nothing if there is none. */
   private static StringBuilder fraction(StringBuilder sb, int nanos) {
-    if (nanos != 0) {
+    if (nanos / 1000 != 0) { // microseconds: a nanosecond rest alone must not print a bare "."
       pad(sb.append('.'), nanos / 1000, 6);
       while (sb.charAt(sb.length() - 1) == '0') {
         sb.setLength(sb.length() - 1);
@@ -3158,7 +3184,7 @@ final class Evaluator {
                         s.trim().length() > 10 ? s.trim().substring(0, 10) : s.trim());
       }
       if (t.equals("time")) {
-        return v instanceof LocalTime ? v : LocalTime.parse(s);
+        return v instanceof LocalTime ? v : time(s);
       }
       if (t.equals("timestamptz") || t.contains("with time zone")) {
         return v instanceof Instant

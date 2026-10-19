@@ -215,6 +215,8 @@ at the end of this section.
   psql's and drivers' catalog queries work.
 - **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
   fail with a clear error.
+- **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
+  As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
 - **Ordered-set aggregates are refused** (`percentile_cont`, `percentile_disc`, `mode` and the hypothetical
   `rank`/`percent_rank`/`cume_dist` with `WITHIN GROUP`), with `0A000`.
 - **Array column types are refused** (`int[]`, `text[][]` in CREATE TABLE and ADD COLUMN), with `0A000`:
