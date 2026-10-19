@@ -769,17 +769,13 @@ public final class PostgresServer implements AutoCloseable {
           char kind = (char) msg.get();
           String closing = readString(msg);
           if (kind == 'S') {
-            statements.remove(closing);
+            forget(closing);
           } else {
             Portal closed = portals.remove(closing);
             if (closed != null) {
               closed.close();
             }
-          }
-          release(kind == 'S' ? statementBytes : portalBytes, closing);
-          if (kind == 'S') {
-            parameterTypes.remove(closing);
-            describedTypes.remove(closing);
+            release(portalBytes, closing);
           }
           send('3', new Msg()); // CloseComplete
           break;
@@ -853,6 +849,10 @@ public final class PostgresServer implements AutoCloseable {
       readyForQuery(processor);
     }
 
+    private final java.util.regex.Pattern DEALLOCATE =
+        java.util.regex.Pattern.compile(
+            "(?is)DEALLOCATE\\s+(?:PREPARE\\s+)?(ALL|\"[^\"]+\"|[\\w$]+)");
+
     private final java.util.Set<String> WRITES =
         new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE"));
 
@@ -874,7 +874,46 @@ public final class PostgresServer implements AutoCloseable {
         boolean describe,
         short[] formats)
         throws Exception {
+      java.util.regex.Matcher deallocate = DEALLOCATE.matcher(QueryParser.trimStatement(sql));
+      if (deallocate.matches()) {
+        deallocate(deallocate.group(1));
+        return;
+      }
       sendRows(processor, processor.open(sql, parameters), null, describe, formats, 0);
+    }
+
+    /**
+     * {@code DEALLOCATE [PREPARE] name | ALL}: drops this session's prepared statements, as the
+     * Close message does, by the simple or the extended protocol. psycopg sends DEALLOCATE ALL by
+     * itself after DROP or ROLLBACK and then prepares its statements again under the same names.
+     */
+    private void deallocate(String target) throws IOException {
+      if (target.equalsIgnoreCase("ALL")) {
+        for (String name : new ArrayList<>(statements.keySet())) {
+          forget(name);
+        }
+        send('C', new Msg().str("DEALLOCATE ALL"));
+        return;
+      }
+      String name = QueryParser.unquote(target);
+      if (!statements.containsKey(name)) {
+        throw new PgException.Argument(
+            "26000", "prepared statement \"" + name + "\" does not exist");
+      }
+      forget(name);
+      send('C', new Msg().str("DEALLOCATE"));
+    }
+
+    private boolean isDeallocate(String sql) {
+      return DEALLOCATE.matcher(QueryParser.trimStatement(sql)).matches();
+    }
+
+    /** Drops a prepared statement and what is kept about it. */
+    private void forget(String name) {
+      statements.remove(name);
+      parameterTypes.remove(name);
+      describedTypes.remove(name);
+      release(statementBytes, name);
     }
 
     /**
@@ -1075,6 +1114,11 @@ public final class PostgresServer implements AutoCloseable {
         if (sql == null) {
           throw new IllegalArgumentException("Unknown prepared statement");
         }
+        if (isDeallocate(sql)) {
+          send('t', new Msg().i16(0)); // ParameterDescription: none
+          send('n', new Msg()); // NoData
+          return;
+        }
         int n = QueryParser.parameterCount(sql);
         if (n > MAX_PARAMETERS) {
           throw new PgException.Argument(
@@ -1112,7 +1156,7 @@ public final class PostgresServer implements AutoCloseable {
           throw new IllegalArgumentException("Unknown portal");
         }
         columns =
-            portal.sql.trim().isEmpty()
+            portal.sql.trim().isEmpty() || isDeallocate(portal.sql)
                 ? Collections.emptyMap()
                 : processor.describe(portal.sql, portal.parameters);
         formats = portal.formats;
@@ -1145,6 +1189,10 @@ public final class PostgresServer implements AutoCloseable {
       }
       if (portal.sql.trim().isEmpty()) {
         send('I', new Msg());
+        return;
+      }
+      if (isDeallocate(portal.sql)) {
+        run(processor, portal.sql, portal.parameters, false, portal.formats);
         return;
       }
       started(processor, portal.sql);

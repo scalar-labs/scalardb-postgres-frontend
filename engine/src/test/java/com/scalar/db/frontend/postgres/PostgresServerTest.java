@@ -1426,6 +1426,28 @@ public class PostgresServerTest {
     }
   }
 
+  @Test
+  public void deallocate_ShouldDropPreparedStatements() throws Exception {
+    try (Connection connection = connect("?prepareThreshold=1")) {
+      // pgjdbc prepares this server-side, sees the DEALLOCATE ALL tag, and prepares it again
+      try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM t")) {
+        for (int i = 0; i < 2; i++) {
+          try (ResultSet rs = statement.executeQuery()) {
+            assertThat(rs.next()).isTrue();
+          }
+          try (Statement deallocate = connection.createStatement()) {
+            deallocate.execute("DEALLOCATE ALL");
+          }
+        }
+      }
+      try (Statement statement = connection.createStatement()) {
+        assertThatThrownBy(() -> statement.execute("DEALLOCATE PREPARE nosuch"))
+            .isInstanceOfSatisfying(
+                SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("26000"));
+      }
+    }
+  }
+
   // ---- malformed sizes over a raw socket
 
   private static void startup(java.io.DataOutputStream out) throws java.io.IOException {

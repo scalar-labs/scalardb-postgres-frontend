@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "115"
 tags: [protocol, clients, regress-suite]
@@ -28,9 +28,10 @@ psycopg 3 sends `DEALLOCATE ALL` by itself after DROP or ROLLBACK statements onc
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. PostgresServer handles DEALLOCATE [PREPARE] name | ALL itself, where the session's prepared statements live: ALL drops every one (the Close message's code, now PostgresServer.forget), a name drops it or fails with 26000. It works by the simple protocol and the extended one (Describe answers no parameters and NoData; Execute runs it), which psycopg uses. A live psycopg run against PostgreSQL 16 and the frontend gives the same answers: prepared statements keep working after DEALLOCATE ALL, also inside a transaction and after ROLLBACK. PostgresServerTest covers it with pgjdbc.
