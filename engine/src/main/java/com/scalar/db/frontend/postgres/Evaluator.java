@@ -1522,24 +1522,25 @@ final class Evaluator {
       }
       Json.Value v = Json.of(cur);
       Object key = eval(step.getKey(), group, ctx);
-      com.fasterxml.jackson.databind.JsonNode node;
+      List<?> path;
       switch (step.getValue()) {
         case "->":
         case "->>":
-          node = Json.get(v.node, key);
+          path = Collections.singletonList(key);
           break;
         case "#>":
         case "#>>":
-          node = key == null ? null : Json.path(v.node, elements(key));
+          if (key == null) {
+            return null;
+          }
+          path = elements(key);
           break;
         default:
           throw new PgException.Argument("0A000", "Unsupported JSON operator: " + step.getValue());
       }
-      boolean asText = step.getValue().endsWith(">>");
-      cur =
-          node == null
-              ? null
-              : asText ? Json.scalarText(node, v.binary) : new Json.Value(node, v.binary, null);
+      com.fasterxml.jackson.databind.JsonNode node =
+          step.getValue().startsWith("->") ? Json.get(v.node, key) : Json.path(v.node, path);
+      cur = Json.extracted(v, node, path, v.binary, step.getValue().endsWith(">>"));
     }
     return cur;
   }
@@ -3330,15 +3331,14 @@ final class Evaluator {
       case "JSON_EXTRACT_PATH_TEXT":
       case "JSONB_EXTRACT_PATH_TEXT":
         {
-          Json.Value v = Json.of(args.get(0));
-          com.fasterxml.jackson.databind.JsonNode node =
-              Json.path(v.node, args.subList(1, args.size()));
           boolean binary = name.startsWith("JSONB");
-          return node == null
-              ? null
-              : name.endsWith("_TEXT")
-                  ? Json.scalarText(node, binary)
-                  : new Json.Value(node, binary, null);
+          // text (a literal, or a json column's stored text) is read as the function's type
+          Json.Value v =
+              args.get(0) instanceof String
+                  ? Json.cast((String) args.get(0), binary)
+                  : Json.of(args.get(0));
+          List<Object> path = args.subList(1, args.size());
+          return Json.extracted(v, Json.path(v.node, path), path, binary, name.endsWith("_TEXT"));
         }
       case "JSON_ARRAY_ELEMENTS":
       case "JSONB_ARRAY_ELEMENTS":

@@ -1,5 +1,6 @@
 package com.scalar.db.frontend.postgres;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -180,6 +181,74 @@ final class Json {
       }
     }
     return cur;
+  }
+
+  /**
+   * The result of {@code ->}, {@code #>} or json_extract_path (asText: {@code ->>} and the _text
+   * forms): the node the steps led to, as a value of the given type. A json value keeps its text:
+   * an object, array or number comes out as written, as in PostgreSQL, which re-escapes only
+   * strings.
+   */
+  @Nullable static Object extracted(
+      Value from, @Nullable JsonNode node, List<?> steps, boolean binary, boolean asText) {
+    if (node == null) {
+      return null;
+    }
+    String raw = null;
+    if (!from.binary
+        && !binary
+        && from.verbatim != null
+        && (node.isContainerNode() || node.isNumber())) {
+      raw = from.verbatim;
+      JsonNode cur = from.node;
+      for (Object step : steps) {
+        raw = member(raw, cur, step);
+        cur = cur.isArray() ? cur.get(index(cur, step)) : cur.get(Evaluator.text(step));
+      }
+    }
+    if (asText) {
+      return raw != null ? raw : scalarText(node, binary);
+    }
+    return new Value(node, binary, raw);
+  }
+
+  private static int index(JsonNode array, Object step) {
+    long i =
+        step instanceof Number
+            ? ((Number) step).longValue()
+            : Long.parseLong(Evaluator.text(step).trim());
+    return (int) (i < 0 ? i + array.size() : i);
+  }
+
+  /**
+   * The text of an object's member (the last of that name, as PostgreSQL takes) or an array's
+   * element, as written; the caller has found it in the parsed container.
+   */
+  private static String member(String text, JsonNode container, Object step) {
+    boolean array = container.isArray();
+    int index = array ? index(container, step) : -1;
+    String name = array ? null : Evaluator.text(step);
+    String found = null;
+    try (JsonParser p = MAPPER.getFactory().createParser(text)) {
+      p.nextToken();
+      for (int i = 0; !p.nextToken().isStructEnd(); i++) {
+        boolean match = array ? i == index : p.currentName().equals(name);
+        if (!array) {
+          p.nextToken(); // from the name to its value
+        }
+        int start = (int) p.currentTokenLocation().getCharOffset();
+        p.skipChildren();
+        if (match) {
+          found =
+              p.currentToken().isStructEnd()
+                  ? text.substring(start, (int) p.currentTokenLocation().getCharOffset() + 1)
+                  : p.getText();
+        }
+      }
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e); // the text parsed once already
+    }
+    return java.util.Objects.requireNonNull(found);
   }
 
   /** {@code ->>}: a string without its quotes, a JSON null as SQL NULL, anything else as text. */

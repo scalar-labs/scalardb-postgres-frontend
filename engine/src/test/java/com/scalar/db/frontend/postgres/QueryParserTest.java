@@ -1612,6 +1612,28 @@ public class QueryParserTest {
                 "{\"b\" : 1, \"a\" : \"x\"}",
                 "v",
                 "{\"b\":1,\"a\":2}"));
+    // json extraction keeps the text as written (strings re-escaped, the last duplicate key); jsonb
+    // normalises
+    String raw =
+        "'{\"a\" : [1 ,{\"c\" :  -0.10 }], \"a\": {\"b\":1e2}, \"s\": \"x\\u0041\"}'::json";
+    assertThat(
+            parser
+                .parse(
+                    "SELECT "
+                        + raw
+                        + " -> 'a' AS a, "
+                        + raw
+                        + " #> '{a,b}' AS b, "
+                        + raw
+                        + " ->> 's' AS s, json_extract_path_text('[1, [2 ,3]]', '-1') AS e,"
+                        + " '{\"a\" : [1 ,2]}'::jsonb -> 'a' AS n")
+                .execute(transaction))
+        .extracting(
+            r ->
+                r.values().stream()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.toList()))
+        .containsExactly(Arrays.asList("{\"b\":1e2}", "1e2", "xA", "[2 ,3]", "[1, 2]"));
     assertThat(
             parser
                 .parse(

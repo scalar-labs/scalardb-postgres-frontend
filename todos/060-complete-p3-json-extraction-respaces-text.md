@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "060"
 tags: [json, compatibility]
@@ -40,11 +40,25 @@ a difference.
 
 ## Recommended Action
 
+Solution 1. `Json.extracted` serves `->`, `->>`, `#>`, `#>>` and json_extract_path(_text). For a json
+value that has its written text, it walks that text with Jackson's streaming parser along the same
+steps and takes the member's substring. This applies to objects, arrays and numbers (`1e2` stays
+`1e2`). Strings are re-escaped from the parsed node, as PostgreSQL re-escapes them (`"x\u0041"` comes
+out as `"xA"`). With a duplicate key, the last member is taken, as PostgreSQL takes it.
+
 ## Acceptance Criteria
 
-- [ ] The three queries above give PostgreSQL 16's text.
-- [ ] `jsonb` extraction is unchanged.
+- [x] The three queries above give PostgreSQL 16's text. A 19-statement probe also matches
+  PostgreSQL 16, except for two statements that fail for an unrelated reason: two JSqlParser quirks
+  that also fail on the old jar (todo 066). The probe covers negative indexes, nested paths,
+  duplicate keys, numbers, escaped strings, NULL and json_extract_path on an untyped literal.
+- [x] `jsonb` extraction is unchanged (same probe). A QueryParserTest case pins both.
 
 ## Work Log
 
 - 2026-10-17: Filed from todo 057 Phase 2.
+- 2026-10-19: Done for json values that carry their text: literals, casts and earlier extractions.
+  json_extract_path now reads an untyped text argument as json, not jsonb. A json column is still
+  read as jsonb, and a jsonb column prints its text as stored; both are filed as todo 065. The
+  difftest read, types, session, write and bind sets keep their baselines. The bind set needs
+  data.sql reloaded first, since the write set changes dept and emp.
