@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "114"
 tags: [transactions, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ on both servers.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-19: Done. QueryProcessor.chained handles COMMIT/END/ROLLBACK/ABORT AND CHAIN: it ends the block through the plain command, then begins a new block with the same isolation level and read-only status, as PostgreSQL does; outside a block it is 25P01 ('COMMIT AND CHAIN can only be used in transaction blocks'). AND NO CHAIN is the plain command. A 17-statement script (chained commit and rollback, a read-only chain, both outside a block, AND NO CHAIN) gives the same output as PostgreSQL 16; QueryProcessorTest covers it.

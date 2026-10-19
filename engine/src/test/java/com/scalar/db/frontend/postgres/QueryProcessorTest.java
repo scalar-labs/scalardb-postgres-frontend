@@ -508,6 +508,17 @@ public class QueryProcessorTest {
     }
     assertThatThrownBy(() -> processor.execute("SHOW nosuch"))
         .hasMessageContaining("unrecognized configuration parameter");
+    // COMMIT AND CHAIN begins the next block with the same characteristics; outside one, 25P01
+    processor.execute("BEGIN READ ONLY");
+    processor.execute("COMMIT AND CHAIN");
+    assertThat(processor.inTransaction()).isTrue();
+    assertThatThrownBy(() -> processor.execute("DELETE FROM t WHERE id = 1"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("25006"));
+    processor.execute("ROLLBACK");
+    assertThatThrownBy(() -> processor.execute("COMMIT AND CHAIN"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("25P01"));
     // a read-only default makes a single statement's transaction read-only too: no write, no DDL
     processor.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY");
     for (String sql : new String[] {"DELETE FROM t WHERE id = 1", "DROP TABLE t", "TRUNCATE t"}) {

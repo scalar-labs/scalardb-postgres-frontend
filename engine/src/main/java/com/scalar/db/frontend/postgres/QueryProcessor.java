@@ -672,6 +672,9 @@ public class QueryProcessor {
     if (aborted && !ENDS_TRANSACTION.contains(word)) {
       throw new AbortedTransactionException();
     }
+    if (ENDS_TRANSACTION.contains(word) && AND_CHAIN.matcher(sql).find()) {
+      return chained(word, sql, parameters);
+    }
     switch (word) {
       case "BEGIN":
       case "START":
@@ -846,6 +849,34 @@ public class QueryProcessor {
                 : word;
     throw new PgException.Argument(
         "25006", "cannot execute " + command + " in a read-only transaction");
+  }
+
+  private static final Pattern AND_CHAIN = Pattern.compile("(?i)\\s+AND\\s+CHAIN\\b");
+
+  /**
+   * COMMIT or ROLLBACK AND CHAIN: ends the block, then begins a new one with the same isolation
+   * level and read-only status, as PostgreSQL does; outside a block it is 25P01.
+   */
+  private Rows chained(String word, String sql, List<Object> parameters)
+      throws TransactionException, ExecutionException {
+    if (!inTransaction()) {
+      throw new PgException.State(
+          "25P01",
+          (word.equals("ROLLBACK") || word.equals("ABORT") ? "ROLLBACK" : "COMMIT")
+              + " AND CHAIN can only be used in transaction blocks");
+    }
+    boolean readOnly = pendingReadOnly;
+    String isolation = transactionIsolationSet ? settings.get("transaction_isolation") : null;
+    Rows ended = open(AND_CHAIN.matcher(sql).replaceFirst(""), parameters);
+    pending = true;
+    pendingReadOnly = readOnly;
+    settingsAtBegin = new LinkedHashMap<>(settings);
+    transactionStart = Instant.now();
+    if (isolation != null) {
+      settings.put("transaction_isolation", isolation);
+      transactionIsolationSet = true;
+    }
+    return ended;
   }
 
   /** The innermost savepoint named in a ROLLBACK TO or RELEASE statement. */
