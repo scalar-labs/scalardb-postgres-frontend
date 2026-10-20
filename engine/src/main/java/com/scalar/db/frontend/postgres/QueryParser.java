@@ -1218,6 +1218,7 @@ class QueryParser {
       // timeout, which more than doubles the cost of parsing a short statement
       // Complex parsing (more lookahead) is only tried when the simple grammar fails: it costs
       // an order of magnitude more on INSERT ... VALUES
+      checkNesting(parser(sql));
       long deadline = System.nanoTime() + PARSE_BUDGET_NANOS;
       try {
         statement = parseWithin(parser(sql).withAllowComplexParsing(false), deadline);
@@ -1282,18 +1283,34 @@ class QueryParser {
     }
   }
 
+  /**
+   * Fails with 54001 on brackets nested deeper than {@link #MAX_NESTING}, counted on the tokens of
+   * {@code lexer}, which reads the statement as its parser will.
+   */
+  private static void checkNesting(net.sf.jsqlparser.parser.CCJSqlParser lexer) {
+    int depth = 0;
+    for (net.sf.jsqlparser.parser.Token t = lexer.getNextToken();
+        t.kind != net.sf.jsqlparser.parser.CCJSqlParserConstants.EOF;
+        t = lexer.getNextToken()) {
+      if (("(".equals(t.image) || "[".equals(t.image)) && ++depth > MAX_NESTING) {
+        throw tooComplex();
+      } else if (")".equals(t.image) || "]".equals(t.image)) {
+        depth--;
+      }
+    }
+  }
+
   private static PgException.Argument tooComplex() {
     return new PgException.Argument("54001", "statement is too complex to parse");
   }
 
   /** Rewrites PostgreSQL syntax that JSQLParser does not accept. */
   static String normalize(String sql) {
-    int[] depth = {0};
     return parenthesisedJsonOperands(
         outsideLiterals(
             escapeStringQuotes(sql),
             code ->
-                typedEmptyArrays(nestingChecked(code, depth))
+                typedEmptyArrays(code)
                     // no table inheritance here, so FROM ONLY t and FROM t* are just t
                     .replaceAll(
                         "(?i)\\b(FROM|JOIN|UPDATE|INTO|USING|TABLE|,)(\\s+)ONLY\\s+(?=[A-Za-z_\"])",
@@ -1315,19 +1332,6 @@ class QueryParser {
    * take seconds), and some of its lookahead never checks the parse budget.
    */
   static final int MAX_NESTING = 256;
-
-  /** The code, checked that its brackets, with those before it ({@code depth}), nest shallowly. */
-  private static String nestingChecked(String code, int[] depth) {
-    for (int i = 0; i < code.length(); i++) {
-      char c = code.charAt(i);
-      if ((c == '(' || c == '[') && ++depth[0] > MAX_NESTING) {
-        throw tooComplex();
-      } else if (c == ')' || c == ']') {
-        depth[0]--;
-      }
-    }
-    return code;
-  }
 
   // ARRAY[] not cast where it is written
   private static final Pattern UNTYPED_EMPTY_ARRAY =

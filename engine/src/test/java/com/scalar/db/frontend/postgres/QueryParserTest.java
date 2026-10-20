@@ -138,7 +138,7 @@ public class QueryParserTest {
   }
 
   @Test
-  public void parse_DeeplyNestedParentheses_ShouldFailFast() {
+  public void parse_DeeplyNestedParentheses_ShouldFailFast() throws Exception {
     // JSQLParser's time grows with the cube of the depth: these ran for minutes unbounded
     for (String sql :
         List.of(
@@ -151,9 +151,13 @@ public class QueryParserTest {
       assertThat(System.nanoTime() - start).isLessThan(QueryParser.PARSE_BUDGET_NANOS);
     }
     // brackets in literals and comments are data, not nesting
-    assertThat(
-            QueryParser.normalize("SELECT '" + "(".repeat(300) + "' /* " + "[".repeat(300) + " */"))
-        .startsWith("SELECT '(((");
+    assertThat(parser.parse("SELECT '" + "(".repeat(300) + "' /* " + "[".repeat(300) + " */"))
+        .isNotNull();
+    // as the parser reads them: 300 levels of brackets, so refused
+    assertThatThrownBy(
+            () -> parser.parse("SELECT " + "(".repeat(300) + "1" + ")".repeat(300) + " /* ' */"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("54001"));
   }
 
   @Test
