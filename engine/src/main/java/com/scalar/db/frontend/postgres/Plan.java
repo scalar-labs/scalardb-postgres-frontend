@@ -605,6 +605,12 @@ final class Plan {
     return ddl;
   }
 
+  /** This plan, with its output columns typed {@code oids} (0 where unknown). */
+  Plan withOids(int[] oids) {
+    fixedOids = oids;
+    return this;
+  }
+
   /** The working table of a recursive CTE: whatever rows {@code rows} holds when opened. */
   static Plan working(String name, List<String> names, List<Map<String, Object>> rows, int[] oids) {
     Plan plan = constant(names, rows, "SELECT");

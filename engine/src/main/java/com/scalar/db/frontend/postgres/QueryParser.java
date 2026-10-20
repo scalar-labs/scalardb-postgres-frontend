@@ -2930,7 +2930,19 @@ class QueryParser {
       }
       rows.add(row);
     }
-    return Plan.constant(names, rows, "SELECT");
+    Plan plan = Plan.constant(names, rows, "SELECT");
+    // a column's type from a cast written in it, which a NULL value cannot tell: (null::int[])
+    int[] oids = new int[names.size()];
+    boolean any = false;
+    for (int i = 0; i < oids.length; i++) {
+      for (List<Expression> tuple : tuples) {
+        if (oids[i] == 0 && i < tuple.size() && unwrap(tuple.get(i)) instanceof CastExpression) {
+          oids[i] = inferOid(tuple.get(i), Collections.emptyList());
+          any |= oids[i] != 0;
+        }
+      }
+    }
+    return any ? plan.withOids(oids) : plan;
   }
 
   /**

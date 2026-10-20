@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "121"
 tags: [arrays, aggregates, wrong-result]
@@ -30,8 +30,9 @@ every value is NULL and the argument is a plain column, it aggregates them as sc
 
 ## Acceptance Criteria
 
-- [ ] The statement above gives 22004, or an error.
+- [x] The statement above gives 22004, or an error.
 
 ## Work Log
 
 - 2026-10-20: Filed while closing todo 091.
+- 2026-10-20: array_agg also fails with 22004 when its argument is typed an array as planning infers it, though every value is NULL; a VALUES column now takes its type from a cast written in it (VALUES (null::int[]) is integer[]), and pg_typeof of an expression whose type is not inferred fails with 0A000 instead of answering NULL for a NULL value. Checked live against PostgreSQL 18.

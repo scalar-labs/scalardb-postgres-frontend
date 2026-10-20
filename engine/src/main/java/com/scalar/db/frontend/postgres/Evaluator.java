@@ -3651,9 +3651,12 @@ final class Evaluator {
       // the argument's declared type, as planning infers it; a quoted literal's is unknown, which
       // the frontend does not name, so it falls through to fail as unsupported
       int oid = QueryParser.inferOid(f.getParameters().get(0), ctx.sources);
-      if (oid != 0) {
-        return ctx.catalog.reg("regtype", oid);
+      if (oid == 0) {
+        // the value alone cannot tell, and a NULL would give NULL: refused rather than guessed
+        throw new PgException.Argument(
+            "0A000", "Unsupported: pg_typeof of an expression whose type is not inferred");
       }
+      return ctx.catalog.reg("regtype", oid);
     }
     if (name.equals("COALESCE") && f.getParameters() != null) {
       // stops at the first non-null argument: coalesce(1, 1/0) is 1, as in PostgreSQL
@@ -4660,6 +4663,15 @@ final class Evaluator {
         name.equals("STRING_AGG") && !group.isEmpty()
             ? eval(params.get(1), group.subList(0, 1), ctx)
             : null;
+    if (name.equals("ARRAY_AGG")
+        && values.stream().anyMatch(java.util.Objects::isNull)
+        && ctx.catalog != null
+        && params != null
+        && params.size() == 1
+        && Catalog.elementOid(QueryParser.inferOid(params.get(0), ctx.sources)) != 0) {
+      // the argument is typed an array, though its values may all be NULL: (VALUES (null::int[]))
+      throw new PgException.Argument("22004", "cannot accumulate null arrays");
+    }
     return aggregateValues(name, values, delimiter, f);
   }
 

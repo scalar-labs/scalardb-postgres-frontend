@@ -1437,6 +1437,13 @@ public class QueryParserTest {
     assertThatThrownBy(() -> parser.parse("CREATE TABLE nokey (id int, name text)"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("PRIMARY KEY");
+    assertThatThrownBy(
+            () ->
+                parser
+                    .parse("SELECT array_agg(x) FROM (VALUES (NULL::int[])) t(x)")
+                    .execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22004"));
     // a short VALUES row leaves trailing columns NULL, unless they are keys or listed
     for (String sql :
         new String[] {
