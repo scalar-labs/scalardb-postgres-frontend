@@ -1039,6 +1039,11 @@ final class Operators {
     if (v instanceof String && Evaluator.collation().hasCanonicalTextForm()) {
       return java.nio.ByteBuffer.wrap(Evaluator.collation().canonicalTextFormOf((String) v));
     }
+    if (v instanceof Float) {
+      // real meets other numbers as float8, as in PostgreSQL: 0.1::real is not 0.1::float8,
+      // though both print as 0.1
+      v = ((Float) v).doubleValue();
+    }
     return v instanceof Number && Evaluator.isFinite(v)
         ? new BigDecimal(v.toString()).stripTrailingZeros()
         : v instanceof Number ? ((Number) v).doubleValue() : v;

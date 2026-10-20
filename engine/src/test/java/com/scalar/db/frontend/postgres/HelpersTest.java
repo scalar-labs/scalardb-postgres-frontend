@@ -296,6 +296,10 @@ public class HelpersTest {
     assertThatThrownBy(() -> Operators.normalize(json))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+    // join, GROUP BY and set-operation keys widen real to float8 as PostgreSQL compares them
+    assertThat(Operators.normalize(0.16519462f)).isNotEqualTo(Operators.normalize(0.16519462));
+    assertThat(Operators.normalize(0.5f)).isEqualTo(Operators.normalize(0.5));
+    assertThat(Operators.normalize(2f)).isEqualTo(Operators.normalize(2L));
   }
 
   @Test
