@@ -15,7 +15,8 @@ ABAC ([Encrypted columns and row-level access](getting-started/README.md#encrypt
 no `COPY`; `NUMERIC` exact but filtered in the frontend beyond 18 digits, and declared types recorded in a
 metadata table of the frontend's ([docs/type-encoding.md](docs/type-encoding.md)); text compared in ScalarDB's
 configured collation, byte order or ICU, which the backing database must be set up to match ([Case-insensitive
-text](getting-started/README.md#case-insensitive-text)); and no
+text](getting-started/README.md#case-insensitive-text); on PostgreSQL and MySQL under byte order, the frontend
+refuses to start on a mismatch unless `scalar.db.postgres.backend_collation_check=false`); and no
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.
 

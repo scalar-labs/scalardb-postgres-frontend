@@ -275,7 +275,10 @@ the result is not what PostgreSQL would return.
   `utf8mb4_0900_ai_ci`), or on PostgreSQL databases created with a locale other than `C`, under the
   default `BINARY`, whatever is pushed down follows the database's collation while the same expression
   evaluated in the frontend follows ScalarDB's, so one query can answer differently depending on the
-  path it takes. Affected shapes: a range predicate on text (`WHERE name < 'a'`), `ORDER BY`
+  path it takes. With the JDBC storage on PostgreSQL or MySQL under `BINARY`, the frontend checks the
+  database's collation at startup and refuses to start on a mismatch, unless
+  `scalar.db.postgres.backend_collation_check=false`; ScalarDB Cluster and `ICU` are not checked.
+  Affected shapes: a range predicate on text (`WHERE name < 'a'`), `ORDER BY`
   on a clustering key, a lookup by text key or secondary index (`WHERE k = 'a'` matches the row `'A'`
   on MySQL), and a `JOIN` whose inner side is such a lookup (`JOIN t ON t.k = s.k` pairs `'a'` with
   `'A'`, while the same join with the sides swapped pairs nothing). Set the backing database up to

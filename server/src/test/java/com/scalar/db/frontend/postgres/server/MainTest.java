@@ -16,6 +16,18 @@ public class MainTest {
   }
 
   @Test
+  public void collationProblem_ShouldAcceptOnlyBytewiseCollations() {
+    assertThat(Main.collationProblem(true, "C")).isNull();
+    assertThat(Main.collationProblem(true, "C.UTF-8")).isNull();
+    assertThat(Main.collationProblem(true, "ja_JP.UTF-8")).contains("ja_JP.UTF-8");
+    assertThat(Main.collationProblem(false, "utf8mb4_0900_bin")).isNull();
+    assertThat(Main.collationProblem(false, "utf8mb4_bin")).isNotNull(); // pads spaces
+    assertThat(Main.collationProblem(false, "utf8mb4_0900_ai_ci")).isNotNull();
+    // nothing to check against Cluster, or another storage
+    Main.checkBackendCollation(properties("scalar.db.transaction_manager", "cluster"));
+  }
+
+  @Test
   public void checkedAuth_ShouldRequireClusterTlsAndNoServiceUser() {
     assertThat(Main.checkedAuth(properties())).isEqualTo("none");
     assertThat(

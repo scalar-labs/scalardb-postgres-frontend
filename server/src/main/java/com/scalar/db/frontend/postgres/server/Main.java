@@ -55,6 +55,13 @@ public final class Main {
       System.exit(1);
       return;
     }
+    try {
+      checkBackendCollation(properties);
+    } catch (IllegalStateException e) {
+      System.err.println(e.getMessage());
+      System.exit(1);
+      return;
+    }
     TransactionFactory factory = TransactionFactory.create(properties);
     int port = args.length > 1 ? Integer.parseInt(args[1]) : 5432;
     // scalar.db.postgres.listen_address: one interface, such as 127.0.0.1; all of them when unset
@@ -82,6 +89,85 @@ public final class Main {
         server.getPort(),
         auth.equals("none") ? ", trusting every connection" : " with " + auth + " authentication");
     server.serve();
+  }
+
+  /**
+   * Refuses to start on a backing database whose text collation is not bytewise, as ScalarDB's
+   * default BINARY collation is: what is pushed down would compare text one way and what the
+   * frontend evaluates another, so one query could answer differently depending on its plan.
+   * Checked for the JDBC storage on PostgreSQL and MySQL; {@code
+   * scalar.db.postgres.backend_collation_check=false} skips it.
+   */
+  static void checkBackendCollation(Properties properties) {
+    String url = properties.getProperty("scalar.db.contact_points", "").trim();
+    if ("false"
+            .equalsIgnoreCase(
+                properties.getProperty("scalar.db.postgres.backend_collation_check", "true").trim())
+        || !"jdbc".equalsIgnoreCase(properties.getProperty("scalar.db.storage", "").trim())
+        || !properties
+            .getProperty("scalar.db.collation", "BINARY")
+            .trim()
+            .equalsIgnoreCase("BINARY")
+        || !(url.startsWith("jdbc:postgresql:") || url.startsWith("jdbc:mysql:"))) {
+      logger.info("Backend collation not checked (only JDBC storage on PostgreSQL or MySQL)");
+      return;
+    }
+    boolean postgres = url.startsWith("jdbc:postgresql:");
+    try {
+      // the shaded jar does not register drivers by ServiceLoader; ScalarDB names them, so do we
+      Class.forName(postgres ? "org.postgresql.Driver" : "com.mysql.cj.jdbc.Driver");
+    } catch (ClassNotFoundException e) {
+      logger.warn("Backend collation not checked: no JDBC driver {}", e.getMessage());
+      return;
+    }
+    String collation;
+    try (java.sql.Connection c =
+            java.sql.DriverManager.getConnection(
+                url,
+                properties.getProperty("scalar.db.username"),
+                properties.getProperty("scalar.db.password"));
+        java.sql.Statement st = c.createStatement();
+        java.sql.ResultSet rs =
+            st.executeQuery(
+                postgres
+                    ? "SELECT datcollate FROM pg_database WHERE datname = current_database()"
+                    : "SELECT @@collation_database")) {
+      if (!rs.next()) {
+        return;
+      }
+      collation = rs.getString(1);
+    } catch (java.sql.SQLException e) {
+      logger.warn("Backend collation not checked: {}", e.getMessage());
+      return; // ScalarDB reports a connection problem itself
+    }
+    String problem = collationProblem(postgres, collation);
+    if (problem != null) {
+      throw new IllegalStateException(problem);
+    }
+  }
+
+  /** Why a backing database's collation does not match BINARY; null when it does. */
+  @javax.annotation.Nullable static String collationProblem(boolean postgres, @javax.annotation.Nullable String collation) {
+    String c = collation == null ? "" : collation.trim();
+    boolean bytewise =
+        postgres
+            ? c.equals("C")
+                || c.equals("POSIX")
+                || c.equalsIgnoreCase("C.UTF-8")
+                || c.equalsIgnoreCase("C.utf8")
+            // utf8mb4_bin pads spaces ('a' = 'a '), utf8mb4_0900_bin does not
+            : c.equalsIgnoreCase("utf8mb4_0900_bin") || c.equalsIgnoreCase("binary");
+    if (bytewise) {
+      return null;
+    }
+    return "The backing database's collation is "
+        + (c.isEmpty() ? "unknown" : c)
+        + ", but ScalarDB compares text bytewise (scalar.db.collation=BINARY): text compared by the"
+        + " database and by the frontend would disagree, and a query could answer differently"
+        + " depending on its plan. Create the database with "
+        + (postgres ? "LC_COLLATE 'C' (TEMPLATE template0)" : "COLLATE utf8mb4_0900_bin")
+        + ", or set scalar.db.postgres.backend_collation_check=false to accept the difference"
+        + " (LIMITATIONS.md)";
   }
 
   /**
