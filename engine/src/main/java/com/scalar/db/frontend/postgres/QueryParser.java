@@ -1238,6 +1238,13 @@ class QueryParser {
             escapeStringQuotes(sql),
             code ->
                 typedEmptyArrays(code)
+                    // no table inheritance here, so FROM ONLY t and FROM t* are just t
+                    .replaceAll(
+                        "(?i)\\b(FROM|JOIN|UPDATE|INTO|USING|TABLE|,)(\\s+)ONLY\\s+(?=[A-Za-z_\"])",
+                        "$1$2")
+                    .replaceAll(
+                        "(?i)(\\b(?:FROM|JOIN|,)\\s+[A-Za-z_]\\w*+(?:\\.[A-Za-z_]\\w*+)?)\\s*\\*(?=\\s*(?:,|\\)|$|\\b(?:AS|ON|USING|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|WINDOW|FOR)\\b))",
+                        "$1")
                     .replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
                     // JSQLParser drops NATURAL when INNER follows it (a cross join, todo 070)
                     .replaceAll("(?i)\\bNATURAL\\s+INNER\\s+JOIN\\b", "NATURAL JOIN")

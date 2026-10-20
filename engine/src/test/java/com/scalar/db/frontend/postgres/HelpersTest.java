@@ -353,6 +353,13 @@ public class HelpersTest {
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
     }
+    // no table inheritance: ONLY t and t* are t; a multiplication is left alone
+    assertThat(
+            QueryParser.normalize("SELECT * FROM ONLY t, t* JOIN ONLY u ON true WHERE a * b > 1"))
+        .isEqualTo("SELECT * FROM t, t JOIN u ON true WHERE a * b > 1");
+    assertThat(QueryParser.normalize("SELECT a, b * c FROM t")).isEqualTo("SELECT a, b * c FROM t");
+    assertThat(QueryParser.normalize("SELECT x, idx.*, y FROM t"))
+        .isEqualTo("SELECT x, idx.*, y FROM t");
     // adjacent literals join only across a newline, as PostgreSQL's lexer does
     assertThat(QueryParser.normalize("SELECT 'a'\n-- c\n'b'")).isEqualTo("SELECT 'a'\n-- c\n'b'");
     assertThatThrownBy(() -> QueryParser.normalize("SELECT 'a' 'b'"))
