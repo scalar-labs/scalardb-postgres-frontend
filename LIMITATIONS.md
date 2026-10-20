@@ -179,8 +179,10 @@ at the end of this section.
   earlier releases' behaviour: `id NUMERIC PRIMARY KEY` and `id NUMERIC(20) PRIMARY KEY`, which used to
   be accepted as `double precision`, are now refused.
 - **`TIMESTAMP` and `TIMESTAMPTZ` keep milliseconds, not microseconds,** which is ScalarDB's
-  precision: a finer fraction is rounded half up, and `CREATE TABLE` says so with a `NOTICE` unless
-  the column is declared `TIMESTAMP(3)` or coarser. `TIME` keeps microseconds as in PostgreSQL.
+  precision: writing a value with a finer fraction fails with `0A000` (a comparison with one is exact),
+  and `CREATE TABLE` says so with a `NOTICE` unless the column is declared `TIMESTAMP(3)` or coarser,
+  which rounds on write as PostgreSQL does. `now()` and the other clocks read to the millisecond, so
+  they can be stored. `TIME` keeps microseconds as in PostgreSQL.
   `DATE` and `TIMESTAMP` values must fall in the years 1000 to 9999 (`22008` otherwise).
 - **Names are shorter than PostgreSQL's.** A table or schema name over 63 bytes, or a column name
   over 56, is refused (`42622`) rather than truncated as PostgreSQL does: ScalarDB keeps the full
@@ -284,8 +286,6 @@ the result is not what PostgreSQL would return.
   `'A'`, while the same join with the sides swapped pairs nothing). Set the backing database up to
   match `scalar.db.collation`. Under `ICU`, a comparison of two literals (`SELECT 'alice' < 'BOB'`)
   also follows ScalarDB's collation, where PostgreSQL uses the database's.
-- **Sub-millisecond timestamps.** A `TIMESTAMP` or `TIMESTAMPTZ` value is rounded to milliseconds on
-  write, so `WHERE ts = '2024-01-01 00:00:00.123456'` finds nothing after inserting that value.
 - **Reads are per record, not per statement, under `SNAPSHOT`.** A multi-row read next to a
   concurrent writer can see some rows from before that writer's commit and some from after:
   `SELECT sum(balance) FROM accounts` during a transfer can report a total that never existed.

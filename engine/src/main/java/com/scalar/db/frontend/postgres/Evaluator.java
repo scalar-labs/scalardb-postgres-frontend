@@ -708,7 +708,7 @@ final class Evaluator {
         long timeoutMillis,
         @Nullable java.util.concurrent.atomic.AtomicBoolean cancel) {
       this.now = now;
-      this.start = Instant.now();
+      this.start = clock();
       this.deadline = timeoutMillis > 0 ? (System.nanoTime() + timeoutMillis * 1_000_000L) | 1 : 0;
       this.cancel = cancel;
     }
@@ -748,6 +748,14 @@ final class Evaluator {
     return SETTINGS.get();
   }
 
+  /**
+   * The SQL clock (now(), clock_timestamp(), ...), at millisecond resolution: ScalarDB keeps
+   * timestamps to the millisecond, so a reading with microseconds could not be stored as it is.
+   */
+  static Instant clock() {
+    return Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+  }
+
   /** The session's IntervalStyle, which interval output and sql_standard input follow. */
   static String intervalStyle() {
     Settings settings = settings();
@@ -775,7 +783,7 @@ final class Evaluator {
   }
 
   static void startStatement() {
-    startStatement(Instant.now(), 0);
+    startStatement(clock(), 0);
   }
 
   /**
@@ -798,7 +806,7 @@ final class Evaluator {
   /** now(): the statement's (in a transaction, the transaction's) start time. */
   private static Instant statementNow() {
     Statement s = STATEMENT.get();
-    return s == null ? Instant.now() : s.now;
+    return s == null ? clock() : s.now;
   }
 
   /** Runs {@code p} against {@code s} within the statement's remaining regex budget. */
@@ -3838,10 +3846,10 @@ final class Evaluator {
       case "STATEMENT_TIMESTAMP":
         {
           Statement s = STATEMENT.get();
-          return s == null ? Instant.now() : s.start;
+          return s == null ? clock() : s.start;
         }
       case "CLOCK_TIMESTAMP":
-        return Instant.now(); // the one clock that moves within a statement
+        return clock(); // the one clock that moves within a statement
       case "VERSION":
         return "PostgreSQL 16.0 (ScalarDB frontend)";
       default:

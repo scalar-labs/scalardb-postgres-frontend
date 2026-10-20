@@ -37,12 +37,12 @@ column is read.
 |---|---|---|---|
 | `full_table_name` | TEXT | partition | `namespace.table`, as in ScalarDB's metadata table |
 | `column_name` | TEXT | clustering | the column's name, the same in ScalarDB and to clients |
-| `sql_type` | TEXT | | `NUMERIC`, `VARCHAR`, `CHAR`, `SMALLINT`, `JSON` or `JSONB` |
-| `type_precision` | INT | | NUMERIC digits; null for NUMERIC without a precision |
+| `sql_type` | TEXT | | `NUMERIC`, `VARCHAR`, `CHAR`, `SMALLINT`, `JSON`, `JSONB`, `TIMESTAMP` or `TIMESTAMPTZ` |
+| `type_precision` | INT | | NUMERIC digits, null for NUMERIC without a precision; TIMESTAMP fraction digits |
 | `type_scale` | INT | | NUMERIC scale; null when `type_precision` is |
 | `type_length` | INT | | n of `VARCHAR(n)` and `CHAR(n)` |
 | `encoding` | TEXT | | how the value is stored, below |
-| `data_type` | TEXT | | the ScalarDB type the encoding needs: `BIGINT`, `TEXT` or `INT` |
+| `data_type` | TEXT | | the ScalarDB type the encoding needs: `BIGINT`, `TEXT`, `INT`, `TIMESTAMP` or `TIMESTAMPTZ` |
 | `created_by` | TEXT | | the DDL statement that wrote the row (frontend bookkeeping, not part of the type) |
 
 One row per column with a declared type; a table with none has no rows.
@@ -57,11 +57,14 @@ One row per column with a declared type; a table with none has no rows.
 | `SMALLINT`, `INT2` | SMALLINT | `INT` | INT | −32768 to 32767 |
 | `JSON` | JSON | `TEXT` | TEXT | valid JSON, as written |
 | `JSONB` | JSONB | `TEXT` | TEXT | valid JSON as PostgreSQL normalises jsonb: keys sorted by length then bytes, the last of a duplicate key, `": "` and `", "` separators |
+| `TIMESTAMP(p)`, `TIMESTAMPTZ(p)`, p ≤ 3 | TIMESTAMP, TIMESTAMPTZ | `TIMESTAMP`, `TIMESTAMPTZ` | TIMESTAMP, TIMESTAMPTZ | ScalarDB's own value, written rounded to p fraction digits as PostgreSQL rounds |
 
 A negative scale is allowed: `NUMERIC(5,-2)` stores 12300 as 123. A `DECIMAL_TEXT` column cannot be a key or
 index column: ScalarDB would compare its text, not its number. Neither can a `JSON` or `JSONB` column, and
 conditions on one are evaluated in the frontend: jsonb compares by value (`1.0` equals `1.00`), json not at
-all. A `JSONB` value another client stored unnormalised still reads as that value. `VARCHAR` without a length is plain `TEXT`, with
+all. A `JSONB` value another client stored unnormalised still reads as that value. A `TIMESTAMP` or
+`TIMESTAMPTZ` without a precision (or with more than 3) has no row: ScalarDB keeps milliseconds, so a value
+with a finer fraction is refused (`0A000`) instead of being rounded or cut. `VARCHAR` without a length is plain `TEXT`, with
 no row.
 
 The digit limit for `SCALED_BIGINT` is chosen when the column is created, from the storage the frontend is

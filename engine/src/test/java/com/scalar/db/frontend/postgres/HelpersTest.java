@@ -299,6 +299,31 @@ public class HelpersTest {
   }
 
   @Test
+  public void timestamps_ShouldBeStoredExactlyOrRefused() {
+    // ScalarDB keeps milliseconds: a finer value is refused, never rounded or cut
+    assertThatThrownBy(
+            () ->
+                QueryParser.parseColumn(
+                    com.scalar.db.io.DataType.TIMESTAMP, "c", "2024-01-01 00:00:00.123456"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThat(
+            QueryParser.parseColumn(
+                    com.scalar.db.io.DataType.TIMESTAMP, "c", "2024-01-01 00:00:00.123")
+                .getTimestampValue())
+        .isEqualTo(java.time.LocalDateTime.parse("2024-01-01T00:00:00.123"));
+    // timestamp(p) up to 3 is recorded, and rounds to p as PostgreSQL does
+    ColumnType t3 = ColumnType.declared("timestamp(3)", 18);
+    assertThat(t3.encoded()).isTrue();
+    assertThat(t3.coerce("2024-01-01 00:00:00.9996"))
+        .isEqualTo(java.time.LocalDateTime.parse("2024-01-01T00:00:01"));
+    assertThatThrownBy(() -> t3.exact("c", "2024-01-01 00:00:00.9996"))
+        .isInstanceOf(PgException.NotRepresentable.class); // a predicate: compared in memory
+    assertThat(ColumnType.declared("timestamptz", 18).encoded()).isFalse();
+    assertThat(Evaluator.clock().getNano() % 1_000_000).isZero();
+  }
+
+  @Test
   public void floats_ShouldReadAndWriteAsPostgreSqlDoes() {
     // Ryu's shortest digits, never a midpoint between two doubles: 1e23 is one
     assertThat(Evaluator.text(1e23)).isEqualTo("9.999999999999999e+22");

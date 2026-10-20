@@ -702,7 +702,8 @@ public class QueryProcessor {
 
   private void startStatement() {
     applyZone();
-    Instant now = inTransaction() && transactionStart != null ? transactionStart : Instant.now();
+    Instant now =
+        inTransaction() && transactionStart != null ? transactionStart : Evaluator.clock();
     Evaluator.startStatement(now, millis(current("statement_timeout")));
     Evaluator.setSettings(sessionSettings);
   }
@@ -733,7 +734,7 @@ public class QueryProcessor {
         transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
         pending = true;
         settingsAtBegin = new LinkedHashMap<>(settings);
-        transactionStart = Instant.now();
+        transactionStart = Evaluator.clock();
         lastCommandTag = word.equals("START") ? "START TRANSACTION" : "BEGIN";
         return new Rows(null, Plan.Cursor.EMPTY);
       case "COMMIT":
@@ -915,7 +916,7 @@ public class QueryProcessor {
     pending = true;
     pendingReadOnly = readOnly;
     settingsAtBegin = new LinkedHashMap<>(settings);
-    transactionStart = Instant.now();
+    transactionStart = Evaluator.clock();
     if (isolation != null) {
       settings.put("transaction_isolation", isolation);
       transactionIsolationSet = true;

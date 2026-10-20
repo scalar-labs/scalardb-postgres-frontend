@@ -2102,8 +2102,8 @@ class QueryParser {
           out.add(
               "TIMESTAMP on "
                   + col
-                  + " is stored with millisecond precision (ScalarDB's): finer fractions are"
-                  + " rounded");
+                  + " is stored with millisecond precision (ScalarDB's): a finer value is"
+                  + " refused; declare it TIMESTAMP(3) to have it rounded, as PostgreSQL rounds");
         }
         break;
       case "serial":
@@ -5875,6 +5875,9 @@ class QueryParser {
         column =
             valueColumn(t, columnName(c.getLeftExpression()), c.getRightExpression(), row, ctx);
       } catch (IllegalArgumentException | ArithmeticException failure) {
+        if (failure instanceof PgException.NotRepresentable) {
+          return null; // no stored form (a finer timestamp, a longer string): compared in memory
+        }
         if (c.getRightExpression() instanceof DoubleValue
             || (c.getRightExpression() instanceof SignedExpression
                 && ((SignedExpression) c.getRightExpression()).getExpression()
@@ -6700,7 +6703,7 @@ class QueryParser {
     }
     try {
       return parseColumn(type, name, s);
-    } catch (PgException.Argument e) {
+    } catch (PgException.Argument | PgException.NotRepresentable e) {
       throw e; // already PostgreSQL's code and wording
     } catch (RuntimeException e) {
       String pgType = pgTypeName(type);
@@ -6803,6 +6806,23 @@ class QueryParser {
     }
   }
 
+  /**
+   * A timestamp ScalarDB can keep as it is: ScalarDB keeps milliseconds and would drop the rest, so
+   * a finer value is refused, not rounded. A predicate catches this and compares in memory, where
+   * the value is exact.
+   */
+  private static <T extends java.time.temporal.Temporal> T milliseconds(T value, String text) {
+    long nanos = value.getLong(java.time.temporal.ChronoField.NANO_OF_SECOND);
+    if (nanos % 1_000_000 != 0) {
+      throw new PgException.NotRepresentable(
+          "0A000",
+          "Unsupported timestamp precision: \""
+              + text
+              + "\" is finer than a millisecond, which is what ScalarDB stores");
+    }
+    return value;
+  }
+
   static Column<?> parseColumn(DataType type, String name, @Nullable String s) {
     switch (type) {
       case BOOLEAN:
@@ -6845,14 +6865,13 @@ class QueryParser {
           return TimeColumn.of(name, time);
         }
       case TIMESTAMP:
-        // ScalarDB keeps milliseconds (said at CREATE TABLE); of() would truncate, so round first
         return s == null
             ? TimestampColumn.ofNull(name)
-            : TimestampColumn.of(name, (LocalDateTime) Evaluator.roundedTo(localDateTime(s), 3));
+            : TimestampColumn.of(name, milliseconds(localDateTime(s), s));
       case TIMESTAMPTZ:
         return s == null
             ? TimestampTZColumn.ofNull(name)
-            : TimestampTZColumn.of(name, (java.time.Instant) Evaluator.roundedTo(instant(s), 3));
+            : TimestampTZColumn.of(name, milliseconds(instant(s), s));
       default:
         throw new AssertionError();
     }
@@ -7161,7 +7180,9 @@ class QueryParser {
             : OFFSET.matcher(t).find() && t.indexOf('T') > 0
                 ? offsetDateTime(t).toLocalDateTime()
                 : LocalDateTime.parse(t);
-    return era(out.toLocalDate(), bc[0], s).atTime(out.toLocalTime());
+    // PostgreSQL keeps microseconds: a finer fraction rounds on input ('...00.9999999' is 01)
+    return (LocalDateTime)
+        Evaluator.roundedTo(era(out.toLocalDate(), bc[0], s).atTime(out.toLocalTime()), 6);
   }
 
   private static final Pattern ERA = Pattern.compile("(?i)\\s(BC|AD)$");
@@ -7202,12 +7223,17 @@ class QueryParser {
     }
     if (t.length() > 10 && OFFSET.matcher(t).find() && t.indexOf('T') > 0) {
       OffsetDateTime o = offsetDateTime(t);
-      return era(o.toLocalDate(), bc[0], s).atTime(o.toLocalTime()).toInstant(o.getOffset());
+      return (java.time.Instant)
+          Evaluator.roundedTo(
+              era(o.toLocalDate(), bc[0], s).atTime(o.toLocalTime()).toInstant(o.getOffset()), 6);
     }
     LocalDateTime local =
         t.length() == 10 ? LocalDate.parse(t).atStartOfDay() : LocalDateTime.parse(t);
-    return Evaluator.instant(
-        era(local.toLocalDate(), bc[0], s).atTime(local.toLocalTime()), Evaluator.zone());
+    return (java.time.Instant)
+        Evaluator.roundedTo(
+            Evaluator.instant(
+                era(local.toLocalDate(), bc[0], s).atTime(local.toLocalTime()), Evaluator.zone()),
+            6);
   }
 
   private static OffsetDateTime offsetDateTime(String t) {

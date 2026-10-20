@@ -46,6 +46,12 @@ final class ColumnType {
     JSON,
     /** jsonb: JSON text as PostgreSQL normalises it (keys sorted, last duplicate kept). */
     JSONB,
+    /**
+     * timestamp(p) or timestamptz(p) with p up to 3, stored as ScalarDB's own: a written value is
+     * rounded to p digits, as PostgreSQL rounds it. Without p (or above 3) a column is NATIVE, and
+     * a value finer than ScalarDB's milliseconds is refused.
+     */
+    TIMESTAMP,
     /** A recorded type this frontend cannot read: shown as stored, never written. */
     UNKNOWN_ENCODING
   }
@@ -127,6 +133,21 @@ final class ColumnType {
       case "smallint":
       case "int2":
         return new ColumnType(Kind.SMALLINT, DataType.INT, 0, 0, 0);
+      case "timestamp":
+      case "timestamp without time zone":
+      case "timestamptz":
+      case "timestamp with time zone":
+        if (args.length == 1 && args[0] >= 0 && args[0] <= 3) {
+          return new ColumnType(
+              Kind.TIMESTAMP,
+              base.equals("timestamptz") || base.endsWith("with time zone")
+                  ? DataType.TIMESTAMPTZ
+                  : DataType.TIMESTAMP,
+              (int) args[0],
+              0,
+              0);
+        }
+        return of(QueryParser.columnType(declared));
       case "json":
         return new ColumnType(Kind.JSON, DataType.TEXT, 0, 0, 0);
       case "jsonb":
@@ -202,6 +223,19 @@ final class ColumnType {
       case "JSONB/TEXT":
         t = new ColumnType(sqlType.equals("JSON") ? Kind.JSON : Kind.JSONB, DataType.TEXT, 0, 0, 0);
         break;
+      case "TIMESTAMP/TIMESTAMP":
+      case "TIMESTAMPTZ/TIMESTAMPTZ":
+        if (precision == null || p < 0 || p > 3) {
+          return unknown;
+        }
+        t =
+            new ColumnType(
+                Kind.TIMESTAMP,
+                sqlType.equals("TIMESTAMP") ? DataType.TIMESTAMP : DataType.TIMESTAMPTZ,
+                p,
+                0,
+                0);
+        break;
       default:
         return unknown;
     }
@@ -223,13 +257,18 @@ final class ColumnType {
       case JSON:
       case JSONB:
         return kind.name();
+      case TIMESTAMP:
+        return storage.name(); // TIMESTAMP or TIMESTAMPTZ
       default:
         throw new IllegalStateException("No row for a " + kind + " column");
     }
   }
 
-  /** The row's {@code type_precision}: a numeric's digits; null without a precision. */
+  /** The row's {@code type_precision}: a numeric's digits, a timestamp's fraction digits. */
   @Nullable Integer rowPrecision() {
+    if (kind == Kind.TIMESTAMP) {
+      return precision;
+    }
     return isNumeric() && precision > 0 ? precision : null;
   }
 
@@ -259,6 +298,8 @@ final class ColumnType {
       case JSON:
       case JSONB:
         return "TEXT";
+      case TIMESTAMP:
+        return storage.name(); // ScalarDB's own type
       default:
         throw new IllegalStateException("No row for a " + kind + " column");
     }
@@ -363,6 +404,8 @@ final class ColumnType {
       case VARCHAR:
       case CHAR:
         return length + 4;
+      case TIMESTAMP:
+        return precision;
       default:
         return -1;
     }
@@ -408,10 +451,33 @@ final class ColumnType {
       case JSON:
       case JSONB:
         return jsonText(v);
+      case TIMESTAMP:
+        return Evaluator.roundedTo(temporal(v), precision); // as PostgreSQL rounds to timestamp(p)
       case UNKNOWN_ENCODING:
         throw unknownEncoding();
       default:
         return v;
+    }
+  }
+
+  /** A value as this timestamp column's Java type: text read, the other kind put in the zone. */
+  private Object temporal(Object v) {
+    boolean tz = storage == DataType.TIMESTAMPTZ;
+    if (v instanceof java.time.Instant) {
+      return tz ? v : java.time.LocalDateTime.ofInstant((java.time.Instant) v, Evaluator.zone());
+    }
+    if (v instanceof java.time.LocalDateTime) {
+      return tz ? Evaluator.instant((java.time.LocalDateTime) v, Evaluator.zone()) : v;
+    }
+    if (v instanceof java.time.LocalDate) {
+      return temporal(((java.time.LocalDate) v).atStartOfDay());
+    }
+    String s = Evaluator.text(v);
+    try {
+      return tz ? QueryParser.instant(s) : QueryParser.localDateTime(s);
+    } catch (java.time.format.DateTimeParseException e) {
+      throw new PgException.Argument(
+          "22007", "invalid input syntax for type " + sqlName() + ": \"" + s + "\"");
     }
   }
 
@@ -527,6 +593,24 @@ final class ColumnType {
       case JSON:
       case JSONB:
         return v == null ? TextColumn.ofNull(storageName) : TextColumn.of(storageName, jsonText(v));
+      case TIMESTAMP:
+        {
+          boolean tz = storage == DataType.TIMESTAMPTZ;
+          if (v == null) {
+            return tz
+                ? com.scalar.db.io.TimestampTZColumn.ofNull(storageName)
+                : com.scalar.db.io.TimestampColumn.ofNull(storageName);
+          }
+          Object t = temporal(v);
+          if (!t.equals(Evaluator.roundedTo(t, precision))) {
+            // finer than the column keeps: no stored value equals it (compared in memory)
+            throw new PgException.NotRepresentable(
+                "22008", "value has more fraction digits than " + sqlName());
+          }
+          return tz
+              ? com.scalar.db.io.TimestampTZColumn.of(storageName, (java.time.Instant) t)
+              : com.scalar.db.io.TimestampColumn.of(storageName, (java.time.LocalDateTime) t);
+        }
       case UNKNOWN_ENCODING:
         throw unknownEncoding();
       default:
