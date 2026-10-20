@@ -41,12 +41,48 @@ aggfnoid	aggkind	aggnumdirectargs	aggtransfn	aggfinalfn	aggcombinefn	aggserialfn
 2145 pg_catalog.min	n	0	459 text_smaller	0	459 text_smaller	0	0	0	0	0	f	f	r	r	664	25	0	0	0	\N	\N
 2146 pg_catalog.min	n	0	1766 numeric_smaller	0	1766 numeric_smaller	0	0	0	0	0	f	f	r	r	1754	1700	0	0	0	\N	\N
 2147 pg_catalog.count	n	0	2804 int8inc_any	0	463 int8pl	0	0	2804 int8inc_any	3547 int8dec_any	0	f	f	r	r	0	20	0	20	0	0	0
+2148 pg_catalog.variance	n	0	1836 int8_accum	1838 numeric_var_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	1838 numeric_var_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2149 pg_catalog.variance	n	0	1835 int4_accum	3391 numeric_poly_var_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3391 numeric_poly_var_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2150 pg_catalog.variance	n	0	1834 int2_accum	3391 numeric_poly_var_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3391 numeric_poly_var_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2151 pg_catalog.variance	n	0	208 float4_accum	1831 float8_var_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2152 pg_catalog.variance	n	0	222 float8_accum	1831 float8_var_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2153 pg_catalog.variance	n	0	1833 numeric_accum	1838 numeric_var_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	1838 numeric_var_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2154 pg_catalog.stddev	n	0	1836 int8_accum	1839 numeric_stddev_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	1839 numeric_stddev_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2155 pg_catalog.stddev	n	0	1835 int4_accum	3393 numeric_poly_stddev_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3393 numeric_poly_stddev_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2156 pg_catalog.stddev	n	0	1834 int2_accum	3393 numeric_poly_stddev_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3393 numeric_poly_stddev_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2157 pg_catalog.stddev	n	0	208 float4_accum	1832 float8_stddev_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2158 pg_catalog.stddev	n	0	222 float8_accum	1832 float8_stddev_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2159 pg_catalog.stddev	n	0	1833 numeric_accum	1839 numeric_stddev_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	1839 numeric_stddev_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
 2244 pg_catalog.max	n	0	1063 bpchar_larger	0	1063 bpchar_larger	0	0	0	0	0	f	f	r	r	1060	1042	0	0	0	\N	\N
 2245 pg_catalog.min	n	0	1064 bpchar_smaller	0	1064 bpchar_smaller	0	0	0	0	0	f	f	r	r	1058	1042	0	0	0	\N	\N
 2335 pg_catalog.array_agg	n	0	2333 array_agg_transfn	2334 array_agg_finalfn	6293 array_agg_combine	6294 array_agg_serialize	6295 array_agg_deserialize	0	0	0	t	f	r	r	0	2281	0	0	0	\N	\N
 2517 bool_and	n	0	2515 booland_statefunc	0	2515 booland_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3498 bool_alltrue	f	f	r	r	58	16	0	2281	16	\N	\N
 2518 bool_or	n	0	2516 boolor_statefunc	0	2516 boolor_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3499 bool_anytrue	f	f	r	r	59	16	0	2281	16	\N	\N
 2519 every	n	0	2515 booland_statefunc	0	2515 booland_statefunc	0	0	3496 bool_accum	3497 bool_accum_inv	3498 bool_alltrue	f	f	r	r	58	16	0	2281	16	\N	\N
+2641 pg_catalog.var_samp	n	0	1836 int8_accum	1838 numeric_var_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	1838 numeric_var_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2642 pg_catalog.var_samp	n	0	1835 int4_accum	3391 numeric_poly_var_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3391 numeric_poly_var_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2643 pg_catalog.var_samp	n	0	1834 int2_accum	3391 numeric_poly_var_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3391 numeric_poly_var_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2644 pg_catalog.var_samp	n	0	208 float4_accum	1831 float8_var_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2645 pg_catalog.var_samp	n	0	222 float8_accum	1831 float8_var_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2646 pg_catalog.var_samp	n	0	1833 numeric_accum	1838 numeric_var_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	1838 numeric_var_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2712 pg_catalog.stddev_samp	n	0	1836 int8_accum	1839 numeric_stddev_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	1839 numeric_stddev_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2713 pg_catalog.stddev_samp	n	0	1835 int4_accum	3393 numeric_poly_stddev_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3393 numeric_poly_stddev_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2714 pg_catalog.stddev_samp	n	0	1834 int2_accum	3393 numeric_poly_stddev_samp	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3393 numeric_poly_stddev_samp	f	f	r	r	0	2281	48	2281	48	\N	\N
+2715 pg_catalog.stddev_samp	n	0	208 float4_accum	1832 float8_stddev_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2716 pg_catalog.stddev_samp	n	0	222 float8_accum	1832 float8_stddev_samp	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2717 pg_catalog.stddev_samp	n	0	1833 numeric_accum	1839 numeric_stddev_samp	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	1839 numeric_stddev_samp	f	f	r	r	0	2281	128	2281	128	\N	\N
+2718 pg_catalog.var_pop	n	0	1836 int8_accum	2514 numeric_var_pop	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	2514 numeric_var_pop	f	f	r	r	0	2281	128	2281	128	\N	\N
+2719 pg_catalog.var_pop	n	0	1835 int4_accum	3390 numeric_poly_var_pop	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3390 numeric_poly_var_pop	f	f	r	r	0	2281	48	2281	48	\N	\N
+2720 pg_catalog.var_pop	n	0	1834 int2_accum	3390 numeric_poly_var_pop	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3390 numeric_poly_var_pop	f	f	r	r	0	2281	48	2281	48	\N	\N
+2721 pg_catalog.var_pop	n	0	208 float4_accum	2512 float8_var_pop	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2722 pg_catalog.var_pop	n	0	222 float8_accum	2512 float8_var_pop	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2723 pg_catalog.var_pop	n	0	1833 numeric_accum	2514 numeric_var_pop	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	2514 numeric_var_pop	f	f	r	r	0	2281	128	2281	128	\N	\N
+2724 pg_catalog.stddev_pop	n	0	1836 int8_accum	2596 numeric_stddev_pop	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1836 int8_accum	3569 int8_accum_inv	2596 numeric_stddev_pop	f	f	r	r	0	2281	128	2281	128	\N	\N
+2725 pg_catalog.stddev_pop	n	0	1835 int4_accum	3392 numeric_poly_stddev_pop	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1835 int4_accum	3568 int4_accum_inv	3392 numeric_poly_stddev_pop	f	f	r	r	0	2281	48	2281	48	\N	\N
+2726 pg_catalog.stddev_pop	n	0	1834 int2_accum	3392 numeric_poly_stddev_pop	3338 numeric_poly_combine	3339 numeric_poly_serialize	3340 numeric_poly_deserialize	1834 int2_accum	3567 int2_accum_inv	3392 numeric_poly_stddev_pop	f	f	r	r	0	2281	48	2281	48	\N	\N
+2727 pg_catalog.stddev_pop	n	0	208 float4_accum	2513 float8_stddev_pop	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2728 pg_catalog.stddev_pop	n	0	222 float8_accum	2513 float8_stddev_pop	276 float8_combine	0	0	0	0	0	f	f	r	r	0	1022	0	0	0	{0,0,0}	\N
+2729 pg_catalog.stddev_pop	n	0	1833 numeric_accum	2596 numeric_stddev_pop	3341 numeric_combine	3335 numeric_serialize	3336 numeric_deserialize	1833 numeric_accum	3548 numeric_accum_inv	2596 numeric_stddev_pop	f	f	r	r	0	2281	128	2281	128	\N	\N
 2803 pg_catalog.count	n	0	1219 int8inc	0	463 int8pl	0	0	1219 int8inc	3546 int8dec	0	f	f	r	r	0	20	0	20	0	0	0
 3175 json_agg	n	0	3173 json_agg_transfn	3174 json_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N
 3197 json_object_agg	n	0	3180 json_object_agg_transfn	3196 json_object_agg_finalfn	0	0	0	0	0	0	f	f	r	r	0	2281	0	0	0	\N	\N

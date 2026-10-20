@@ -458,6 +458,10 @@ public class QueryProcessor {
   private static final Pattern POSIX_ZONE =
       Pattern.compile("(?i)^(?:UTC|GMT)?([+-])(\\d{1,2})(?::(\\d{2}))?$");
 
+  // the zone database's fixed-offset zones Java names only as aliases
+  private static final java.util.Map<String, String> FIXED_ZONES =
+      java.util.Map.of("EST", "-05:00", "MST", "-07:00", "HST", "-10:00");
+
   static ZoneId zoneOf(String name) {
     String text = name.trim();
     Matcher m = INTERVAL_ZONE.matcher(text);
@@ -470,11 +474,13 @@ public class QueryProcessor {
     if (POSIX_ZONE.matcher(text).matches()) {
       return offset(text.replaceFirst("(?i)^(UTC|GMT)", ""), true);
     }
+    // the zone database only: PostgreSQL takes no abbreviation here ('PST' is refused, and Java's
+    // SHORT_IDS would read it as Los Angeles)
     try {
-      return ZoneId.of(name, ZoneId.SHORT_IDS);
+      return ZoneId.of(name, FIXED_ZONES);
     } catch (DateTimeException e) {
       try {
-        return ZoneId.of(name.toUpperCase(Locale.ROOT), ZoneId.SHORT_IDS);
+        return ZoneId.of(name.toUpperCase(Locale.ROOT), FIXED_ZONES);
       } catch (DateTimeException again) {
         throw new PgException.Argument(
             "22023", "invalid value for parameter \"TimeZone\": \"" + name + "\"");

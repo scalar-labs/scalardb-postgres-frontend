@@ -354,7 +354,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [daS]
 -- postgres16: 157 8e8b98a0afc0
--- expect: 55  # only the aggregates the frontend implements
+-- expect: 91  # only the aggregates the frontend implements
 SELECT n.nspname as "Schema",
   p.proname AS "Name",
   pg_catalog.format_type(p.prorettype, NULL) AS "Result data type",
@@ -1069,7 +1069,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
--- expect: 252  # only the functions the frontend implements
+-- expect: 317  # only the functions the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1110,7 +1110,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfaS]
 -- postgres16: 157 957a27792435
--- expect: 55  # only the aggregates the frontend implements
+-- expect: 91  # only the aggregates the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",

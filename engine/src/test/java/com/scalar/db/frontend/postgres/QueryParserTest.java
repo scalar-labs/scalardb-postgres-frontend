@@ -138,6 +138,48 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_Step4Functions_ShouldGivePostgreSqlResults() throws Exception {
+    // values as PostgreSQL 18 prints them (checked against it), numeric scales included
+    String[][] cases = {
+      {"split_part('a,b,c', ',', -1)", "c"},
+      {"string_to_array('a,*,b', ',', '*')", "{a,NULL,b}"},
+      {"('{\" a \", b }'::text[])[1] || 'x'", " a x"},
+      {"repeat('ab', 2) || chr(8364)", "abab€"},
+      {"overlay('Txxxxas' placing 'hom' from 2 for 4)", "Thomas"},
+      {"ln(2.0)", "0.6931471805599453"},
+      {"log(2, 8)", "3.0000000000000000"},
+      {"exp(-100.5)", "0.00000000000000000000000000000000000000000002256340135917036"},
+      {"ln(1.0000000001)", "0.00000000009999999999500000"},
+      {"trunc(1234.5, -2)", "1200"},
+      {"width_bucket(5.35, 0.024, 10.06, 5)", "3"},
+      {"jsonb_set('[1,2,3]', '{-10}', '9')", "[9, 1, 2, 3]"},
+      {"jsonb_insert('{\"a\":[0,1]}', '{a,1}', '5', true)", "{\"a\": [0, 1, 5]}"},
+      {"jsonb_strip_nulls('{\"a\":null,\"b\":[null]}')", "{\"b\": [null]}"},
+      {"date_trunc('decade', timestamp '0005-01-01 BC')", "0011-01-01 00:00:00 BC"},
+      {
+        "date_bin('15 minutes', timestamp '2020-02-11 15:44:17', timestamp '2001-01-01 00:02:30')",
+        "2020-02-11 15:32:30"
+      },
+      {"make_timestamp(-44, 3, 15, 12, 0, 0)", "0044-03-15 12:00:00 BC"}
+    };
+    for (String[] c : cases) {
+      Object v = parser.parse("SELECT " + c[0] + " AS v").execute(transaction).get(0).get("v");
+      assertThat(Evaluator.outputText(v)).as(c[0]).isEqualTo(c[1]);
+    }
+    assertThat(
+            parser
+                .parse(
+                    "SELECT stddev(x) AS s, var_pop(x) AS p FROM (VALUES (1), (2), (3), (4), (10)) v(x)")
+                .execute(transaction))
+        .containsExactly(
+            map(
+                "s",
+                new java.math.BigDecimal("3.5355339059327376"),
+                "p",
+                new java.math.BigDecimal("10.0000000000000000")));
+  }
+
+  @Test
   public void parse_DeeplyNestedParentheses_ShouldFailFast() throws Exception {
     // JSQLParser's time grows with the cube of the depth: these ran for minutes unbounded
     for (String sql :

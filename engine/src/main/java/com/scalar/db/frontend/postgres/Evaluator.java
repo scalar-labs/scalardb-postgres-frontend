@@ -102,7 +102,13 @@ final class Evaluator {
           "BOOL_OR",
           "EVERY",
           "STRING_AGG",
-          "ARRAY_AGG");
+          "ARRAY_AGG",
+          "STDDEV",
+          "STDDEV_SAMP",
+          "STDDEV_POP",
+          "VARIANCE",
+          "VAR_SAMP",
+          "VAR_POP");
 
   // ScalarDB's text order (scalar.db.collation), so text compared here agrees with what is pushed
   // down
@@ -524,7 +530,11 @@ final class Evaluator {
               "CONCAT_WS",
               "STARTS_WITH",
               "QUOTE_LITERAL",
-              "QUOTE_IDENT"));
+              "QUOTE_IDENT",
+              "SPLIT_PART",
+              "STRING_TO_ARRAY",
+              "REPEAT",
+              "OVERLAY"));
 
   /** quote_ident: quoted unless a lower-case name that is not a reserved keyword. */
   static String quoteIdent(String name) {
@@ -1963,6 +1973,279 @@ final class Evaluator {
     return a.divide(b, divScale(a, b), RoundingMode.HALF_UP);
   }
 
+  /**
+   * A jsonb argument: a jsonb value, or text (a literal, a json column's stored text) read as one.
+   */
+  private static Json.Value jsonb(Object v) {
+    return v instanceof String ? Json.cast((String) v, true) : Json.of(v);
+  }
+
+  /** A numeric-only function's argument: an integer converts, a float does not (42883). */
+  private static BigDecimal numericArgument(List<Object> args, int i, String function) {
+    Number n = num(args, i);
+    if (n instanceof Double || n instanceof Float) {
+      throw new PgException.Argument(
+          "42883",
+          "function " + function.toLowerCase(Locale.ROOT) + "(double precision) does not exist");
+    }
+    return toDecimal(n);
+  }
+
+  private static void checkLogArgument(double x) {
+    if (x == 0) {
+      throw new PgException.Argument("2201E", "cannot take logarithm of zero");
+    }
+    if (x < 0) {
+      throw new PgException.Argument("2201E", "cannot take logarithm of a negative number");
+    }
+  }
+
+  /** ln or log10 of a double precision: dlog1 and dlog10. */
+  private static double floatLog(double x, boolean ten) {
+    checkLogArgument(x);
+    return ten ? Math.log10(x) : Math.log(x);
+  }
+
+  /** exp of a double precision: dexp, with its range errors. */
+  private static double floatExp(double x) {
+    if (Double.isNaN(x)) {
+      return x;
+    }
+    if (Double.isInfinite(x)) {
+      return x > 0 ? x : 0;
+    }
+    double result = Math.exp(x);
+    if (Double.isInfinite(result)) {
+      throw new PgException.Argument("22003", "value out of range: overflow");
+    }
+    if (result == 0) {
+      throw new PgException.Argument("22003", "value out of range: underflow");
+    }
+    return result;
+  }
+
+  // numeric.c: NUMERIC_MIN_SIG_DIGITS and NUMERIC_MAX_DISPLAY_SCALE
+  private static final int MIN_SIG_DIGITS = 16;
+  private static final int MAX_DISPLAY_SCALE = 1000;
+
+  private static int resultScale(int scale, BigDecimal... inputs) {
+    for (BigDecimal x : inputs) {
+      scale = Math.max(scale, x.scale()); // a numeric's display scale
+    }
+    return Math.max(0, Math.min(scale, MAX_DISPLAY_SCALE));
+  }
+
+  /**
+   * numeric_ln: ln(x) rounded to PostgreSQL's scale for it. The value is computed beyond that scale
+   * and rounded once, as PostgreSQL's ln_var does with its guard digits.
+   */
+  static BigDecimal numericLn(BigDecimal x) {
+    checkLogArgument(x.signum());
+    int rscale = resultScale(MIN_SIG_DIGITS - lnDweight(x), x);
+    return ln(x, rscale + 30).setScale(rscale, RoundingMode.HALF_UP);
+  }
+
+  /** numeric_log: log_base(x), at log_var's scale: ln(x) / ln(base), rounded once. */
+  static BigDecimal numericLog(BigDecimal base, BigDecimal x) {
+    checkLogArgument(base.signum());
+    checkLogArgument(x.signum());
+    int baseDweight = lnDweight(base);
+    int xDweight = lnDweight(x);
+    int resultDweight = xDweight - baseDweight;
+    int rscale = resultScale(MIN_SIG_DIGITS - resultDweight, base, x);
+    // enough digits that the quotient is exact well past rscale, however small ln(base) is
+    int digits = rscale + 30 + Math.abs(baseDweight) + Math.abs(xDweight) + Math.abs(resultDweight);
+    BigDecimal lnBase = ln(base, digits);
+    if (lnBase.signum() == 0) {
+      throw new PgException.Argument("22012", "division by zero");
+    }
+    return ln(x, digits)
+        .divide(lnBase, new java.math.MathContext(digits + 10))
+        .setScale(rscale, RoundingMode.HALF_UP);
+  }
+
+  /** numeric_exp: e^x at PostgreSQL's scale, and its overflow and underflow. */
+  static BigDecimal numericExp(BigDecimal x) {
+    double val = x.doubleValue();
+    double weight = Math.max(-2000, Math.min(val * 0.434294481903252, 2000));
+    int rscale = resultScale(MIN_SIG_DIGITS - (int) weight, x);
+    if (Math.abs(val) >= 6000) { // exp_var's limit
+      if (val > 0) {
+        throw new PgException.Argument("22003", "value overflows numeric format");
+      }
+      return BigDecimal.ZERO.setScale(rscale);
+    }
+    // e^x reduced to |x| <= 0.01 by halving, the Taylor series, then squared back
+    int halvings = 0;
+    for (double v = val; Math.abs(v) > 0.01; v /= 2) {
+      halvings++;
+    }
+    java.math.MathContext mc =
+        new java.math.MathContext(Math.max(0, (int) weight) + rscale + 30 + halvings);
+    BigDecimal r = x.divide(BigDecimal.valueOf(2).pow(halvings)); // exact: a power of two
+    BigDecimal sum = BigDecimal.ONE;
+    BigDecimal term = BigDecimal.ONE;
+    for (int n = 1; ; n++) {
+      term = term.multiply(r, mc).divide(BigDecimal.valueOf(n), mc);
+      if (term.signum() == 0
+          || term.abs().compareTo(sum.abs().movePointLeft(mc.getPrecision() + 2)) < 0) {
+        break;
+      }
+      sum = sum.add(term, mc);
+    }
+    for (int i = 0; i < halvings; i++) {
+      sum = sum.multiply(sum, mc);
+    }
+    return sum.setScale(rscale, RoundingMode.HALF_UP);
+  }
+
+  /** ln(x), x > 0, within 10^-scale. */
+  private static BigDecimal ln(BigDecimal x, int scale) {
+    if (x.compareTo(BigDecimal.ONE) == 0) {
+      return BigDecimal.ZERO;
+    }
+    int k = x.precision() - x.scale() - 1; // x = m * 10^k, 1 <= m < 10
+    java.math.MathContext mc = new java.math.MathContext(scale + 10);
+    BigDecimal lnM = lnNearOne(x.movePointLeft(k), mc);
+    return k == 0 ? lnM : lnM.add(lnNearOne(BigDecimal.TEN, mc).multiply(BigDecimal.valueOf(k)));
+  }
+
+  /**
+   * ln(m) for 0.1 < m <= 10: square roots bring m within 0.001 of 1, where ln(m) = 2 atanh((m - 1)
+   * / (m + 1)) converges fast; each root halves the logarithm, so the sum is doubled back.
+   */
+  private static BigDecimal lnNearOne(BigDecimal m, java.math.MathContext mc) {
+    int roots = 0;
+    BigDecimal near = new BigDecimal("0.001");
+    while (m.subtract(BigDecimal.ONE).abs().compareTo(near) > 0) {
+      m = m.sqrt(mc);
+      roots++;
+    }
+    BigDecimal z = m.subtract(BigDecimal.ONE).divide(m.add(BigDecimal.ONE), mc);
+    BigDecimal z2 = z.multiply(z, mc);
+    BigDecimal sum = z;
+    BigDecimal power = z;
+    for (int n = 3; power.signum() != 0; n += 2) {
+      power = power.multiply(z2, mc);
+      BigDecimal term = power.divide(BigDecimal.valueOf(n), mc);
+      if (term.abs().compareTo(sum.abs().movePointLeft(mc.getPrecision() + 2)) < 0) {
+        break;
+      }
+      sum = sum.add(term, mc);
+    }
+    return sum.multiply(BigDecimal.valueOf(2).pow(roots + 1));
+  }
+
+  /** numeric.c's estimate_ln_dweight: the decimal weight PostgreSQL expects of ln(x). */
+  private static int lnDweight(BigDecimal x) {
+    if (x.signum() <= 0) {
+      return 0;
+    }
+    if (x.compareTo(new BigDecimal("0.9")) >= 0 && x.compareTo(new BigDecimal("1.1")) <= 0) {
+      // ln(1 + d) ~= d: the weight of d's leading decimal digit
+      BigDecimal d = x.subtract(BigDecimal.ONE);
+      return d.signum() == 0 ? 0 : d.precision() - d.scale() - 1;
+    }
+    // from the first two base-10000 digit groups, as PostgreSQL stores the number
+    int weight = leadingGroup(x)[0];
+    BigDecimal v = x.movePointLeft(4 * weight); // 1 <= v < 10000
+    BigDecimal first = v.setScale(0, RoundingMode.DOWN);
+    BigDecimal rest = v.subtract(first);
+    double digits = first.doubleValue();
+    int dweight = weight * 4;
+    if (rest.signum() != 0) {
+      digits = digits * 10000 + rest.movePointRight(4).setScale(0, RoundingMode.DOWN).doubleValue();
+      dweight -= 4;
+    }
+    return (int) Math.log10(Math.abs(Math.log(digits) + dweight * 2.302585092994046));
+  }
+
+  /** width_bucket_float8. */
+  private static int widthBucket(double operand, double low, double high, int count) {
+    checkBucketArguments(count, Double.isNaN(operand) || Double.isNaN(low) || Double.isNaN(high));
+    if (Double.isInfinite(low) || Double.isInfinite(high)) {
+      throw new PgException.Argument("2201G", "lower and upper bounds must be finite");
+    }
+    if (low == high) {
+      throw new PgException.Argument("2201G", "lower bound cannot equal upper bound");
+    }
+    boolean up = low < high;
+    if (up ? operand < low : operand > low) {
+      return 0;
+    }
+    if (up ? operand >= high : operand <= high) {
+      if (count == Integer.MAX_VALUE) {
+        throw new PgException.Argument("22003", "integer out of range");
+      }
+      return count + 1;
+    }
+    double fraction =
+        !Double.isInfinite(high - low)
+            ? (operand - low) / (high - low)
+            : (operand / 2 - low / 2) / (high / 2 - low / 2);
+    int result = (int) (count * fraction);
+    return Math.min(result, count - 1) + 1; // the quotient could round to 1.0
+  }
+
+  /** width_bucket_numeric: the bucket by exact floor division. */
+  private static int widthBucket(BigDecimal operand, BigDecimal low, BigDecimal high, int count) {
+    checkBucketArguments(count, false);
+    int order = low.compareTo(high);
+    if (order == 0) {
+      throw new PgException.Argument("2201G", "lower bound cannot equal upper bound");
+    }
+    long result;
+    if (order < 0 ? operand.compareTo(low) < 0 : operand.compareTo(low) > 0) {
+      result = 0;
+    } else if (order < 0 ? operand.compareTo(high) >= 0 : operand.compareTo(high) <= 0) {
+      result = count + 1L;
+    } else {
+      result =
+          operand
+                  .subtract(low)
+                  .multiply(BigDecimal.valueOf(count))
+                  .divideToIntegralValue(high.subtract(low))
+                  .longValueExact()
+              + 1;
+    }
+    if (result != (int) result) {
+      throw new PgException.Argument("22003", "integer out of range");
+    }
+    return (int) result;
+  }
+
+  private static void checkBucketArguments(int count, boolean nan) {
+    if (count <= 0) {
+      throw new PgException.Argument("2201G", "count must be greater than zero");
+    }
+    if (nan) {
+      throw new PgException.Argument(
+          "2201G", "operand, lower bound, and upper bound cannot be NaN");
+    }
+  }
+
+  /** width_bucket(operand, thresholds): PostgreSQL's binary search, sorted thresholds assumed. */
+  private static int widthBucket(Object operand, Object thresholds) {
+    List<?> elements = (List<?>) thresholds;
+    if (elements.stream().anyMatch(e -> e instanceof List)) {
+      throw new PgException.Argument("2202E", "thresholds must be one-dimensional array");
+    }
+    if (elements.contains(null)) {
+      throw new PgException.Argument("22004", "thresholds array must not contain NULLs");
+    }
+    int left = 0;
+    int right = elements.size();
+    while (left < right) {
+      int mid = (left + right) / 2;
+      if (compare(operand, elements.get(mid)) < 0) {
+        right = mid;
+      } else {
+        left = mid + 1;
+      }
+    }
+    return left;
+  }
+
   /** PostgreSQL's select_div_scale, on base-10000 digit groups as its numeric is stored. */
   private static int divScale(BigDecimal a, BigDecimal b) {
     int[] first1 = leadingGroup(a);
@@ -3019,12 +3302,7 @@ final class Evaluator {
     if (zone instanceof Interval) {
       z = ZoneOffset.ofTotalSeconds((int) (((Interval) zone).micros / 1_000_000L));
     } else {
-      String name = text(zone);
-      try {
-        z = java.time.ZoneId.of(name, java.time.ZoneId.SHORT_IDS);
-      } catch (java.time.DateTimeException notAZone) {
-        throw new IllegalArgumentException("time zone \"" + name + "\" not recognized");
-      }
+      z = atZone(text(zone));
     }
     if (v instanceof Instant) {
       return LocalDateTime.ofInstant((Instant) v, z);
@@ -3034,6 +3312,77 @@ final class Evaluator {
       return instant(local, z);
     }
     throw new IllegalArgumentException("AT TIME ZONE needs a timestamp: " + text(v));
+  }
+
+  /**
+   * A POSIX zone spec without daylight time, such as '+02', 'UTC+3' or '<+03>-3': its offset in
+   * seconds EAST of UTC (the spec counts west), or null for anything else.
+   */
+  @Nullable private static Integer posixOffset(String name) {
+    int i = 0;
+    if (name.startsWith("<")) {
+      i = name.indexOf('>') + 1;
+      if (i == 0) {
+        return null;
+      }
+    } else {
+      while (i < name.length() && name.charAt(i) < 128 && Character.isLetter(name.charAt(i))) {
+        i++;
+      }
+      if (i > 0 && i < 3) {
+        return null; // a zone name is at least three letters
+      }
+    }
+    boolean east = i < name.length() && name.charAt(i) == '-';
+    if (i < name.length() && (name.charAt(i) == '+' || name.charAt(i) == '-')) {
+      i++;
+    }
+    String[] fields = name.substring(i).split(":", -1);
+    if (fields.length > 3) {
+      return null;
+    }
+    int seconds = 0;
+    for (int f = 0; f < fields.length; f++) {
+      String digits = fields[f];
+      boolean ok =
+          (f == 0 ? digits.length() >= 1 && digits.length() <= 2 : digits.length() == 2)
+              && digits.chars().allMatch(c -> c >= '0' && c <= '9');
+      if (!ok || (f > 0 && Integer.parseInt(digits) >= 60)) {
+        return null;
+      }
+      seconds += Integer.parseInt(digits) * (f == 0 ? 3600 : f == 1 ? 60 : 1);
+    }
+    return east ? seconds : -seconds;
+  }
+
+  /**
+   * A zone as PostgreSQL's AT TIME ZONE reads it, where Java would read it the same: a POSIX
+   * offset, UTC, or a zone database name with a region (matched without regard to case).
+   * Abbreviations are fixed offsets in PostgreSQL ('CET' has no summer time) and names such as
+   * 'Japan' go through its own lookup order, so those are refused rather than read Java's way.
+   */
+  static java.time.ZoneId atZone(String name) {
+    Integer offset = posixOffset(name);
+    if (offset != null) {
+      if (Math.abs(offset) > 18 * 3600) {
+        throw new PgException.Argument("0A000", "Unsupported time zone: " + name);
+      }
+      return ZoneOffset.ofTotalSeconds(offset);
+    }
+    if (Set.of("UTC", "GMT", "Z", "UT").contains(name.toUpperCase(Locale.ROOT))) {
+      return ZoneOffset.UTC;
+    }
+    if (name.contains("/")) {
+      for (String id : java.time.ZoneId.getAvailableZoneIds()) {
+        if (id.equalsIgnoreCase(name)) {
+          return java.time.ZoneId.of(id);
+        }
+      }
+      throw new PgException.Argument("22023", "time zone \"" + name + "\" not recognized");
+    }
+    throw new PgException.Argument(
+        "0A000",
+        "Unsupported time zone: " + name + " (an abbreviation or a name without a region)");
   }
 
   /** An INT value, or an integer literal small enough to be int4 in PostgreSQL. */
@@ -3188,19 +3537,88 @@ final class Evaluator {
   }
 
   /** {@code date_trunc(unit, v)}: the timestamp truncated to the start of the unit. */
+  // datetime.c's deltatktbl: the units date_trunc reads, matched on their first 10 characters
+  private static final Map<String, String> UNITS = new java.util.HashMap<>();
+
+  static {
+    String[][] units = {
+      {"century", "c", "cent", "centuries", "century"},
+      {"day", "d", "day", "days"},
+      {"decade", "dec", "decade", "decades", "decs"},
+      {"hour", "h", "hour", "hours", "hr", "hrs"},
+      {"minute", "m", "min", "mins", "minute", "minutes"},
+      {"microseconds", "microsecon", "us", "usec", "usecond", "useconds", "usecs"},
+      {"millennium", "mil", "millennia", "millennium", "mils"},
+      {"milliseconds", "millisecon", "ms", "msec", "msecond", "mseconds", "msecs"},
+      {"month", "mon", "mons", "month", "months"},
+      {"quarter", "qtr", "quarter"},
+      {"second", "s", "sec", "second", "seconds", "secs"},
+      {"timezone", "timezone", "timezone_h", "timezone_m"},
+      {"week", "w", "week", "weeks"},
+      {"year", "y", "year", "years", "yr", "yrs"}
+    };
+    for (String[] u : units) {
+      for (int i = 1; i < u.length; i++) {
+        UNITS.put(u[i], u[0]);
+      }
+    }
+  }
+
+  private static final Set<String> DAY_OR_LONGER =
+      Set.of("millennium", "century", "decade", "year", "quarter", "month", "week", "day");
+
+  /** A date_trunc unit as PostgreSQL's DecodeUnits reads it: lower-cased, 10 characters matched. */
+  private static String truncUnit(String unit, Object v) {
+    StringBuilder lower = new StringBuilder(unit.length());
+    unit.chars().forEach(c -> lower.append((char) (c >= 'A' && c <= 'Z' ? c + 32 : c)));
+    String low = lower.toString();
+    String type = v instanceof Instant ? "timestamp with time zone" : "timestamp without time zone";
+    String found = UNITS.get(low.length() > 10 ? low.substring(0, 10) : low);
+    if (found == null) {
+      throw new PgException.Argument(
+          "22023", "unit \"" + low + "\" not recognized for type " + type);
+    }
+    if (found.equals("timezone")) {
+      throw new PgException.Argument(
+          "0A000", "unit \"" + low + "\" not supported for type " + type);
+    }
+    return found;
+  }
+
   @Nullable private static Object dateTrunc(String unit, @Nullable Object v) {
     if (v == null) {
       return null;
     }
-    if (v instanceof Instant) {
-      // a timestamptz is truncated in the session's zone and stays a timestamptz
-      Object local =
-          java.util.Objects.requireNonNull(
-              dateTrunc(unit, LocalDateTime.ofInstant((Instant) v, zone())));
-      return instant((LocalDateTime) local, zone());
+    if (!(v instanceof Instant || v instanceof LocalDateTime)) {
+      // a date is read as timestamptz in PostgreSQL, and an interval is truncated otherwise
+      throw new PgException.Argument("0A000", "Unsupported: date_trunc of " + pgTypeName(v));
     }
-    LocalDateTime t = v instanceof LocalDate ? ((LocalDate) v).atStartOfDay() : (LocalDateTime) v;
-    switch (unit.toLowerCase(Locale.ROOT)) {
+    String u = truncUnit(unit, v);
+    if (v instanceof Instant) {
+      // in the session's zone; from a day up the offset is found again for the truncated time,
+      // below a day the original offset is kept, as timestamptz_trunc does
+      java.time.ZonedDateTime z = ((Instant) v).atZone(zone());
+      LocalDateTime local = truncated(u, z.toLocalDateTime());
+      return DAY_OR_LONGER.contains(u) ? instant(local, zone()) : local.toInstant(z.getOffset());
+    }
+    return truncated(u, (LocalDateTime) v);
+  }
+
+  /** timestamp_trunc's fields: the year is astronomical (1 BC is 0), as LocalDateTime's. */
+  private static LocalDateTime truncated(String unit, LocalDateTime t) {
+    int year = t.getYear();
+    switch (unit) {
+      case "millennium":
+        year =
+            year > 0 ? (year + 999) / 1000 * 1000 - 999 : -((999 - (year - 1)) / 1000) * 1000 + 1;
+        year = year > 0 ? (year + 99) / 100 * 100 - 99 : -((99 - (year - 1)) / 100) * 100 + 1;
+        return LocalDateTime.of(year, 1, 1, 0, 0);
+      case "century":
+        year = year > 0 ? (year + 99) / 100 * 100 - 99 : -((99 - (year - 1)) / 100) * 100 + 1;
+        return LocalDateTime.of(year, 1, 1, 0, 0);
+      case "decade":
+        year = year > 0 ? year / 10 * 10 : -((8 - (year - 1)) / 10) * 10;
+        return LocalDateTime.of(year, 1, 1, 0, 0);
       case "year":
         return t.toLocalDate().withDayOfYear(1).atStartOfDay();
       case "quarter":
@@ -3220,9 +3638,129 @@ final class Evaluator {
         return t.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
       case "second":
         return t.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
-      default:
-        throw new PgException.Argument("0A000", "Unsupported date_trunc unit: " + unit);
+      case "milliseconds":
+        return t.truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+      default: // microseconds: a timestamp holds nothing finer
+        return t;
     }
+  }
+
+  // PostgreSQL's timestamp range: 4714-11-24 BC to 294276 AD
+  private static final LocalDateTime MIN_TIMESTAMP = LocalDateTime.of(-4713, 11, 24, 0, 0);
+  private static final LocalDateTime END_TIMESTAMP = LocalDateTime.of(294277, 1, 1, 0, 0);
+
+  private static LocalDateTime checkedTimestamp(LocalDateTime t, String message) {
+    if (t.isBefore(MIN_TIMESTAMP) || !t.isBefore(END_TIMESTAMP)) {
+      throw new PgException.Argument("22008", message);
+    }
+    return t;
+  }
+
+  /** make_timestamp_internal: the fields checked as PostgreSQL checks them; year < 0 is BC. */
+  private static LocalDateTime makeTimestamp(List<Object> args, String name) {
+    int year = int4(args, 0, name);
+    int month = int4(args, 1, name);
+    int day = int4(args, 2, name);
+    int hour = int4(args, 3, name);
+    int minute = int4(args, 4, name);
+    double sec = num(args, 5).doubleValue();
+    int y = year < 0 ? year + 1 : year; // 1 BC is the year 0
+    boolean dateOk =
+        year != 0
+            && month >= 1
+            && month <= 12
+            && day >= 1
+            && day <= java.time.YearMonth.of(y, month).lengthOfMonth();
+    String date = String.format(Locale.ROOT, "%d-%02d-%02d", year, month, day);
+    if (!dateOk) {
+      throw new PgException.Argument("22008", "date field value out of range: " + date);
+    }
+    if (y < -4713 || (y == -4713 && month < 11) || y > 5874898 || (y == 5874898 && month >= 6)) {
+      throw new PgException.Argument("22008", "date out of range: " + date);
+    }
+    double usec = Math.rint(sec * 1_000_000);
+    String time = String.format(Locale.ROOT, "%d:%02d:%s", hour, minute, cSeconds(sec));
+    if (hour < 0
+        || hour > 24
+        || minute < 0
+        || minute >= 60
+        || Double.isNaN(sec)
+        || usec < 0
+        || usec > 60_000_000
+        || (hour * 60L + minute) * 60_000_000L + (long) usec > 86_400_000_000L) {
+      throw new PgException.Argument("22008", "time field value out of range: " + time);
+    }
+    LocalDateTime t =
+        LocalDate.of(y, month, day)
+            .atStartOfDay()
+            .plusNanos(((hour * 60L + minute) * 60_000_000L + (long) usec) * 1000);
+    return checkedTimestamp(t, "timestamp out of range: " + date + " " + time);
+  }
+
+  /** printf's %02g, as PostgreSQL's messages show the seconds. */
+  private static String cSeconds(double sec) {
+    String g = String.format(Locale.ROOT, "%.6g", sec);
+    if (g.contains("e")) {
+      return g;
+    }
+    g = g.contains(".") ? g.replaceAll("0+$", "").replaceAll("\\.$", "") : g;
+    return g.length() < 2 ? "0" + g : g;
+  }
+
+  /** timestamp_bin and timestamptz_bin: the start of source's stride-wide bin from origin. */
+  private static Object dateBin(Object stride, Object source, Object origin) {
+    // quoted literals take the type of the typed arguments, as PostgreSQL resolves them
+    stride = stride instanceof String ? Interval.parse((String) stride) : stride;
+    if (source instanceof String && !(origin instanceof String)) {
+      source =
+          java.util.Objects.requireNonNull(
+              cast(origin instanceof Instant ? "timestamptz" : "timestamp", source));
+    }
+    if (origin instanceof String && !(source instanceof String)) {
+      origin =
+          java.util.Objects.requireNonNull(
+              cast(source instanceof Instant ? "timestamptz" : "timestamp", origin));
+    }
+    if (!(stride instanceof Interval)
+        || !(source instanceof Instant || source instanceof LocalDateTime)
+        || source.getClass() != origin.getClass()) {
+      throw new PgException.Argument("0A000", "Unsupported: date_bin of these types");
+    }
+    Interval i = (Interval) stride;
+    if (i.months != 0) {
+      throw new PgException.Argument(
+          "0A000", "timestamps cannot be binned into intervals containing months or years");
+    }
+    long strideMicros;
+    try {
+      strideMicros = Math.addExact(Math.multiplyExact(i.days, 86_400_000_000L), i.micros);
+    } catch (ArithmeticException e) {
+      throw new PgException.Argument("22008", "interval out of range");
+    }
+    if (strideMicros <= 0) {
+      throw new PgException.Argument("22008", "stride must be greater than zero");
+    }
+    long diff;
+    try {
+      diff = Math.subtractExact(epochMicros(source), epochMicros(origin));
+    } catch (ArithmeticException e) {
+      throw new PgException.Argument("22008", "interval out of range");
+    }
+    long modulo = diff % strideMicros;
+    long delta = diff - modulo - (modulo < 0 ? strideMicros : 0); // toward -infinity
+    if (source instanceof Instant) {
+      Instant out = ((Instant) origin).plus(delta, java.time.temporal.ChronoUnit.MICROS);
+      checkedTimestamp(LocalDateTime.ofInstant(out, ZoneOffset.UTC), "timestamp out of range");
+      return out;
+    }
+    return checkedTimestamp(
+        ((LocalDateTime) origin).plus(delta, java.time.temporal.ChronoUnit.MICROS),
+        "timestamp out of range");
+  }
+
+  private static long epochMicros(Object t) {
+    Instant i = t instanceof Instant ? (Instant) t : ((LocalDateTime) t).toInstant(ZoneOffset.UTC);
+    return Math.addExact(Math.multiplyExact(i.getEpochSecond(), 1_000_000L), i.getNano() / 1000);
   }
 
   /**
@@ -3923,6 +4461,30 @@ final class Evaluator {
         return clock(); // the one clock that moves within a statement
       case "VERSION":
         return "PostgreSQL 16.0 (ScalarDB frontend)";
+      case "STRING_TO_ARRAY":
+        {
+          // not strict: a NULL delimiter splits into characters, a NULL null_string matches none
+          if (arg(args, 0) == null) {
+            return null;
+          }
+          String s = str(args, 0);
+          List<Object> fields = new ArrayList<>();
+          if (s.isEmpty()) {
+            return fields;
+          }
+          if (arg(args, 1) == null) {
+            s.codePoints().forEach(c -> fields.add(new String(Character.toChars(c))));
+          } else if (str(args, 1).isEmpty()) {
+            fields.add(s);
+          } else {
+            fields.addAll(Arrays.asList(s.split(Pattern.quote(str(args, 1)), -1)));
+          }
+          if (args.size() > 2 && arg(args, 2) != null) {
+            String nullString = str(args, 2);
+            fields.replaceAll(x -> nullString.equals(x) ? null : x);
+          }
+          return fields;
+        }
       default:
         break;
     }
@@ -3970,6 +4532,30 @@ final class Evaluator {
           List<Object> path = args.subList(1, args.size());
           return Json.extracted(v, Json.path(v.node, path), path, binary, name.endsWith("_TEXT"));
         }
+      case "JSONB_SET":
+      case "JSONB_INSERT":
+        {
+          Json.Value target = jsonb(args.get(0));
+          List<?> path = elements(args.get(1));
+          boolean flag = args.size() > 3 ? (Boolean) args.get(3) : name.equals("JSONB_SET");
+          if (path.stream().anyMatch(e -> e instanceof List)) {
+            throw new PgException.Argument("2202E", "wrong number of array subscripts");
+          }
+          if (!target.node.isContainerNode()) {
+            throw new PgException.Argument("22023", "cannot set path in scalar");
+          }
+          if (path.isEmpty() || (name.equals("JSONB_SET") && target.node.isEmpty() && !flag)) {
+            return target;
+          }
+          int op =
+              name.equals("JSONB_SET")
+                  ? (flag ? Json.PATH_CREATE : Json.PATH_REPLACE)
+                  : (flag ? Json.PATH_INSERT_AFTER : Json.PATH_INSERT_BEFORE);
+          return new Json.Value(
+              Json.setPath(target.node, path, 0, jsonb(args.get(2)).node, op), true, null);
+        }
+      case "JSONB_STRIP_NULLS":
+        return new Json.Value(Json.stripNulls(jsonb(args.get(0)).node), true, null);
       case "JSON_ARRAY_ELEMENTS":
       case "JSONB_ARRAY_ELEMENTS":
       case "JSON_ARRAY_ELEMENTS_TEXT":
@@ -4117,6 +4703,59 @@ final class Evaluator {
           throw new PgException.Argument("2201F", "cannot take square root of a negative number");
         }
         return Math.sqrt(num(args, 0).doubleValue());
+      case "LN":
+      case "LOG10":
+        return num(args, 0) instanceof BigDecimal
+            ? (name.equals("LN")
+                ? numericLn((BigDecimal) args.get(0))
+                : numericLog(BigDecimal.TEN, (BigDecimal) args.get(0)))
+            : (Object) floatLog(num(args, 0).doubleValue(), name.equals("LOG10"));
+      case "LOG":
+        if (args.size() == 1) {
+          return num(args, 0) instanceof BigDecimal
+              ? numericLog(BigDecimal.TEN, (BigDecimal) args.get(0))
+              : (Object) floatLog(num(args, 0).doubleValue(), true);
+        }
+        return numericLog(numericArgument(args, 0, name), numericArgument(args, 1, name));
+      case "EXP":
+        return num(args, 0) instanceof BigDecimal
+            ? numericExp((BigDecimal) args.get(0))
+            : (Object) floatExp(num(args, 0).doubleValue());
+      case "TRUNC":
+        if (args.size() == 1 && !(num(args, 0) instanceof BigDecimal)) {
+          double d = num(args, 0).doubleValue();
+          return d >= 0 ? Math.floor(d) : -Math.floor(-d); // dtrunc, -0 for -0.5
+        }
+        {
+          BigDecimal x = numericArgument(args, 0, name);
+          // PostgreSQL clamps the scale, and gives no negative display scale
+          int scale = args.size() > 1 ? Math.max(-131072, Math.min(int4(args, 1, name), 16383)) : 0;
+          BigDecimal truncated = x.setScale(scale, RoundingMode.DOWN);
+          return scale < 0 ? truncated.setScale(0) : truncated;
+        }
+      case "WIDTH_BUCKET":
+        if (args.size() == 2) {
+          return widthBucket(args.get(0), args.get(1));
+        }
+        {
+          List<Object> operands = args.subList(0, 3);
+          int count = int4(args, 3, name);
+          // integers resolve to the float8 form, as in PostgreSQL; numerics alone to numeric
+          return operands.stream().anyMatch(a -> a instanceof Double || a instanceof Float)
+                  || operands.stream().allMatch(Evaluator::isIntegral)
+              ? (Object)
+                  widthBucket(
+                      num(args, 0).doubleValue(),
+                      num(args, 1).doubleValue(),
+                      num(args, 2).doubleValue(),
+                      count)
+              : (Object)
+                  widthBucket(
+                      toDecimal(num(args, 0)),
+                      toDecimal(num(args, 1)),
+                      toDecimal(num(args, 2)),
+                      count);
+        }
       case "SIGN":
         {
           double d = num(args, 0).doubleValue();
@@ -4128,6 +4767,72 @@ final class Evaluator {
         }
       case "REVERSE":
         return new StringBuilder(str(args, 0)).reverse().toString();
+      case "SPLIT_PART":
+        {
+          String s = str(args, 0);
+          String delimiter = str(args, 1);
+          int n = int4(args, 2, name);
+          if (n == 0) {
+            throw new PgException.Argument("22023", "field position must not be zero");
+          }
+          // an empty delimiter leaves the whole string as the one field; n < 0 counts from the end
+          List<String> fields =
+              delimiter.isEmpty()
+                  ? Collections.singletonList(s)
+                  : Arrays.asList(s.split(Pattern.quote(delimiter), -1));
+          int i = n > 0 ? n - 1 : fields.size() + n;
+          return i >= 0 && i < fields.size() ? fields.get(i) : "";
+        }
+      case "REPEAT":
+        {
+          String s = str(args, 0);
+          int n = int4(args, 1, name);
+          if (n <= 0 || s.isEmpty()) {
+            return "";
+          }
+          if ((long) n * s.length() > 10_000_000) { // pad's cap: one JVM serves every session
+            throw new PgException.Argument("54000", "requested length too large");
+          }
+          return s.repeat(n);
+        }
+      case "CHR":
+        {
+          int c = int4(args, 0, name);
+          if (c < 0) {
+            throw new PgException.Argument("22023", "character number must be positive");
+          }
+          if (c == 0) {
+            throw new PgException.Argument("54000", "null character not permitted");
+          }
+          if (c > Character.MAX_CODE_POINT) {
+            throw new PgException.Argument(
+                "54000", "requested character too large for encoding: " + c);
+          }
+          if (c >= Character.MIN_SURROGATE && c <= Character.MAX_SURROGATE) {
+            throw new PgException.Argument(
+                "54000", "requested character not valid for encoding: " + c);
+          }
+          return new String(Character.toChars(c));
+        }
+      case "OVERLAY":
+        {
+          // PostgreSQL's text_overlay: substring(s, 1, start - 1) || placing || substring(s,
+          // start + count), count defaulting to placing's length
+          String s = str(args, 0);
+          String placing = str(args, 1);
+          int start = int4(args, 2, name);
+          int count =
+              args.size() > 3 ? int4(args, 3, name) : placing.codePointCount(0, placing.length());
+          if (start <= 0) {
+            throw new PgException.Argument("22011", "negative substring length not allowed");
+          }
+          long rest = (long) start + count;
+          if (rest != (int) rest) {
+            throw new PgException.Argument("22003", "integer out of range");
+          }
+          long n = s.codePointCount(0, s.length());
+          return characters(s, 0, start - 1L) + placing + characters(s, Math.max(rest, 1) - 1, n);
+        }
       case "LPAD":
       case "RPAD":
         return pad(
@@ -4234,6 +4939,22 @@ final class Evaluator {
             throw new IllegalArgumentException("age needs timestamps: " + f);
           }
           return Interval.age(from, to);
+        }
+      case "DATE_BIN":
+        return args.contains(null) ? null : dateBin(args.get(0), args.get(1), args.get(2));
+      case "MAKE_TIMESTAMP":
+      case "MAKE_TIMESTAMPTZ":
+        {
+          if (args.contains(null)) {
+            return null;
+          }
+          if (args.size() > 6) {
+            // ponytail: the zone argument reads numeric offsets as ISO 8601 (parse_sane_timezone),
+            // unlike AT TIME ZONE here; refused until zones are read as PostgreSQL reads them
+            throw new PgException.Argument("0A000", "Unsupported function: " + f);
+          }
+          LocalDateTime t = makeTimestamp(args, name);
+          return name.equals("MAKE_TIMESTAMP") ? t : instant(t, zone());
         }
       case "DATE_TRUNC":
         if (args.size() > 2) {
@@ -4803,6 +5524,75 @@ final class Evaluator {
     return aggregateValues(name, values, delimiter, f);
   }
 
+  /**
+   * The variance or standard deviation, of the sample or the population: for floats PostgreSQL's
+   * float8_accum (Youngs-Cramer) in row order, otherwise exact sums with numeric_stddev_internal's
+   * scales.
+   */
+  @Nullable private static Object variance(
+      List<Object> values, boolean stddev, boolean sample, Expression f) {
+    for (Object v : values) {
+      if (!(v instanceof Number)) {
+        throw new IllegalArgumentException("requires numeric values: " + f);
+      }
+    }
+    int n = values.size();
+    if (n == 0 || (sample && n == 1)) {
+      return null;
+    }
+    if (values.get(0) instanceof Double || values.get(0) instanceof Float) {
+      double count = 0;
+      double sx = 0;
+      double sxx = 0;
+      for (Object v : values) {
+        double x = ((Number) v).doubleValue();
+        double previousSx = sx;
+        count++;
+        sx += x;
+        if (count > 1) {
+          double tmp = x * count - sx;
+          sxx += tmp * tmp / (count * (count - 1));
+          if (Double.isInfinite(sx) || Double.isInfinite(sxx)) {
+            if (!Double.isInfinite(previousSx) && !Double.isInfinite(x)) {
+              throw new PgException.Argument("22003", "value out of range: overflow");
+            }
+            sxx = Double.NaN;
+          }
+        } else if (Double.isNaN(x) || Double.isInfinite(x)) {
+          sxx = Double.NaN;
+        }
+      }
+      double result = sxx / (sample ? count - 1 : count);
+      return stddev ? Math.sqrt(result) : result;
+    }
+    BigDecimal sumX = BigDecimal.ZERO;
+    BigDecimal sumX2 = BigDecimal.ZERO;
+    for (Object v : values) {
+      if (!isFinite(v)) {
+        return v; // numeric NaN or infinity: NaN out, as PostgreSQL gives
+      }
+      BigDecimal x = toDecimal(v);
+      sumX = sumX.add(x);
+      sumX2 = sumX2.add(x.multiply(x));
+    }
+    BigDecimal count = BigDecimal.valueOf(n);
+    BigDecimal numerator = count.multiply(sumX2).subtract(sumX.multiply(sumX));
+    if (numerator.signum() <= 0) {
+      return BigDecimal.ZERO; // roundoff cannot happen here, but PostgreSQL gives 0, scale 0
+    }
+    BigDecimal denominator = count.multiply(sample ? count.subtract(BigDecimal.ONE) : count);
+    int rscale = divScale(numerator, denominator);
+    BigDecimal variance = numerator.divide(denominator, rscale, RoundingMode.HALF_UP);
+    if (!stddev) {
+      return variance;
+    }
+    // sqrt_var of the rounded variance, to the same scale
+    int digits = variance.precision() - variance.scale() + rscale + 10;
+    return variance
+        .sqrt(new java.math.MathContext(Math.max(digits, 10)))
+        .setScale(rscale, RoundingMode.HALF_UP);
+  }
+
   /** The elements of a (possibly multi-dimensional) array, in order. */
   private static void flatten(List<?> array, List<Object> out) {
     for (Object v : array) {
@@ -4901,6 +5691,13 @@ final class Evaluator {
           }
         }
         return sum;
+      case "STDDEV":
+      case "STDDEV_SAMP":
+      case "STDDEV_POP":
+      case "VARIANCE":
+      case "VAR_SAMP":
+      case "VAR_POP":
+        return variance(values, name.startsWith("STDDEV"), !name.endsWith("_POP"), f);
       case "BOOL_AND":
       case "EVERY":
       case "BOOL_OR":

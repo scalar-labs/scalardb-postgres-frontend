@@ -448,6 +448,117 @@ final class Json {
     throw new IllegalArgumentException("cannot delete from scalar");
   }
 
+  // jsonfuncs.c's setPath operations
+  static final int PATH_CREATE = 0x1;
+  static final int PATH_REPLACE = 0x4;
+  static final int PATH_INSERT_BEFORE = 0x8;
+  static final int PATH_INSERT_AFTER = 0x10;
+  private static final int PATH_CREATE_OR_INSERT =
+      PATH_CREATE | PATH_INSERT_BEFORE | PATH_INSERT_AFTER;
+
+  /**
+   * jsonb_set (create or replace) and jsonb_insert (insert before or after): PostgreSQL's setPath,
+   * building a new tree. A scalar on the way leaves the value as it is.
+   */
+  static JsonNode setPath(JsonNode node, List<?> path, int level, JsonNode value, int op) {
+    if (path.get(level) == null) {
+      throw new PgException.Argument(
+          "22004", "path element at position " + (level + 1) + " is null");
+    }
+    String step = String.valueOf(path.get(level));
+    boolean last = level == path.size() - 1;
+    if (node.isObject()) {
+      ObjectNode out = ((ObjectNode) node).deepCopy();
+      JsonNode member = node.get(step);
+      if (member != null && last) {
+        if ((op & (PATH_INSERT_BEFORE | PATH_INSERT_AFTER)) != 0) {
+          throw new PgException.Argument("22023", "cannot replace existing key");
+        }
+        out.set(step, value);
+      } else if (member != null) {
+        out.set(step, setPath(member, path, level + 1, value, op));
+      } else if (last && (op & PATH_CREATE_OR_INSERT) != 0) {
+        out.set(step, value);
+      }
+      return out;
+    }
+    if (!node.isArray()) {
+      return node;
+    }
+    int n = node.size();
+    int index = pathIndex(step, level);
+    if (index < 0) {
+      index = -(long) index > n ? Integer.MIN_VALUE : n + index;
+    }
+    index = Math.min(index, n);
+    ArrayNode out = NODES.arrayNode();
+    boolean done = false;
+    if ((index == Integer.MIN_VALUE || n == 0) && last && (op & PATH_CREATE_OR_INSERT) != 0) {
+      out.add(value); // before the first element, or into an empty array
+      done = true;
+    }
+    for (int i = 0; i < n; i++) {
+      if (i != index) {
+        out.add(node.get(i));
+        continue;
+      }
+      done = true;
+      if (!last) {
+        out.add(setPath(node.get(i), path, level + 1, value, op));
+        continue;
+      }
+      if ((op & (PATH_INSERT_BEFORE | PATH_CREATE)) != 0) {
+        out.add(value);
+      }
+      if ((op & (PATH_INSERT_AFTER | PATH_INSERT_BEFORE)) != 0) {
+        out.add(node.get(i));
+      }
+      if ((op & (PATH_INSERT_AFTER | PATH_REPLACE)) != 0) {
+        out.add(value);
+      }
+    }
+    if (!done && last && (op & PATH_CREATE_OR_INSERT) != 0) {
+      out.add(value);
+    }
+    return out;
+  }
+
+  /** An array step of a path, read as C's strtol reads it: leading space and a sign allowed. */
+  private static int pathIndex(String step, int level) {
+    String digits = step.replaceFirst("^[ \\t\\n\\u000B\\f\\r]+", "");
+    if (digits.matches("[+-]?[0-9]+")) {
+      try {
+        return Integer.parseInt(digits);
+      } catch (NumberFormatException outOfRange) {
+        // as strtoint's ERANGE
+      }
+    }
+    throw new PgException.Argument(
+        "22P02",
+        "path element at position " + (level + 1) + " is not an integer: \"" + step + "\"");
+  }
+
+  /** jsonb_strip_nulls: without the object members whose value is null, at any depth. */
+  static JsonNode stripNulls(JsonNode node) {
+    if (node.isObject()) {
+      ObjectNode out = NODES.objectNode();
+      node.fields()
+          .forEachRemaining(
+              e -> {
+                if (!e.getValue().isNull()) {
+                  out.set(e.getKey(), stripNulls(e.getValue()));
+                }
+              });
+      return out;
+    }
+    if (node.isArray()) {
+      ArrayNode out = NODES.arrayNode();
+      node.forEach(item -> out.add(stripNulls(item)));
+      return out;
+    }
+    return node;
+  }
+
   static String typeOf(JsonNode node) {
     if (node.isObject()) {
       return "object";

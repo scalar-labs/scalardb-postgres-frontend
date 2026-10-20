@@ -32,6 +32,7 @@ final class Builtins {
     final long result;
     final long[] args;
     final boolean variadic;
+    final int defaults; // trailing parameters with a default, which a call may leave out
 
     Function(Map<String, String> row) {
       this.row = row;
@@ -44,6 +45,7 @@ final class Builtins {
               ? new long[0]
               : Arrays.stream(types.split(" ")).mapToLong(Long::parseLong).toArray();
       variadic = !"0".equals(row.get("provariadic"));
+      defaults = Integer.parseInt(field(row, "pronargdefaults"));
     }
   }
 
@@ -142,7 +144,9 @@ final class Builtins {
   }
 
   private static boolean takes(Function f, int arity) {
-    return f.variadic ? arity >= f.args.length : arity == f.args.length;
+    return f.variadic
+        ? arity >= f.args.length
+        : arity <= f.args.length && arity >= f.args.length - f.defaults;
   }
 
   /** The pg_proc row of an OID, or null. */

@@ -283,7 +283,7 @@ public class HelpersTest {
   }
 
   @Test
-  public void jsonEquality_ShouldFollowPostgreSql() {
+  public void jsonEquality_ShouldFollowPostgreSql() throws Exception {
     // jsonb: equal by value, so one DISTINCT or GROUP BY member; json: no equality at all
     Json.Value one = Json.cast("[1, {\"a\": 1}]", true);
     Json.Value same = Json.cast("[1.0, {\"a\":1.00}]", true);
@@ -296,6 +296,30 @@ public class HelpersTest {
     assertThatThrownBy(() -> Operators.normalize(json))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+    // AT TIME ZONE reads a POSIX spec west of UTC, as PostgreSQL does; abbreviations are refused
+    assertThat(Evaluator.atZone("+02")).isEqualTo(java.time.ZoneOffset.ofHours(-2));
+    assertThat(Evaluator.atZone("UTC+3")).isEqualTo(java.time.ZoneOffset.ofHours(-3));
+    assertThat(Evaluator.atZone("-05:30")).isEqualTo(java.time.ZoneOffset.ofHoursMinutes(5, 30));
+    assertThat(Evaluator.atZone("asia/tokyo")).isEqualTo(java.time.ZoneId.of("Asia/Tokyo"));
+    for (String refused : new String[] {"PST", "IST", "CET", "Japan", "5:60"}) {
+      assertThatThrownBy(() -> Evaluator.atZone(refused))
+          .as(refused)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    }
+    // integer literals: int4, int8, numeric beyond, with minus signs folded into the constant
+    for (String[] c :
+        new String[][] {
+          {"2147483648", "20"}, {"-2147483648", "23"}, {"-(2147483648)", "23"},
+          {"-(-2147483648)", "20"}, {"9223372036854775808", "1700"}, {"-9223372036854775808", "20"}
+        }) {
+      assertThat(
+              QueryParser.inferOid(
+                  net.sf.jsqlparser.parser.CCJSqlParserUtil.parseExpression(c[0]),
+                  java.util.Collections.emptyList()))
+          .as(c[0])
+          .isEqualTo(Integer.parseInt(c[1]));
+    }
     // join, GROUP BY and set-operation keys widen real to float8 as PostgreSQL compares them
     assertThat(Operators.normalize(0.16519462f)).isNotEqualTo(Operators.normalize(0.16519462));
     assertThat(Operators.normalize(0.5f)).isEqualTo(Operators.normalize(0.5));

@@ -100,7 +100,11 @@ at the end of this section.
   `getFunctions` and `regproc` see only those; a call outside them fails with `0A000`. `to_char` writes
   timestamps, dates and numbers as PostgreSQL 16 does under an English locale, but not intervals or the
   number patterns `RN`, `EEEE` and `L`, nor a NaN or infinite float (`0A000`); its `TZ` is Java's abbreviation for the zone, which
-  for a zone without a common one can differ from PostgreSQL's (`BRT` for `-03`). The functions a
+  for a zone without a common one can differ from PostgreSQL's (`BRT` for `-03`). Functions whose
+  results depend on rules the frontend has not ported are refused rather than approximated:
+  `regexp_replace` and the other regular-expression functions that return what matched (PostgreSQL's
+  engine takes the longest match where Java's takes the first), `to_number`, `sqrt(numeric)`, and
+  `make_timestamptz` with a time zone argument. The functions a
   cast or an operator is carried out by, such as `int4(bigint)` and `int4pl`, are not among them, so
   `\dC` shows no function name. The catalog lists itself: the `pg_catalog` and `information_schema`
   relations the frontend has are in `pg_class`, `pg_tables`, `pg_views` and `information_schema.tables`
