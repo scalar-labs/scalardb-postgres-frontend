@@ -386,7 +386,8 @@ final class Optimizer {
       }
       LogicalPlan.Join join = plan.joins.get(i - 1);
       List<Expression> pool = new ArrayList<>(join.on);
-      if (join.kind == LogicalPlan.Join.Kind.INNER) {
+      // not under a later RIGHT/FULL JOIN: its null-extended rows must still meet the WHERE
+      if (join.kind == LogicalPlan.Join.Kind.INNER && !plan.nullable(s)) {
         pool.addAll(plan.where);
       }
       List<Expression> used = new ArrayList<>();

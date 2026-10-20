@@ -590,6 +590,14 @@ public class QueryParserTest {
                         + " JOIN (VALUES (1)) c(z) ON y = z ON x = y")
                 .execute(transaction))
         .containsExactly(map("x", 1L, "y", 1L, "z", 1L));
+    // a WHERE equality stays above a later FULL JOIN, which null-extends the inner join's side
+    assertThat(
+            parser
+                .parse(
+                    "SELECT x, z, y FROM (VALUES (1)) a(x) JOIN (VALUES (1)) c(z) ON true"
+                        + " FULL JOIN (VALUES (2)) b(y) ON false WHERE x = z")
+                .execute(transaction))
+        .containsExactly(map("x", 1L, "z", 1L, "y", null));
     // a set leaving an item out nulls it in the output, while aggregates still see the values
     assertThat(
             parser
