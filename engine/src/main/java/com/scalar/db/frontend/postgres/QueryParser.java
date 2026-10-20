@@ -7076,27 +7076,61 @@ class QueryParser {
    * A timestamp as text, with or without a zone offset; the offset is dropped, as for TIMESTAMP.
    */
   static LocalDateTime localDateTime(String s) {
-    String t = s.trim().replace(' ', 'T');
-    if (t.length() == 10) {
-      return LocalDate.parse(t).atStartOfDay(); // a date alone, as PostgreSQL accepts it
+    boolean[] bc = {false};
+    String t = withoutEra(s, bc).replace(' ', 'T');
+    LocalDateTime out =
+        t.length() == 10
+            ? LocalDate.parse(t).atStartOfDay() // a date alone, as PostgreSQL accepts it
+            : OFFSET.matcher(t).find() && t.indexOf('T') > 0
+                ? offsetDateTime(t).toLocalDateTime()
+                : LocalDateTime.parse(t);
+    return era(out.toLocalDate(), bc[0], s).atTime(out.toLocalTime());
+  }
+
+  private static final Pattern ERA = Pattern.compile("(?i)\\s(BC|AD)$");
+
+  /** The trimmed text without a trailing BC or AD; {@code bc[0]} is set for BC. */
+  static String withoutEra(String s, boolean[] bc) {
+    String t = s.trim();
+    Matcher m = ERA.matcher(t);
+    if (m.find()) {
+      bc[0] = m.group(1).equalsIgnoreCase("BC");
+      t = t.substring(0, m.start()).trim();
     }
-    return OFFSET.matcher(t).find() && t.indexOf('T') > 0
-        ? offsetDateTime(t).toLocalDateTime()
-        : LocalDateTime.parse(t);
+    return t;
+  }
+
+  /**
+   * The date as read, its year counted back for BC (1 BC is the year 0), checked as PostgreSQL
+   * checks it: there is no year 0 to write, and nothing before 4714-11-24 BC.
+   */
+  static LocalDate era(LocalDate d, boolean bc, String text) {
+    if (d.getYear() == 0) {
+      throw new PgException.Argument(
+          "22008", "date/time field value out of range: \"" + text.trim() + "\"");
+    }
+    LocalDate out = bc ? d.withYear(1 - d.getYear()) : d;
+    if (out.isBefore(LocalDate.of(-4713, 11, 24))) {
+      throw new PgException.Argument("22008", "date out of range: \"" + text.trim() + "\"");
+    }
+    return out;
   }
 
   /** A timestamp as text; without an offset it is taken as UTC. */
   static java.time.Instant instant(String s) {
-    String t = s.trim().replace(' ', 'T');
+    boolean[] bc = {false};
+    String t = withoutEra(s, bc).replace(' ', 'T');
     if (t.endsWith("Z") || t.endsWith("z")) {
       t = t.substring(0, t.length() - 1) + "+00:00"; // pgx and ISO 8601 write UTC as Z
     }
-    if (t.length() == 10) {
-      return Evaluator.instant(LocalDate.parse(t).atStartOfDay(), Evaluator.zone());
+    if (t.length() > 10 && OFFSET.matcher(t).find() && t.indexOf('T') > 0) {
+      OffsetDateTime o = offsetDateTime(t);
+      return era(o.toLocalDate(), bc[0], s).atTime(o.toLocalTime()).toInstant(o.getOffset());
     }
-    return OFFSET.matcher(t).find() && t.indexOf('T') > 0
-        ? offsetDateTime(t).toInstant()
-        : Evaluator.instant(LocalDateTime.parse(t), Evaluator.zone());
+    LocalDateTime local =
+        t.length() == 10 ? LocalDate.parse(t).atStartOfDay() : LocalDateTime.parse(t);
+    return Evaluator.instant(
+        era(local.toLocalDate(), bc[0], s).atTime(local.toLocalTime()), Evaluator.zone());
   }
 
   private static OffsetDateTime offsetDateTime(String t) {

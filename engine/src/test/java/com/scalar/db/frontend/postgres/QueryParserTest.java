@@ -1790,6 +1790,17 @@ public class QueryParserTest {
     }
     assertThat(parser.parse("SELECT 3 || 'a' AS a WHERE 1 = '1'").execute(transaction))
         .containsExactly(map("a", "3a"));
+    // BC dates: read and written with the era, the year counted without a year 0
+    assertThat(
+            parser
+                .parse(
+                    "SELECT DATE '2020-08-11 BC'::text AS d, EXTRACT(YEAR FROM DATE '2020-08-11 BC')"
+                        + " AS y, (DATE '0001-01-01' - 1)::text AS p")
+                .execute(transaction))
+        .containsExactly(map("d", "2020-08-11 BC", "y", -2020L, "p", "0001-12-31 BC"));
+    assertThatThrownBy(() -> parser.parse("SELECT DATE '4714-11-23 BC'").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22008"));
     // a bit-string literal holds only binary digits, and nothing is in an empty one
     assertThatThrownBy(() -> parser.parse("SELECT b'12'").execute(transaction))
         .isInstanceOfSatisfying(

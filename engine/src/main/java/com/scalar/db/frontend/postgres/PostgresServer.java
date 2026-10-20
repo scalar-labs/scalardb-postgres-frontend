@@ -1867,16 +1867,17 @@ public final class PostgresServer implements AutoCloseable {
       case 17:
         return "\\x" + Evaluator.hex(value);
       case 1082:
-        return LocalDate.of(2000, 1, 1).plusDays(b.getInt()).toString();
+        return Evaluator.dateText(LocalDate.of(2000, 1, 1).plusDays(b.getInt()));
       case 1083:
         return LocalTime.ofNanoOfDay(b.getLong() * 1000).toString();
       case 1114:
         return Evaluator.timestampText(
             LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000));
       case 1184:
-        return Evaluator.timestampText(
-                LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000))
-            + "+00:00";
+        return Evaluator.withOffset(
+            Evaluator.timestampText(
+                LocalDateTime.of(2000, 1, 1, 0, 0).plusNanos(b.getLong() * 1000)),
+            "+00:00");
       case 1700:
         return numeric(b);
       case 0:

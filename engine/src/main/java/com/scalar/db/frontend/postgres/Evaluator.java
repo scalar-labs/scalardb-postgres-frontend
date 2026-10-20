@@ -2307,8 +2307,27 @@ final class Evaluator {
 
   /** A date, also from a timestamp's text ('2024-01-01 10:00' is 2024-01-01), as PostgreSQL. */
   private static LocalDate date(String s) {
-    String t = s.trim();
-    return LocalDate.parse(t.length() > 10 ? t.substring(0, 10) : t);
+    boolean[] bc = {false};
+    String t = QueryParser.withoutEra(s, bc);
+    if (t.length() > 10) {
+      QueryParser.instant(t); // what follows the date must be a time ('2024-01-01 10:00')
+    }
+    return QueryParser.era(LocalDate.parse(t.length() > 10 ? t.substring(0, 10) : t), bc[0], s);
+  }
+
+  /** A date as PostgreSQL writes it: 0044-03-15 BC for the year -43, which is 44 BC. */
+  static String dateText(LocalDate d) {
+    StringBuilder sb = new StringBuilder(13);
+    pad(sb, d.getYear() <= 0 ? 1 - d.getYear() : d.getYear(), 4).append('-');
+    pad(sb, d.getMonthValue(), 2).append('-');
+    return pad(sb, d.getDayOfMonth(), 2).append(d.getYear() <= 0 ? " BC" : "").toString();
+  }
+
+  /** A timestamp's text with an offset, which PostgreSQL writes before BC. */
+  static String withOffset(String timestamp, String offset) {
+    return timestamp.endsWith(" BC")
+        ? timestamp.substring(0, timestamp.length() - 3) + offset + " BC"
+        : timestamp + offset;
   }
 
   /** PostgreSQL's name for the type a Java value stands for, for error messages. */
@@ -2487,13 +2506,16 @@ final class Evaluator {
       pad(sb, t.getMinute(), 2).append(':');
       return fraction(pad(sb, t.getSecond(), 2), t.getNano()).toString();
     }
+    if (v instanceof LocalDate) {
+      return dateText((LocalDate) v);
+    }
     if (v instanceof LocalDateTime) {
       return timestampText((LocalDateTime) v);
     }
     if (v instanceof Instant) {
       // in the session's zone, with PostgreSQL's offset suffix (+00, +09, +05:30)
       java.time.ZonedDateTime z = ((Instant) v).atZone(zone());
-      return timestampText(z.toLocalDateTime()) + offsetText(z.getOffset());
+      return withOffset(timestampText(z.toLocalDateTime()), offsetText(z.getOffset()));
     }
     if (isBytea(v)) {
       Settings settings = settings();
@@ -2594,13 +2616,15 @@ final class Evaluator {
 
   /** PostgreSQL's timestamp text: the date and time, and the fraction without trailing zeros. */
   static String timestampText(LocalDateTime t) {
-    StringBuilder sb = new StringBuilder(26);
-    pad(sb, t.getYear(), 4).append('-');
+    StringBuilder sb = new StringBuilder(29);
+    pad(sb, t.getYear() <= 0 ? 1 - t.getYear() : t.getYear(), 4).append('-');
     pad(sb, t.getMonthValue(), 2).append('-');
     pad(sb, t.getDayOfMonth(), 2).append(' ');
     pad(sb, t.getHour(), 2).append(':');
     pad(sb, t.getMinute(), 2).append(':');
-    return fraction(pad(sb, t.getSecond(), 2), t.getNano()).toString();
+    return fraction(pad(sb, t.getSecond(), 2), t.getNano())
+        .append(t.getYear() <= 0 ? " BC" : "")
+        .toString();
   }
 
   /** Appends {@code n} zero-padded to {@code width}, as {@code %0<width>d} does. */
@@ -3001,7 +3025,7 @@ final class Evaluator {
     }
     switch (field.toUpperCase(Locale.ROOT)) {
       case "YEAR":
-        return (long) t.getYear();
+        return (long) (t.getYear() <= 0 ? t.getYear() - 1 : t.getYear()); // no year 0: 1 BC is -1
       case "QUARTER":
         return (long) ((t.getMonthValue() - 1) / 3 + 1);
       case "MONTH":
@@ -3497,10 +3521,7 @@ final class Evaluator {
             ? v
             : v instanceof LocalDateTime
                 ? ((LocalDateTime) v).toLocalDate()
-                : v instanceof Instant
-                    ? ((Instant) v).atZone(zone()).toLocalDate()
-                    : LocalDate.parse(
-                        s.trim().length() > 10 ? s.trim().substring(0, 10) : s.trim());
+                : v instanceof Instant ? ((Instant) v).atZone(zone()).toLocalDate() : date(s);
       }
       if (t.equals("time")) {
         return v instanceof LocalTime ? v : time(s);

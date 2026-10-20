@@ -38,13 +38,14 @@ public class HelpersTest {
     "2024-01-02T03:04:05, 2024-01-02 03:04:05",
     "2024-01-02T03:04:05.120, 2024-01-02 03:04:05.12",
     "0099-12-31T23:59:59.000001, 0099-12-31 23:59:59.000001",
-    "-0044-03-15T00:00:00.5, -044-03-15 00:00:00.5",
+    "-0044-03-15T00:00:00.5, 0045-03-15 00:00:00.5 BC", // the year -44 is 45 BC
     "+12345-01-01T00:00:00, 12345-01-01 00:00:00"
   })
   public void timestampText_ShouldPadAsFormatDid(String value, String text) {
     java.time.LocalDateTime t = java.time.LocalDateTime.parse(value);
     assertThat(Evaluator.timestampText(t)).isEqualTo(text);
-    assertThat(Evaluator.text(t.toLocalTime())).isEqualTo(text.substring(text.indexOf(' ') + 1));
+    assertThat(Evaluator.text(t.toLocalTime()))
+        .isEqualTo(text.substring(text.indexOf(' ') + 1).replace(" BC", ""));
     assertThat(Evaluator.hex(new byte[] {0, 15, -1})).isEqualTo("000fff");
     assertThat(Evaluator.offsetText(java.time.ZoneOffset.ofHoursMinutes(-5, -30)))
         .isEqualTo("-05:30");

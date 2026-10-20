@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "106"
 tags: [datetime, wrong-result, regress-suite]
@@ -28,9 +28,10 @@ on both servers.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: Dates and timestamps read a trailing BC or AD (1 BC is the year 0), write a year at or before 0 with BC (0001-12-31 BC, the offset before BC for timestamptz), and EXTRACT(YEAR) counts without a year 0 (-2020). Input in the year 0 or before 4714-11-24 BC fails with 22008, and text after a date must now be a time ('2020-08-11 xyz' fails; it was dropped). Regress vs PostgreSQL 18: date.sql #157, #158, #209 and timestamp.sql #101, #102 SAME; no new failures in date, timestamp, timestamptz, interval.
