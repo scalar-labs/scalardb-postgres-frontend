@@ -1465,6 +1465,9 @@ public class QueryParserTest {
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
     }
+    // under the C collation (BINARY), upper() and lower() change only ASCII letters
+    assertThat(parser.parse("SELECT lower('ÄBC') AS l, upper('äbc') AS u").execute(transaction))
+        .containsExactly(map("l", "Äbc", "u", "äBC"));
     // x NOTNULL is x IS NOT NULL (found by differential testing)
     assertThat(
             parser

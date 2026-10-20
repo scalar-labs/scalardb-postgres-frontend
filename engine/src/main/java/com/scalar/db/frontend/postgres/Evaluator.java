@@ -128,6 +128,25 @@ final class Evaluator {
     return icuCollationName;
   }
 
+  /**
+   * upper() or lower() as PostgreSQL maps case: under the C collation the frontend reports with
+   * BINARY, only ASCII letters change; under ICU, every letter, by Unicode's rules.
+   */
+  private static String caseMapped(String s, boolean upper) {
+    if (!icuCollationName.isEmpty()) {
+      return upper ? s.toUpperCase(Locale.ROOT) : s.toLowerCase(Locale.ROOT);
+    }
+    StringBuilder sb = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      sb.append(
+          upper && c >= 'a' && c <= 'z'
+              ? (char) (c - 32)
+              : !upper && c >= 'A' && c <= 'Z' ? (char) (c + 32) : c);
+    }
+    return sb.toString();
+  }
+
   static CollationComparator collation() {
     return collation;
   }
@@ -3912,9 +3931,9 @@ final class Evaluator {
     }
     switch (name) {
       case "UPPER":
-        return str(args, 0).toUpperCase(Locale.ROOT);
+        return caseMapped(str(args, 0), true);
       case "LOWER":
-        return str(args, 0).toLowerCase(Locale.ROOT);
+        return caseMapped(str(args, 0), false);
       case "GEN_RANDOM_UUID":
         return java.util.UUID.randomUUID().toString();
       case "CURRENT_TIMESTAMP":
