@@ -536,6 +536,32 @@ final class Plan {
       }
 
       @Override
+      public List<List<Result>> readAll(List<Operation> operations) {
+        reads.addAndGet(operations.size());
+        List<Operation> checked = new ArrayList<>();
+        for (Operation operation : operations) {
+          checked.add(stored(operation));
+        }
+        List<CrudOperable.BatchResult> batch;
+        try {
+          batch = crud.batch(checked);
+        } catch (TransactionException e) {
+          throw new ReadFailure(e);
+        }
+        List<List<Result>> out = new ArrayList<>();
+        for (CrudOperable.BatchResult result : batch) {
+          out.add(
+              result.getType() == CrudOperable.BatchResult.Type.GET
+                  ? result
+                      .getGetResult()
+                      .map(Collections::singletonList)
+                      .orElse(Collections.emptyList())
+                  : result.getScanResult());
+        }
+        return out;
+      }
+
+      @Override
       public Cursor open(Operation operation, String qualifier, List<String> columns) {
         ColumnMap map = columnMap(operation);
         if (operation instanceof Get) {
@@ -1115,19 +1141,16 @@ final class Plan {
   /**
    * The lookups of several outer rows, as candidate rows in the same order. Rows whose Gets share a
    * partition key and name full clustering keys are read with one Scan over that partition, an OR
-   * of their keys, so N lookups cost one read instead of N round trips; the others are read one by
-   * one. {@code run} executes the independent reads, concurrently or in order.
+   * of their keys, so N lookups cost one read instead of N round trips; the other Gets go to
+   * ScalarDB as one batch (one round trip through Cluster), and the remaining Scans one by one.
    */
   List<List<Map<String, Object>>> lookupRows(
-      Source s,
-      List<Map<String, Object>> rows,
-      Evaluator.Context ctx,
-      java.util.function.Consumer<List<Runnable>> run) {
+      Source s, List<Map<String, Object>> rows, Evaluator.Context ctx) {
     @SuppressWarnings("unchecked")
     List<Map<String, Object>>[] results = new List[rows.size()];
     List<Operation> operations = new ArrayList<>();
     Map<Key, List<Integer>> groups = new LinkedHashMap<>();
-    List<Runnable> tasks = new ArrayList<>();
+    List<Integer> gets = new ArrayList<>(); // read in one batch
     for (int i = 0; i < rows.size(); i++) {
       Operation operation = lookupOperation(s, rows.get(i), ctx);
       operations.add(operation);
@@ -1135,40 +1158,43 @@ final class Plan {
         results[i] = new ArrayList<>();
       } else if (operation instanceof Get && ((Get) operation).getClusteringKey().isPresent()) {
         groups.computeIfAbsent(((Get) operation).getPartitionKey(), k -> new ArrayList<>()).add(i);
+      } else if (operation instanceof Get) {
+        gets.add(i);
       } else {
-        tasks.add(lookupOne(s, i, operations, results));
+        results[i] = reader().rows(operation, s.qualifier, s.columns);
       }
     }
     for (List<Integer> group : groups.values()) {
       if (group.size() == 1 || !sameConditions(group, operations)) {
-        for (int i : group) {
-          tasks.add(lookupOne(s, i, operations, results));
-        }
+        gets.addAll(group);
         continue;
       }
-      tasks.add(
-          () -> {
-            try {
-              lookupGroup(s, group, operations, results);
-            } catch (IllegalArgumentException e) {
-              if (!String.valueOf(e.getMessage()).contains("DB-CORE-10106")) {
-                throw e;
-              }
-              // The transaction wrote one of these records: ScalarDB refuses to scan it but
-              // serves it to a Get, so this group goes back to one read per row
-              for (int i : group) {
-                lookupOne(s, i, operations, results).run();
-              }
-            }
-          });
+      try {
+        lookupGroup(s, group, operations, results);
+      } catch (IllegalArgumentException e) {
+        if (!String.valueOf(e.getMessage()).contains("DB-CORE-10106")) {
+          throw e;
+        }
+        // The transaction wrote one of these records: ScalarDB refuses to scan it but serves it
+        // to a Get, so this group goes back to one Get per row
+        gets.addAll(group);
+      }
     }
-    run.accept(tasks);
+    if (gets.size() == 1) {
+      int i = gets.get(0);
+      results[i] = reader().rows(operations.get(i), s.qualifier, s.columns);
+    } else if (!gets.isEmpty()) {
+      List<Operation> batch = new ArrayList<>();
+      for (int i : gets) {
+        batch.add(operations.get(i));
+      }
+      List<List<Result>> read = reader().readAll(batch);
+      for (int k = 0; k < gets.size(); k++) {
+        results[gets.get(k)] =
+            rowsOf(s.qualifier, s.columns, reader().columnMap(batch.get(k)), read.get(k));
+      }
+    }
     return Arrays.asList(results);
-  }
-
-  private Runnable lookupOne(
-      Source s, int i, List<Operation> operations, List<Map<String, Object>>[] results) {
-    return () -> results[i] = reader().rows(operations.get(i), s.qualifier, s.columns);
   }
 
   /** True if the group's Gets carry the same conditions, so one scan can serve them all. */
@@ -1468,6 +1494,11 @@ final class Plan {
   interface Reader {
     /** Runs a Get or Scan; the results carry stored values, see {@link ColumnMap#value}. */
     List<Result> read(Operation operation);
+
+    /**
+     * Runs Gets and Scans as one ScalarDB batch; each one's results, in order, as {@link #read}.
+     */
+    List<List<Result>> readAll(List<Operation> operations);
 
     /** The column map of the table an operation names; null when none is known. */
     @Nullable ColumnMap columnMap(Operation operation);

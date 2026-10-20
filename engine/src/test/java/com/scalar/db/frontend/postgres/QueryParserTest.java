@@ -21,6 +21,7 @@ import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
 import com.scalar.db.api.Get;
 import com.scalar.db.api.Insert;
+import com.scalar.db.api.Operation;
 import com.scalar.db.api.Result;
 import com.scalar.db.api.Scan;
 import com.scalar.db.api.Selection;
@@ -2910,6 +2911,43 @@ public class QueryParserTest {
     stubTable(rows);
     assertThat(plan.execute(transaction)).hasSize(40);
     verify(transaction, never()).get(any());
+  }
+
+  @Test
+  public void execute_LookupJoinAcrossPartitions_ShouldSendTheGetsAsOneBatch() throws Exception {
+    // 40 outer rows looked up in 40 partitions cannot share a scan: the first 16 Gets and the
+    // next 24 each go to ScalarDB as one batch (one round trip through Cluster), in outer order
+    List<Result> rows = new ArrayList<>();
+    for (int i = 1; i <= 40; i++) {
+      rows.add(map(1, i, "n" + i, 1.0 * i, true));
+    }
+    when(transaction.scan(any())).thenReturn(rows);
+    when(transaction.get(any()))
+        .thenAnswer(
+            invocation -> {
+              long seq = invocation.<Get>getArgument(0).getClusteringKey().get().getBigIntValue(0);
+              return java.util.Optional.of(map((int) seq, seq, "m" + seq, 1.0, true));
+            });
+
+    List<Map<String, Object>> out =
+        parser
+            .parse(
+                "SELECT a.seq, b.name FROM t a JOIN t b ON b.id = a.seq AND b.seq = a.seq"
+                    + " WHERE a.id = 1")
+            .execute(transaction);
+
+    assertThat(out).hasSize(40);
+    for (int i = 0; i < 40; i++) {
+      assertThat(out.get(i))
+          .containsEntry("seq", (long) (i + 1))
+          .containsEntry("name", "m" + (i + 1));
+    }
+    @SuppressWarnings("unchecked")
+    org.mockito.ArgumentCaptor<List<Operation>> batches =
+        org.mockito.ArgumentCaptor.forClass(List.class);
+    verify(transaction, times(2)).batch(batches.capture());
+    assertThat(batches.getAllValues().get(0)).hasSize(16).allMatch(o -> o instanceof Get);
+    assertThat(batches.getAllValues().get(1)).hasSize(24);
   }
 
   @Test

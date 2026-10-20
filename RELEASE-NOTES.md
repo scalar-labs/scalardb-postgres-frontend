@@ -13,6 +13,11 @@ commit. Now each such statement runs in one ScalarDB transaction, read-only, beg
 out across many partitions outside `BEGIN` is slower than before. `scalar.db.postgres.max_lookup_threads`
 is gone with the lookup pool.
 
+A join's lookups that cannot share a scan now go to ScalarDB as one batch per group of outer rows (16,
+doubling up to 128). Through ScalarDB Cluster that is one round trip instead of one per row: a join of
+200 rows across 200 partitions took about 40 ms instead of 125 ms against a local node, in auto-commit
+and inside `BEGIN` alike. Against ScalarDB directly a batch still reads its rows one by one.
+
 ### Privileges under Cluster authentication
 
 The catalog answers were checked as a ScalarDB Cluster user with `SELECT` on one table. They are the same

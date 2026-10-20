@@ -3,12 +3,16 @@ package com.scalar.db.frontend.postgres;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.scalar.db.api.CrudOperable;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionManager;
+import com.scalar.db.api.Get;
+import com.scalar.db.api.Operation;
 import com.scalar.db.api.Result;
 import com.scalar.db.api.Scan;
 import com.scalar.db.api.TransactionCrudOperable;
 import com.scalar.db.api.TransactionManagerCrudOperable;
+import com.scalar.db.common.BatchResultImpl;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -26,6 +30,19 @@ final class TestScanners {
             invocation -> {
               Scan scan = invocation.getArgument(0);
               return new TransactionScanner(transaction.scan(scan).iterator());
+            });
+    // a batch answers with the mock's own get and scan stubs, as ScalarDB's default batch does
+    when(transaction.batch(any()))
+        .thenAnswer(
+            invocation -> {
+              List<CrudOperable.BatchResult> results = new ArrayList<>();
+              for (Operation operation : invocation.<List<Operation>>getArgument(0)) {
+                results.add(
+                    operation instanceof Get
+                        ? new BatchResultImpl(transaction.get((Get) operation))
+                        : new BatchResultImpl(transaction.scan((Scan) operation)));
+              }
+              return results;
             });
   }
 

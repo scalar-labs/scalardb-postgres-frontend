@@ -1427,7 +1427,7 @@ final class Operators {
         }
         if (!rows.isEmpty()) {
           List<List<Map<String, Object>>> results =
-              reading(execution(), () -> plan.lookupRows(right, rows, ctx, this::run));
+              reading(execution(), () -> plan.lookupRows(right, rows, ctx));
           pendingLeft.addAll(rows);
           pendingCandidates.addAll(results);
         }
@@ -1439,11 +1439,6 @@ final class Operators {
     @Override
     List<Map<String, Object>> candidatesFor(Map<String, Object> leftRow) {
       return pendingCandidates.poll(); // in step with nextLeft()
-    }
-
-    /** Runs independent reads in order: a transaction is not thread-safe. */
-    private void run(List<Runnable> tasks) {
-      tasks.forEach(Runnable::run);
     }
 
     @Override
