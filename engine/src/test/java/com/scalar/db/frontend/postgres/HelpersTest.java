@@ -392,6 +392,10 @@ public class HelpersTest {
             QueryParser.normalize("SELECT * FROM ONLY t, t* JOIN ONLY u ON true WHERE a * b > 1"))
         .isEqualTo("SELECT * FROM t, t JOIN u ON true WHERE a * b > 1");
     assertThat(QueryParser.normalize("SELECT a, b * c FROM t")).isEqualTo("SELECT a, b * c FROM t");
+    // a literal after the * is no end of the statement; a second table's * is read too
+    assertThat(QueryParser.normalize("SELECT f.f1, f.f1 * '-10' AS x FROM t f WHERE f.f1 > '0'"))
+        .isEqualTo("SELECT f.f1, f.f1 * '-10' AS x FROM t f WHERE f.f1 > '0'");
+    assertThat(QueryParser.normalize("SELECT 1 FROM t*, u*")).isEqualTo("SELECT 1 FROM t, u");
     assertThat(QueryParser.normalize("SELECT x, idx.*, y FROM t"))
         .isEqualTo("SELECT x, idx.*, y FROM t");
     // adjacent literals join only across a newline, as PostgreSQL's lexer does

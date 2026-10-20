@@ -2297,6 +2297,11 @@ final class Evaluator {
     if (elements.contains(null)) {
       throw new PgException.Argument("22004", "thresholds array must not contain NULLs");
     }
+    if (elements.stream().anyMatch(e -> (e instanceof Number) != (operand instanceof Number))) {
+      // anycompatible: text and numbers have no common type ('5'::text against integer[])
+      throw new PgException.Argument(
+          "42883", "function width_bucket(" + pgTypeName(operand) + ", array) does not exist");
+    }
     int left = 0;
     int right = elements.size();
     while (left < right) {

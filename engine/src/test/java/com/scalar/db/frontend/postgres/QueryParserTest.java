@@ -199,6 +199,14 @@ public class QueryParserTest {
                 .parse("SELECT * FROM (VALUES (NULL, 'a', 1), (2.5, 'b', 2::int8)) v")
                 .outputOids())
         .containsExactly(1700, 25, 20);
+    // a WITH query calling random() would run once per reference here, where PostgreSQL runs it
+    // once
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    "WITH q AS (SELECT random() AS r) SELECT * FROM q UNION SELECT * FROM q"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // a quoted literal is read as the column's type
     assertThatThrownBy(() -> parser.parse("SELECT * FROM (VALUES ('x'), (9)) v"))
         .isInstanceOfSatisfying(

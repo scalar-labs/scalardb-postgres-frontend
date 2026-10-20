@@ -1325,7 +1325,7 @@ class QueryParser {
                         "(?i)\\b(FROM|JOIN|UPDATE|INTO|USING|TABLE|,)(\\s+)ONLY\\s+(?=[A-Za-z_\"])",
                         "$1$2")
                     .replaceAll(
-                        "(?i)(\\b(?:FROM|JOIN|,)\\s+[A-Za-z_]\\w*+(?:\\.[A-Za-z_]\\w*+)?)\\s*\\*(?=\\s*(?:,|\\)|$|\\b(?:AS|ON|USING|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|WINDOW|FOR)\\b))",
+                        "(?i)((?:\\b(?:FROM|JOIN)|,)\\s+[A-Za-z_]\\w*+(?:\\.[A-Za-z_]\\w*+)?)\\s*\\*(?=\\s*(?:,|\\)|$|\\b(?:AS|ON|USING|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|NATURAL|WHERE|GROUP|HAVING|ORDER|LIMIT|OFFSET|FETCH|UNION|INTERSECT|EXCEPT|WINDOW|FOR)\\b))",
                         "$1")
                     .replaceAll("(?i)OPERATOR\\(pg_catalog\\.([^)]+)\\)", "$1")
                     // JSQLParser drops NATURAL when INNER follows it (a cross join, todo 070)
@@ -1406,7 +1406,11 @@ class QueryParser {
       } else if (c == '"') {
         literalEnd = -1;
       }
-      out.append(rewrite.apply(sql.substring(code, i))).append(sql, i, end);
+      // a segment a literal follows ends with a NUL while rewritten, so that $ in a rewrite's
+      // pattern means the end of the statement, not of the segment ('f1 * ' before '-10')
+      String rewritten = rewrite.apply(sql.substring(code, i) + '\0');
+      out.append(rewritten, 0, rewritten.length() - (rewritten.endsWith("\0") ? 1 : 0))
+          .append(sql, i, end);
       code = end;
       i = end;
     }
@@ -2998,6 +3002,25 @@ class QueryParser {
     }
   }
 
+  // a function call in SQL text: a name and its opening parenthesis
+  private static final Pattern CALL = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*+)\\s*+\\(");
+
+  /**
+   * Whether the query calls a function pg_proc marks volatile (random(), clock_timestamp(), ...),
+   * from its text: a name in a literal counts too, which only refuses more.
+   */
+  private static boolean callsVolatile(Object query) {
+    Matcher m = CALL.matcher(query.toString());
+    while (m.find()) {
+      for (Builtins.Function f : Builtins.overloads(m.group(1))) {
+        if ("v".equals(f.row.get("provolatile"))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** A common table expression in scope, with the CTEs its own query may reference. */
   private static final class Cte {
     final WithItem<?> item;
@@ -3006,6 +3029,7 @@ class QueryParser {
     @Nullable Plan working; // inside its own step: the previous iteration's rows
     int references; // how often the step referred to the working table
     boolean writing; // a data-modifying query, whose working table its RETURNING rows fill
+    int uses; // references planned so far
 
     Cte(WithItem<?> item, Map<String, Cte> visible, boolean recursive) {
       this.item = item;
@@ -4310,6 +4334,15 @@ class QueryParser {
           } else if (body != null) {
             derived = recursive(cte, name, body, outer);
           } else {
+            if (++cte.uses > 1 && callsVolatile(cte.item.getSelect())) {
+              // each reference runs the query here, so random() would differ between them
+              throw new PgException.Argument(
+                  "0A000",
+                  "Unsupported: the WITH query \""
+                      + name
+                      + "\" calls a volatile function and is referenced more than once"
+                      + " (PostgreSQL computes it once)");
+            }
             derived = select(cte.item.getSelect(), outer);
           }
         } finally {
