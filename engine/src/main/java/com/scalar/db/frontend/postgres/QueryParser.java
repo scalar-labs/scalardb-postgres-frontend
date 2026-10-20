@@ -3746,6 +3746,8 @@ class QueryParser {
       case "char":
       case "character":
         return "bpchar";
+      case "\"char\"":
+        return "char";
       case "timestamp without time zone":
         return "timestamp";
       case "timestamp with time zone":

@@ -1790,6 +1790,12 @@ public class QueryParserTest {
     }
     assertThat(parser.parse("SELECT 3 || 'a' AS a WHERE 1 = '1'").execute(transaction))
         .containsExactly(map("a", "3a"));
+    // "char" is one byte: \\ooo or the first byte, written \\ooo past ASCII
+    assertThat(
+            parser
+                .parse("SELECT '\\101'::\"char\" AS a, 'abc'::\"char\" AS b, 'é'::\"char\" AS c")
+                .execute(transaction))
+        .containsExactly(map("a", "A", "b", "a", "c", "\\303"));
     // json extraction keeps the text as written (strings re-escaped, the last duplicate key); jsonb
     // normalises
     String raw =

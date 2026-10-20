@@ -3454,6 +3454,15 @@ final class Evaluator {
                 || (t.startsWith("float(") && QueryParser.typeArguments(t)[0] <= 24);
         return real ? (Object) real(d) : d;
       }
+      if (t.equals("\"char\"") && v instanceof String) {
+        // charin: \ooo is that byte, anything else its first byte; charout writes a byte past
+        // ASCII as \ooo, which is how it is kept here
+        int b =
+            s.matches("\\\\[0-3][0-7][0-7]")
+                ? Integer.parseInt(s.substring(1), 8)
+                : s.isEmpty() ? 0 : s.getBytes(java.nio.charset.StandardCharsets.UTF_8)[0] & 0xff;
+        return b == 0 ? "" : b < 0x80 ? String.valueOf((char) b) : String.format("\\%03o", b);
+      }
       if (t.equals("\"char\"") && v instanceof Number) {
         // an integer to "char" is the byte of that code; past ASCII it is not text in UTF8
         long code = ((Number) v).longValue();
