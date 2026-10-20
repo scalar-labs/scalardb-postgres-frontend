@@ -53,6 +53,9 @@ public class QueryProcessor {
   // When the transaction block began: now() for every statement in it, as in PostgreSQL
   @Nullable private Instant transactionStart;
   private boolean pendingReadOnly;
+  // DEFERRABLE only matters to SERIALIZABLE READ ONLY in PostgreSQL; kept so SHOW tells the truth
+  private boolean deferrable;
+  private boolean sessionDeferrable;
   private boolean transactionIsolationSet; // SHOW transaction_isolation reverts when it ends
   private boolean aborted; // a statement failed inside the transaction: only ROLLBACK/COMMIT now
   private String lastCommandTag = "";
@@ -101,6 +104,7 @@ public class QueryProcessor {
 
   private static final Pattern READ_ONLY = Pattern.compile("(?i)\\bREAD\\s+ONLY\\b");
   private static final Pattern READ_WRITE = Pattern.compile("(?i)\\bREAD\\s+WRITE\\b");
+  private static final Pattern DEFERRABLE = Pattern.compile("(?i)\\b(NOT\\s+)?DEFERRABLE\\b");
   private static final Pattern ISOLATION =
       Pattern.compile(
           "(?i)\\bISOLATION\\s+LEVEL\\s+(READ\\s+UNCOMMITTED|READ\\s+COMMITTED|REPEATABLE\\s+READ|SERIALIZABLE)\\b");
@@ -390,6 +394,10 @@ public class QueryProcessor {
   @Nullable private String resetOrDiscard(String sql) {
     Matcher reset = RESET_NAME.matcher(QueryParser.trimStatement(sql));
     if (reset.matches()) {
+      String name = reset.group(1).toLowerCase(Locale.ROOT);
+      if (name.matches("transaction_(isolation|read_only|deferrable)")) {
+        throw new PgException.Argument("0A000", "parameter \"" + name + "\" cannot be reset");
+      }
       if (reset.group(1).equalsIgnoreCase("ALL")) {
         settings.clear();
       } else {
@@ -494,6 +502,18 @@ public class QueryProcessor {
         rows.add(row);
       }
       return Plan.constant(Arrays.asList("name", "setting", "description"), rows, "SHOW");
+    }
+    String name = m.group(1).trim().toLowerCase(Locale.ROOT);
+    if (name.equals("transaction_read_only") || name.equals("transaction_deferrable")) {
+      boolean on =
+          name.equals("transaction_deferrable")
+              ? inTransaction() ? deferrable : sessionDeferrable
+              : inTransaction() ? pendingReadOnly : isOn(current("default_transaction_read_only"));
+      return Plan.constant(
+          Collections.singletonList(name),
+          Collections.singletonList(
+              Collections.<String, Object>singletonMap(name, on ? "on" : "off")),
+          "SHOW");
     }
     String key = settingKey(m.group(1));
     if (key == null) {
@@ -695,6 +715,7 @@ public class QueryProcessor {
         // BEGIN READ ONLY (what JDBC sends for a read-only connection) will start a read-only
         // ScalarDB transaction: no coordinator write and no validation at commit
         pendingReadOnly = isOn(current("default_transaction_read_only"));
+        deferrable = sessionDeferrable;
         transactionCharacteristics(BEGIN_WORD.matcher(sql).replaceFirst(""));
         pending = true;
         settingsAtBegin = new LinkedHashMap<>(settings);
@@ -914,6 +935,10 @@ public class QueryProcessor {
     } else if (READ_WRITE.matcher(text).find()) {
       pendingReadOnly = false;
     }
+    Matcher d = DEFERRABLE.matcher(text);
+    if (d.find()) {
+      deferrable = d.group(1) == null;
+    }
   }
 
   /** SET SESSION CHARACTERISTICS AS TRANSACTION ...: the defaults for later transactions. */
@@ -928,6 +953,10 @@ public class QueryProcessor {
       settings.put("default_transaction_read_only", "on");
     } else if (READ_WRITE.matcher(text).find()) {
       settings.put("default_transaction_read_only", "off");
+    }
+    Matcher d = DEFERRABLE.matcher(text);
+    if (d.find()) {
+      sessionDeferrable = d.group(1) == null;
     }
   }
 
@@ -1019,6 +1048,7 @@ public class QueryProcessor {
     transactionStart = null;
     pending = false;
     pendingReadOnly = false;
+    deferrable = sessionDeferrable;
     savepoints.clear();
     writes = 0;
     onlyInserts = true;

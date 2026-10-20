@@ -594,6 +594,18 @@ public class QueryProcessorTest {
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
     processor.execute("RESET bytea_output");
+    // the transaction's own settings: shown as they stand, and not reset
+    processor.execute("BEGIN READ ONLY DEFERRABLE");
+    assertThat(processor.execute("SHOW transaction_read_only"))
+        .containsExactly(Collections.singletonMap("transaction_read_only", "on"));
+    assertThat(processor.execute("SHOW transaction_deferrable"))
+        .containsExactly(Collections.singletonMap("transaction_deferrable", "on"));
+    processor.execute("ROLLBACK");
+    assertThat(processor.execute("SHOW transaction_read_only"))
+        .containsExactly(Collections.singletonMap("transaction_read_only", "off"));
+    assertThatThrownBy(() -> processor.execute("RESET transaction_isolation"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // as PostgreSQL: a name it does not know fails, unless it is a custom dotted one
     for (String sql :
         new String[] {
