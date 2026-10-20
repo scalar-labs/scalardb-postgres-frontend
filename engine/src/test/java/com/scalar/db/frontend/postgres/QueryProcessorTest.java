@@ -456,6 +456,26 @@ public class QueryProcessorTest {
   }
 
   @Test
+  public void execute_DataModifyingWith_ShouldWriteFirstInTheSameTransaction() throws Exception {
+    List<Map<String, Object>> rows =
+        processor.execute(
+            "WITH i AS (INSERT INTO t (id) VALUES (7) RETURNING id) SELECT id * 2 AS d FROM i");
+
+    assertThat(rows).hasSize(1);
+    assertThat(rows.get(0)).containsEntry("d", 14);
+    verify(transaction).mutate(any());
+    verify(transaction).commit();
+    // the modified table read elsewhere would show PostgreSQL's snapshot, not the write: refused
+    assertThatThrownBy(
+            () ->
+                processor.execute(
+                    "WITH i AS (INSERT INTO t (id) VALUES (8) RETURNING id) SELECT * FROM t"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    verify(transaction).mutate(any()); // still only the first statement's write
+  }
+
+  @Test
   public void execute_BeginReadOnly_ShouldStartAReadOnlyTransaction() throws Exception {
     DistributedTransaction readOnly = mock(DistributedTransaction.class);
     when(manager.beginReadOnly()).thenReturn(readOnly);

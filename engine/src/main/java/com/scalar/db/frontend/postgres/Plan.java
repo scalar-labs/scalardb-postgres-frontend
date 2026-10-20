@@ -72,6 +72,33 @@ final class Plan {
 
   private boolean rootFixed; // the root is given, not built from the sources
   boolean cacheable; // set by parse(): reusable with other parameter values
+  // the statement's data-modifying WITH queries, run before it in its transaction
+  List<Prelude> prelude = Collections.emptyList();
+
+  /** A data-modifying WITH query: its write, and the working table its RETURNING rows fill. */
+  static final class Prelude {
+    final Plan write;
+    final List<Map<String, Object>> rows;
+
+    Prelude(Plan write, List<Map<String, Object>> rows) {
+      this.write = write;
+      this.rows = rows;
+    }
+  }
+
+  /** Runs the data-modifying WITH queries, each once, filling their working tables. */
+  <E extends TransactionException> void runPrelude(CrudOperable<E> crud, int maxRows) throws E {
+    for (Prelude p : prelude) {
+      p.rows.clear();
+      if (p.write.write != null) {
+        p.write.executeWrite(crud, maxRows);
+        p.rows.addAll(drain(p.write.returned()));
+      } else {
+        p.rows.addAll(p.write.execute(crud));
+      }
+    }
+  }
+
   Map<Integer, Integer> parameterOids = Collections.emptyMap(); // $n -> inferred type
 
   /**
@@ -937,6 +964,10 @@ final class Plan {
     }
     if (analyze != null) {
       analyze.useColumnMaps(maps);
+    }
+    for (Prelude p : prelude) {
+      p.write.useColumnMaps(
+          maps); // numeric(p,s) is stored scaled: the writes read it through these
     }
   }
 

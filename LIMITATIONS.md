@@ -239,7 +239,10 @@ at the end of this section.
   ScalarDB's (`"C"`/`POSIX` under `BINARY`, the ICU one that `pg_collation` lists under `ICU`), a
   `COLLATE` other than `"default"` in a column definition,
   `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
-  data-modifying statement inside `WITH`, an expression index (`CREATE INDEX ... ON t (lower(name))`),
+  data-modifying statement inside `WITH` that is nested, under `WITH RECURSIVE`, or whose table the
+  statement reads or writes elsewhere (PostgreSQL runs them on one snapshot, so the rest of the
+  statement would see the table unmodified; here they run first, in the statement's transaction),
+  an expression index (`CREATE INDEX ... ON t (lower(name))`),
   a column `DEFAULT` other than `DEFAULT NULL` (an omitted column always reads NULL here, so the
   default would be lost silently), and a comparison of a text column with a number (`name = 1`),
   which PostgreSQL rejects too.

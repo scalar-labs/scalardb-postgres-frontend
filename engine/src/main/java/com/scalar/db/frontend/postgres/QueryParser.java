@@ -1762,8 +1762,152 @@ class QueryParser {
           },
           (create ? "CREATE" : "DROP") + " COORDINATOR TABLES");
     }
-    Statement statement;
-    statement = parseStatement(sql);
+    Statement statement = parseStatement(sql);
+    List<Plan.Prelude> prelude = writingCtes(statement);
+    try {
+      Plan plan = plan(statement, sql);
+      if (!prelude.isEmpty()) {
+        plan.prelude = prelude; // before parse() gives the plan its column maps
+        plan.cacheable = false; // the writes are planned with this execution's parameters
+      }
+      return plan;
+    } finally {
+      writingCtes.clear();
+    }
+  }
+
+  // data-modifying WITH queries of the statement being planned, as working tables of their rows
+  private final Map<WithItem<?>, Plan> writingCtes = new java.util.IdentityHashMap<>();
+
+  /**
+   * The data-modifying WITH queries of a statement's own WITH, planned to run before it, their
+   * RETURNING rows read through {@link #writingCtes}. PostgreSQL runs them and the statement on one
+   * snapshot, so none of them sees another's writes; here they run first, in the statement's
+   * transaction, so a statement that reads a table they modify anywhere else is refused.
+   */
+  private List<Plan.Prelude> writingCtes(Statement statement) throws ExecutionException {
+    List<WithItem<?>> items =
+        statement instanceof Select
+            ? ((Select) statement).getWithItemsList()
+            : statement instanceof net.sf.jsqlparser.statement.insert.Insert
+                ? ((net.sf.jsqlparser.statement.insert.Insert) statement).getWithItemsList()
+                : statement instanceof net.sf.jsqlparser.statement.update.Update
+                    ? ((net.sf.jsqlparser.statement.update.Update) statement).getWithItemsList()
+                    : statement instanceof net.sf.jsqlparser.statement.delete.Delete
+                        ? ((net.sf.jsqlparser.statement.delete.Delete) statement).getWithItemsList()
+                        : null;
+    List<Plan.Prelude> prelude = new ArrayList<>();
+    if (items == null
+        || items.stream().allMatch(i -> i.getParenthesedStatement() instanceof Select)) {
+      return prelude;
+    }
+    if (items.stream().anyMatch(WithItem::isRecursive)) {
+      throw new PgException.Argument(
+          "0A000", "Data-modifying statements in WITH RECURSIVE are not supported");
+    }
+    // the tables the statement mentions outside its data-modifying WITH queries (JSQLParser's
+    // finder visits such a query twice, so they are counted apart)
+    List<WithItem<?>> reads = new ArrayList<>();
+    for (WithItem<?> item : items) {
+      if (writeOf(item) == null) {
+        reads.add(item);
+      }
+    }
+    List<String> rest;
+    withItems(statement, reads);
+    try {
+      rest = tableReferences(statement);
+    } finally {
+      withItems(statement, items);
+    }
+    for (WithItem<?> item : items) {
+      Statement body = writeOf(item);
+      if (body == null) {
+        continue;
+      }
+      String target = unquote(writtenTable(body).getName());
+      int elsewhere = Collections.frequency(rest, target);
+      for (WithItem<?> other : items) {
+        Statement otherBody = writeOf(other);
+        if (other != item && otherBody != null) {
+          elsewhere += Collections.frequency(tableReferences(otherBody), target);
+        }
+      }
+      if (elsewhere > 0) {
+        throw new PgException.Argument(
+            "0A000",
+            "Unsupported: the statement reads or writes "
+                + target
+                + " besides the WITH query "
+                + item.getAliasName()
+                + " that modifies it (PostgreSQL would show it unmodified there)");
+      }
+      Map<String, Cte> saved = ctes;
+      ctes = Collections.emptyMap(); // its own query sees no WITH query of the statement
+      Plan write;
+      try {
+        write = plan(body, body.toString());
+      } finally {
+        ctes = saved;
+      }
+      List<Map<String, Object>> rows = new ArrayList<>();
+      writingCtes.put(
+          item, Plan.working(item.getAliasName(), write.outputNames, rows, write.outputOids()));
+      prelude.add(new Plan.Prelude(write, rows));
+    }
+    return prelude;
+  }
+
+  private static void withItems(Statement statement, List<WithItem<?>> items) {
+    if (statement instanceof Select) {
+      ((Select) statement).setWithItemsList(items);
+    } else if (statement instanceof net.sf.jsqlparser.statement.insert.Insert) {
+      ((net.sf.jsqlparser.statement.insert.Insert) statement).setWithItemsList(items);
+    } else if (statement instanceof net.sf.jsqlparser.statement.update.Update) {
+      ((net.sf.jsqlparser.statement.update.Update) statement).setWithItemsList(items);
+    } else {
+      ((net.sf.jsqlparser.statement.delete.Delete) statement).setWithItemsList(items);
+    }
+  }
+
+  @Nullable private static Statement writeOf(WithItem<?> item) {
+    Object body = item.getParenthesedStatement();
+    return body instanceof net.sf.jsqlparser.statement.insert.ParenthesedInsert
+        ? ((net.sf.jsqlparser.statement.insert.ParenthesedInsert) body).getInsert()
+        : body instanceof net.sf.jsqlparser.statement.update.ParenthesedUpdate
+            ? ((net.sf.jsqlparser.statement.update.ParenthesedUpdate) body).getUpdate()
+            : body instanceof net.sf.jsqlparser.statement.delete.ParenthesedDelete
+                ? ((net.sf.jsqlparser.statement.delete.ParenthesedDelete) body).getDelete()
+                : null;
+  }
+
+  private static Table writtenTable(Statement write) {
+    return write instanceof net.sf.jsqlparser.statement.insert.Insert
+        ? ((net.sf.jsqlparser.statement.insert.Insert) write).getTable()
+        : write instanceof net.sf.jsqlparser.statement.update.Update
+            ? ((net.sf.jsqlparser.statement.update.Update) write).getTable()
+            : ((net.sf.jsqlparser.statement.delete.Delete) write).getTable();
+  }
+
+  /** Every table name the statement mentions, once per mention, WITH query names left out. */
+  private static List<String> tableReferences(Statement statement) {
+    List<String> out = new ArrayList<>();
+    try {
+      new net.sf.jsqlparser.util.TablesNamesFinder<Void>() {
+        @Override
+        public <S> Void visit(Table table, S context) {
+          out.add(unquote(table.getName()));
+          return super.visit(table, context);
+        }
+      }.getTables(statement);
+    } catch (RuntimeException unsupported) {
+      throw new PgException.Argument(
+          "0A000", "Unsupported: the tables of a statement with a data-modifying WITH query");
+    }
+    return out;
+  }
+
+  private Plan plan(Statement statement, String sql) throws ExecutionException {
     if (statement instanceof CreateTable) {
       return createTable((CreateTable) statement);
     }
@@ -2860,6 +3004,7 @@ class QueryParser {
     final boolean recursive; // in a WITH RECURSIVE list: a UNION body may refer to itself
     @Nullable Plan working; // inside its own step: the previous iteration's rows
     int references; // how often the step referred to the working table
+    boolean writing; // a data-modifying query, whose working table its RETURNING rows fill
 
     Cte(WithItem<?> item, Map<String, Cte> visible, boolean recursive) {
       this.item = item;
@@ -2885,16 +3030,17 @@ class QueryParser {
           throw new PgException.Argument(
               "0A000", "SEARCH and CYCLE are not supported: " + item.getAliasName());
         }
-        if (!(item.getParenthesedStatement() instanceof Select)) {
+        if (!(item.getParenthesedStatement() instanceof Select) && !writingCtes.containsKey(item)) {
           throw new PgException.Argument(
               "0A000",
-              "Data-modifying statements in WITH are not supported: " + item.getAliasName());
+              "WITH clause containing a data-modifying statement must be at the top level");
         }
       }
       for (WithItem<?> item : items) {
-        scope.put(
-            unquote(item.getAlias().getName()),
-            new Cte(item, new LinkedHashMap<>(scope), recursive));
+        Cte cte = new Cte(item, new LinkedHashMap<>(scope), recursive);
+        cte.working = writingCtes.get(item); // a data-modifying one's RETURNING rows
+        cte.writing = cte.working != null;
+        scope.put(unquote(item.getAlias().getName()), cte);
       }
       ctes = scope;
     }
@@ -4138,6 +4284,10 @@ class QueryParser {
         Plan derived;
         try {
           SetOperationList body = cte.recursive ? recursiveBody(cte.item) : null;
+          if (cte.writing && cte.working != null && cte.working.outputNames.isEmpty()) {
+            throw new PgException.Argument(
+                "0A000", "WITH query \"" + name + "\" does not have a RETURNING clause");
+          }
           if (cte.working != null) {
             cte.references++;
             derived = cte.working;

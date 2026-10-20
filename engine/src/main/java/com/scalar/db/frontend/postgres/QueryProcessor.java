@@ -1168,6 +1168,9 @@ public class QueryProcessor {
               : plan(sql, parameters);
       describedSql = null;
       describedPlan = null;
+      if (!plan.prelude.isEmpty()) {
+        return withWrites(plan);
+      }
       if (plan.getDdl() != null) {
         // ScalarDB DDL is not transactional: inside BEGIN it takes effect at once and a later
         // ROLLBACK does not undo it. Migration tools wrap DDL in a transaction, so it is allowed.
@@ -1233,6 +1236,44 @@ public class QueryProcessor {
         }
         throw e;
       }
+    }
+  }
+
+  /**
+   * A statement with data-modifying WITH queries: they run first, then the statement, all in one
+   * transaction (the statement's own outside BEGIN, committed before its rows are returned).
+   */
+  private Rows withWrites(Plan plan) throws TransactionException {
+    boolean own = !inTransaction();
+    DistributedTransaction t = own ? begin(false) : active();
+    try {
+      plan.runPrelude(t, maxRowsPerWrite());
+      Rows rows;
+      if (plan.getWrite() != null) {
+        int written = plan.executeWrite(t, maxRowsPerWrite());
+        lastCommandTag = plan.commandTag(written);
+        rows =
+            plan.getOutputColumns().isEmpty()
+                ? new Rows(null, Plan.Cursor.EMPTY)
+                : new Rows(plan, plan.returned());
+      } else {
+        List<Map<String, Object>> all;
+        try (Plan.Cursor cursor = plan.open(t)) {
+          all = QueryParser.drain(cursor);
+        }
+        rows = new Rows(plan, QueryParser.listCursor(all));
+      }
+      if (own) {
+        t.commit();
+      }
+      return rows;
+    } catch (UnknownTransactionStatusException e) {
+      throw e; // the commit may have landed, as for a write outside BEGIN
+    } catch (RuntimeException | TransactionException e) {
+      if (own) {
+        rollback(t, e);
+      }
+      throw e;
     }
   }
 

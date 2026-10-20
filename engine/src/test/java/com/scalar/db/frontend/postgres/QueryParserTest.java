@@ -2370,8 +2370,10 @@ public class QueryParserTest {
         .hasMessageContaining("SELECT INTO");
     assertThatThrownBy(
             () ->
-                parser.parse("WITH d AS (DELETE FROM t WHERE id = 1 RETURNING id) SELECT * FROM d"))
-        .hasMessageContaining("Data-modifying");
+                parser.parse(
+                    "SELECT * FROM (WITH d AS (DELETE FROM t WHERE id = 1 RETURNING id)"
+                        + " SELECT * FROM d) s"))
+        .hasMessageContaining("must be at the top level");
     assertThatThrownBy(() -> parser.parse("CREATE INDEX i ON t (lower(name))"))
         .hasMessageContaining("Expression indexes");
     assertThat(parser.parse("CREATE UNIQUE INDEX u ON t (name) WHERE price > 0").notices)
