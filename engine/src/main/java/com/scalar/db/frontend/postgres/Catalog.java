@@ -590,7 +590,8 @@ final class Catalog {
     PG_CATALOG.put("pg_timezone_names", cols("name", "abbrev", "utc_offset", "is_dst"));
     INFORMATION_SCHEMA.put("schemata", cols("catalog_name", "schema_name"));
     INFORMATION_SCHEMA.put(
-        "tables", cols("table_catalog", "table_schema", "table_name", "table_type"));
+        "tables",
+        cols("table_catalog", "table_schema", "table_name", "table_type", "is_insertable_into"));
     INFORMATION_SCHEMA.put(
         "columns",
         cols(
@@ -2231,7 +2232,7 @@ final class Catalog {
         relationOids.put(schema + "." + table, relOid);
         row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
         row(t, "pg_catalog.pg_tables", schema, table, OWNER, null, true, false, false, false);
-        row(t, "information_schema.tables", database, schema, table, "BASE TABLE");
+        row(t, "information_schema.tables", database, schema, table, "BASE TABLE", "YES");
         List<String> keys = new ArrayList<>(metadata.getPartitionKeyNames());
         keys.addAll(metadata.getClusteringKeyNames());
         // indkey and conkey in index order, the partition key then the clustering key
@@ -2844,7 +2845,8 @@ final class Catalog {
             database,
             schema,
             d.getKey(),
-            kind.equals("r") ? "BASE TABLE" : "VIEW");
+            kind.equals("r") ? "BASE TABLE" : "VIEW",
+            kind.equals("r") ? "YES" : "NO"); // the frontend does not write through a view
         for (int i = 0; i < d.getValue().size(); i++) {
           String column = d.getValue().get(i);
           String[] pg = CatalogTypes.ATTRIBUTES.get(qualified + " " + column);
