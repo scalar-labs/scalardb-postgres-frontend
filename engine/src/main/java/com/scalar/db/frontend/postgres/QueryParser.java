@@ -3454,9 +3454,26 @@ class QueryParser {
   private static final List<Integer> NUMERIC_RANK = Arrays.asList(21, 23, 20, 1700, 700, 701);
 
   /** The type OID an expression's values will have, from its shape; 0 when unknown. */
+  /** An integer literal's type: int4, int8, or numeric beyond bigint. */
+  private static int integerOid(java.math.BigInteger n) {
+    return n.bitLength() < 32 ? 23 : n.bitLength() < 64 ? 20 : 1700;
+  }
+
   static int inferOid(Expression e, List<LogicalPlan.Source> sources) {
     e = unwrap(e);
     if (e instanceof SignedExpression) {
+      // minus signs are part of the constant, as PostgreSQL's grammar folds them (through
+      // parentheses, which it drops): -2147483648 and -(2147483648) are int4, -(-2147483648) int8
+      Expression inner = e;
+      boolean negative = false;
+      while (inner instanceof SignedExpression && ((SignedExpression) inner).getSign() == '-') {
+        negative = !negative;
+        inner = unwrap(((SignedExpression) inner).getExpression());
+      }
+      if (inner instanceof LongValue) {
+        java.math.BigInteger n = ((LongValue) inner).getBigIntegerValue();
+        return integerOid(negative ? n.negate() : n);
+      }
       return inferOid(((SignedExpression) e).getExpression(), sources);
     }
     if (e instanceof BooleanValue) {
@@ -3496,7 +3513,7 @@ class QueryParser {
       return 0;
     }
     if (e instanceof LongValue) {
-      return ((LongValue) e).getBigIntegerValue().bitLength() < 32 ? 23 : 20;
+      return integerOid(((LongValue) e).getBigIntegerValue());
     }
     if (e instanceof DoubleValue) {
       return 1700;

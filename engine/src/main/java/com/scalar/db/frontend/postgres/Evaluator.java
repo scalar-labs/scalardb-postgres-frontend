@@ -1155,7 +1155,7 @@ final class Evaluator {
           eval(tz.getTimezoneExpressions().get(0), group, ctx));
     }
     if (e instanceof SignedExpression) {
-      Expression inner = ((SignedExpression) e).getExpression();
+      Expression inner = QueryParser.unwrap(((SignedExpression) e).getExpression());
       if (((SignedExpression) e).getSign() == '-' && inner instanceof LongValue) {
         // -9223372036854775808 is in range although its absolute value is not
         return integer(((LongValue) inner).getBigIntegerValue().negate());
