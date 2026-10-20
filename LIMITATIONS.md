@@ -152,6 +152,12 @@ at the end of this section.
 - **`SAVEPOINT` is accepted, but `ROLLBACK TO SAVEPOINT` works only while nothing was written
   since the savepoint.** After a write it fails, and that error aborts the whole transaction, so
   the writes before the savepoint are lost too when the transaction ends.
+- **`UPDATE` of a primary-key column** deletes the row under its old key and inserts it under the
+  new one, in the statement's transaction (ScalarDB cannot change a key in place). A new key that
+  another row has, or that another row of the same statement moves to or from (`SET id = id + 1`
+  over adjacent keys), fails with `23505`: PostgreSQL's outcome there depends on the order it
+  updates the rows in, and it often fails too. `ON CONFLICT DO UPDATE SET` on a key column is
+  refused.
 - **Constraints other than the primary key are not enforced.** `NOT NULL` on non-key columns,
   `UNIQUE`, `CHECK`, `REFERENCES` and `DEFAULT` are accepted by `CREATE TABLE` with a `NOTICE`
   (visible in psql and as a driver warning) and then ignored: violating rows are stored, and an

@@ -1986,19 +1986,20 @@ class QueryParser {
           }
         }
         inferParameters(update.getWhere(), written);
-        if (update.getFromItem() != null || !keyed(update) || update.getReturningClause() != null) {
+        boolean movesKey = false;
+        for (UpdateSet set : update.getUpdateSets()) {
+          for (Expression c : set.getColumns()) {
+            movesKey |= keyColumns(written).contains(columnName(c));
+          }
+        }
+        if (update.getFromItem() != null
+            || !keyed(update)
+            || update.getReturningClause() != null
+            || movesKey) {
           return updateByScan(update);
         }
         Target t = target(update.getTable());
         checkTextAgainstNumber(update.getWhere(), t); // WHERE name = 1 is 42883, as in a SELECT
-        for (UpdateSet set : update.getUpdateSets()) {
-          for (int i = 0; i < set.getColumns().size(); i++) {
-            if (keyColumns(t).contains(columnName(set.getColumn(i)))) {
-              throw new IllegalArgumentException(
-                  "A primary key column cannot be updated: " + columnName(set.getColumn(i)));
-            }
-          }
-        }
         return Plan.deferred(ctx -> listOf(update(update, t, ctx))).keyed("UPDATE");
       } finally {
         ctes = saved;
@@ -5613,12 +5614,12 @@ class QueryParser {
         setValues.add(defaultToNull(set.getValue(i)));
       }
     }
+    boolean movesKey = false;
     for (String column : setColumns) {
       existing(t.metadata, column);
-      if (keyColumns(t).contains(column)) {
-        throw new IllegalArgumentException("A primary key column cannot be updated: " + column);
-      }
+      movesKey |= keyColumns(t).contains(column);
     }
+    boolean keyMove = movesKey;
     Returning returning = returning(update.getReturningClause(), t, qualifier);
     // UPDATE ... FROM: the FROM items join the target in the driving read
     List<Join> joins = new ArrayList<>();
@@ -5633,16 +5634,48 @@ class QueryParser {
             update.getTable(),
             qualifier,
             update.getWhere(),
-            returning == null ? keyColumns(t) : t.metadata.getColumnNames(),
+            returning == null && !keyMove ? keyColumns(t) : t.metadata.getColumnNames(),
             setValues,
             joins,
             joins.isEmpty() ? null : keyColumns(t));
+    // a key change is a Delete and an Insert; the keys this execution moved from and to
+    Set<List<Object>> movedFrom = new HashSet<>();
+    Set<List<Object>> movedTo = new HashSet<>();
+    Object[] execution = {null};
     return Plan.write(
         read,
         (row, reader) -> {
           Map<String, Object> values = new LinkedHashMap<>(row);
           for (int i = 0; i < setColumns.size(); i++) {
             values.put(setColumns.get(i), row.get("$" + (i + 1)));
+          }
+          if (keyMove) {
+            if (execution[0] != reader) {
+              execution[0] = reader;
+              movedFrom.clear();
+              movedTo.clear();
+            }
+            Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo);
+            if (moved != null) {
+              return moved;
+            }
+            // the key stays: the other assignments, or a column rewritten as it is (SET id = id
+            // still updates the row in PostgreSQL)
+            List<String> others = new ArrayList<>(setColumns);
+            others.removeAll(keyColumns(t));
+            if (others.isEmpty()) {
+              for (String c : t.metadata.getColumnNames()) {
+                if (!keyColumns(t).contains(c)) {
+                  others.add(c);
+                  break;
+                }
+              }
+            }
+            if (others.isEmpty()) {
+              throw new PgException.Argument(
+                  "0A000", "Unsupported: an UPDATE of a table with no column but its key");
+            }
+            return new Effect(update(t, others, values), left(t, qualifier, values));
           }
           return new Effect(update(t, setColumns, values), left(t, qualifier, values));
         },
@@ -5654,6 +5687,71 @@ class QueryParser {
             + ": one ScalarDB Update per row read"
             + (joins.isEmpty() ? "" : " (joined with FROM, one per key)"),
         returning);
+  }
+
+  /**
+   * An UPDATE row whose primary key changes: a Delete of the old key and an Insert of the row under
+   * the new one, in the statement's transaction; null when the key stays the same. As PostgreSQL's
+   * unique index, a new key that some row holds is 23505; so is one another row of the statement
+   * moves to or from, since PostgreSQL's answer then depends on the order it updates the rows in.
+   */
+  @Nullable private Effect keyMove(
+      Target t,
+      String qualifier,
+      Map<String, Object> row,
+      Map<String, Object> values,
+      Plan.Reader reader,
+      Set<List<Object>> movedFrom,
+      Set<List<Object>> movedTo) {
+    List<Object> oldKey = new ArrayList<>();
+    List<Object> newKey = new ArrayList<>();
+    for (String c : keyColumns(t)) {
+      if (values.get(c) == null) {
+        throw new PgException.Argument(
+            "23502",
+            "null value in column \""
+                + c
+                + "\" of relation \""
+                + t.table
+                + "\" violates not-null constraint");
+      }
+      oldKey.add(Operators.normalize(writtenValue(t, c, row.get(c))));
+      newKey.add(Operators.normalize(writtenValue(t, c, values.get(c))));
+    }
+    if (oldKey.equals(newKey)) {
+      return null;
+    }
+    String duplicate = "duplicate key value violates unique constraint \"" + t.table + "_pkey\"";
+    if (movedTo.contains(newKey) || movedFrom.contains(newKey) || movedTo.contains(oldKey)) {
+      throw new PgException.Argument("23505", duplicate);
+    }
+    movedFrom.add(oldKey);
+    movedTo.add(newKey);
+    GetBuilder.BuildableGet get =
+        Get.newBuilder()
+            .namespace(t.namespace)
+            .table(t.table)
+            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), values))
+            .projections(keyColumns(t));
+    DeleteBuilder.Buildable delete =
+        Delete.newBuilder()
+            .namespace(t.namespace)
+            .table(t.table)
+            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), row));
+    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
+      get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), values));
+      delete.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), row));
+    }
+    if (!reader.rows(get.build(), qualifier, keyColumns(t)).isEmpty()) {
+      throw new PgException.Argument("23505", duplicate);
+    }
+    Map<String, Column<?>> columns = new LinkedHashMap<>();
+    for (String c : t.metadata.getColumnNames()) {
+      columns.put(c, writtenColumn(t, c, values.get(c)));
+    }
+    return new Effect(
+        Arrays.<Mutation>asList(delete.build(), put(t, columns, false)),
+        left(t, qualifier, values));
   }
 
   /** The FROM items of {@code DELETE ... USING}, empty without the clause. */

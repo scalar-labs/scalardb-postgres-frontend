@@ -467,6 +467,7 @@ final class Plan {
     List<Map<String, Object>> driving = new ArrayList<>();
     List<Mutation> mutations = new ArrayList<>();
     List<Map<String, Object>> left = new ArrayList<>();
+    int written = 0; // rows, as the command tag counts them
     try {
       // The driving rows are read fully first so the mutator's own reads see no open scanner
       try (Cursor rows = write.read.open(crud)) {
@@ -487,8 +488,9 @@ final class Plan {
       for (Map<String, Object> row : driving) {
         Effect effect = write.mutator.apply(row, reader);
         if (effect != null) {
-          mutations.add(effect.mutation);
+          mutations.addAll(effect.mutations);
           left.add(effect.row);
+          written++;
         }
       }
     } catch (ReadFailure e) {
@@ -525,7 +527,7 @@ final class Plan {
         returned.add(out);
       }
     }
-    return mutations.size();
+    return written;
   }
 
   /** Reads through {@code crud}, wrapping its failures in {@link ReadFailure}. */
@@ -1455,11 +1457,15 @@ final class Plan {
 
   /** What one row of a read-driven write does: its mutation and the row it leaves behind. */
   static final class Effect {
-    final Mutation mutation;
+    final List<Mutation> mutations; // one, or a Delete and an Insert for a row whose key changes
     final Map<String, Object> row; // qualifier.column -> value after the write (before, for DELETE)
 
     Effect(Mutation mutation, Map<String, Object> row) {
-      this.mutation = mutation;
+      this(Collections.singletonList(mutation), row);
+    }
+
+    Effect(List<Mutation> mutations, Map<String, Object> row) {
+      this.mutations = mutations;
       this.row = row;
     }
   }

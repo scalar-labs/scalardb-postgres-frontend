@@ -1822,8 +1822,22 @@ public class QueryParserTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("max_rows_per_write");
     verify(transaction, times(1)).mutate(any());
-    assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE seq = 1"))
-        .hasMessageContaining("primary key column");
+    // a key change is a Delete of the old key and an Insert under the new one, one row in the tag
+    org.mockito.Mockito.clearInvocations(transaction);
+    assertThat(
+            parser
+                .parse("UPDATE t SET seq = 5 WHERE id = 1 AND seq = 1")
+                .executeWrite(transaction, 10))
+        .isEqualTo(1);
+    @SuppressWarnings("unchecked")
+    org.mockito.ArgumentCaptor<List<com.scalar.db.api.Mutation>> moved =
+        org.mockito.ArgumentCaptor.forClass(List.class);
+    verify(transaction).mutate(moved.capture());
+    assertThat(moved.getValue()).hasSize(2);
+    assertThat(moved.getValue().get(0)).isInstanceOf(com.scalar.db.api.Delete.class);
+    assertThat(moved.getValue().get(0).getClusteringKey()).contains(Key.ofBigInt("seq", 1));
+    assertThat(moved.getValue().get(1)).isInstanceOf(com.scalar.db.api.Insert.class);
+    assertThat(moved.getValue().get(1).getClusteringKey()).contains(Key.ofBigInt("seq", 5));
     // a cast to char(n), varchar(n) or numeric(p,s) reports the modifier, so char(n) is padded
     assertThat(
             parser
@@ -2172,8 +2186,6 @@ public class QueryParserTest {
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE d (id INT, \"a\" INT, \"A\" INT, PRIMARY KEY (id))"))
         .hasMessageContaining("differing only in case");
-    assertThatThrownBy(() -> parser.parse("UPDATE t SET id = 2 WHERE id = 1 AND seq = 1"))
-        .hasMessageContaining("primary key column");
     assertThat(parser.parse("SELECT USER AS u").execute(transaction))
         .containsExactly(map("u", "scalardb"));
     // DEFAULT in VALUES is the (non-existent) column default, so NULL
