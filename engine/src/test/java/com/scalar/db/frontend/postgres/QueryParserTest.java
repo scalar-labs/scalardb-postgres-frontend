@@ -160,7 +160,13 @@ public class QueryParserTest {
         "date_bin('15 minutes', timestamp '2020-02-11 15:44:17', timestamp '2001-01-01 00:02:30')",
         "2020-02-11 15:32:30"
       },
-      {"make_timestamp(-44, 3, 15, 12, 0, 0)", "0044-03-15 12:00:00 BC"}
+      {"make_timestamp(-44, 3, 15, 12, 0, 0)", "0044-03-15 12:00:00 BC"},
+      {"'epoch'::date", "1970-01-01"},
+      {"'Allballs'::time", "00:00:00"},
+      {"('tomorrow'::date - 'yesterday'::date)", "2"},
+      {"'2020-07-01 12:00 PST'::timestamptz = '2020-07-01 20:00+00'", "t"},
+      {"'2020-11-01 01:30 america/new_york'::timestamptz = '2020-11-01 06:30+00'", "t"},
+      {"'2020-01-01 12:00 EST'::timestamp", "2020-01-01 12:00:00"}
     };
     for (String[] c : cases) {
       Object v = parser.parse("SELECT " + c[0] + " AS v").execute(transaction).get(0).get("v");

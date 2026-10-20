@@ -382,6 +382,10 @@ final class Evaluator {
    * last.
    */
   static LocalTime time(String s) {
+    Object special = specialInput(s, "time");
+    if (special != null) {
+      return (LocalTime) special;
+    }
     String t = s.trim();
     String rest = t.startsWith("24:00") ? t.substring(5) : null;
     if (rest != null
@@ -831,6 +835,42 @@ final class Evaluator {
     }
     if (s.deadline != 0 && System.nanoTime() - s.deadline > 0) {
       throw new PgException.Argument("57014", "canceling statement due to statement timeout");
+    }
+  }
+
+  /**
+   * PostgreSQL's special datetime input, alone in the text: 'epoch', 'now', 'today', 'tomorrow',
+   * 'yesterday', and 'allballs' for a time; as a {@code type} (timestamptz, timestamp, date or
+   * time) value, or null for other text. 'now' is now(), and the days are in the session's zone.
+   */
+  @Nullable static Object specialInput(String s, String type) {
+    String word = s.trim().toLowerCase(Locale.ROOT);
+    Instant now = statementNow();
+    LocalDate today = LocalDate.ofInstant(now, zone());
+    switch (word) {
+      case "epoch":
+        return type.equals("timestamptz")
+            ? Instant.EPOCH
+            : type.equals("timestamp")
+                ? LocalDateTime.of(1970, 1, 1, 0, 0)
+                : type.equals("date") ? LocalDate.of(1970, 1, 1) : null;
+      case "now":
+        return type.equals("timestamptz")
+            ? now
+            : type.equals("timestamp")
+                ? LocalDateTime.ofInstant(now, zone())
+                : type.equals("date") ? today : LocalTime.ofInstant(now, zone());
+      case "today":
+      case "tomorrow":
+      case "yesterday":
+        LocalDate day = today.plusDays(word.equals("today") ? 0 : word.equals("tomorrow") ? 1 : -1);
+        return type.equals("timestamptz")
+            ? instant(day.atStartOfDay(), zone())
+            : type.equals("timestamp") ? day.atStartOfDay() : type.equals("date") ? day : null;
+      case "allballs":
+        return type.equals("time") ? LocalTime.MIDNIGHT : null;
+      default:
+        return null;
     }
   }
 
@@ -2696,7 +2736,11 @@ final class Evaluator {
   }
 
   /** A date, also from a timestamp's text ('2024-01-01 10:00' is 2024-01-01), as PostgreSQL. */
-  private static LocalDate date(String s) {
+  static LocalDate date(String s) {
+    Object special = specialInput(s, "date");
+    if (special != null) {
+      return (LocalDate) special;
+    }
     boolean[] bc = {false};
     String t = QueryParser.withoutEra(s, bc);
     if (t.length() > 10) {

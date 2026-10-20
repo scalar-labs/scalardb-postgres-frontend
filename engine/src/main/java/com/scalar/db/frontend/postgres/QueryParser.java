@@ -7039,7 +7039,7 @@ class QueryParser {
       case BLOB:
         return s == null ? BlobColumn.ofNull(name) : BlobColumn.of(name, bytea(s));
       case DATE:
-        return s == null ? DateColumn.ofNull(name) : DateColumn.of(name, LocalDate.parse(s));
+        return s == null ? DateColumn.ofNull(name) : DateColumn.of(name, Evaluator.date(s));
       case TIME:
         {
           // ScalarDB keeps microseconds, as PostgreSQL does; a finer fraction rounds as there
@@ -7361,8 +7361,14 @@ class QueryParser {
    * A timestamp as text, with or without a zone offset; the offset is dropped, as for TIMESTAMP.
    */
   static LocalDateTime localDateTime(String s) {
+    Object special = Evaluator.specialInput(s, "timestamp");
+    if (special != null) {
+      return (LocalDateTime) special;
+    }
     boolean[] bc = {false};
-    String t = withoutEra(s, bc).replace(' ', 'T');
+    String[] text = {withoutEra(s, bc)};
+    inputZone(text, s); // a timestamp drops its zone, as PostgreSQL does, once it is a valid one
+    String t = text[0].replace(' ', 'T');
     LocalDateTime out =
         t.length() == 10
             ? LocalDate.parse(t).atStartOfDay() // a date alone, as PostgreSQL accepts it
@@ -7405,8 +7411,27 @@ class QueryParser {
 
   /** A timestamp as text; without an offset it is taken as UTC. */
   static java.time.Instant instant(String s) {
+    Object special = Evaluator.specialInput(s, "timestamptz");
+    if (special != null) {
+      return (java.time.Instant) special;
+    }
     boolean[] bc = {false};
-    String t = withoutEra(s, bc).replace(' ', 'T');
+    String[] text = {withoutEra(s, bc)};
+    java.time.ZoneId zone = inputZone(text, s);
+    String t = text[0].replace(' ', 'T');
+    if (zone != null) {
+      if (t.indexOf('T') > 0 && OFFSET.matcher(t).find()) {
+        throw new PgException.Argument(
+            "0A000", "Unsupported: both an offset and a zone in \"" + s + "\"");
+      }
+      LocalDateTime local =
+          t.length() == 10 ? LocalDate.parse(t).atStartOfDay() : LocalDateTime.parse(t);
+      return (java.time.Instant)
+          Evaluator.roundedTo(
+              Evaluator.instant(
+                  era(local.toLocalDate(), bc[0], s).atTime(local.toLocalTime()), zone),
+              6);
+    }
     if (t.endsWith("Z") || t.endsWith("z")) {
       t = t.substring(0, t.length() - 1) + "+00:00"; // pgx and ISO 8601 write UTC as Z
     }
@@ -7423,6 +7448,74 @@ class QueryParser {
             Evaluator.instant(
                 era(local.toLocalDate(), bc[0], s).atTime(local.toLocalTime()), Evaluator.zone()),
             6);
+  }
+
+  // PostgreSQL's Default timezone abbreviations: a fixed offset in seconds, or the zone a dynamic
+  // one follows
+  private static final Map<String, String> ABBREVIATIONS = abbreviations();
+
+  private static Map<String, String> abbreviations() {
+    Map<String, String> out = new HashMap<>();
+    try (java.io.BufferedReader in =
+        new java.io.BufferedReader(
+            new java.io.InputStreamReader(
+                java.util.Objects.requireNonNull(
+                    QueryParser.class.getResourceAsStream("timezone-abbreviations.txt"),
+                    "timezone-abbreviations.txt"),
+                java.nio.charset.StandardCharsets.UTF_8))) {
+      for (String line = in.readLine(); line != null; line = in.readLine()) {
+        if (!line.startsWith("#")) {
+          String[] f = line.split("\t");
+          out.put(f[0], f[1]);
+        }
+      }
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    return out;
+  }
+
+  /**
+   * A trailing zone of datetime text as PostgreSQL's input reads it ('... EST', '...
+   * Europe/London'): a zone database name with a region, or an abbreviation with a fixed offset.
+   * {@code text[0]} loses it; null if there is none. A dynamic abbreviation (MSK, whose offset
+   * follows Moscow's history) is refused rather than guessed.
+   */
+  @Nullable private static java.time.ZoneId inputZone(String[] text, String original) {
+    String t = text[0];
+    int space = t.lastIndexOf(' ');
+    String token = space < 0 ? "" : t.substring(space + 1);
+    if (token.isEmpty()
+        || token.charAt(0) >= 128
+        || !Character.isLetter(token.charAt(0))
+        || token.equalsIgnoreCase("AM")
+        || token.equalsIgnoreCase("PM")) {
+      return null;
+    }
+    java.time.ZoneId zone = null;
+    String abbreviation = ABBREVIATIONS.get(token.toUpperCase(Locale.ROOT));
+    if (token.indexOf('/') >= 0) {
+      for (String id : java.time.ZoneId.getAvailableZoneIds()) {
+        if (id.equalsIgnoreCase(token)) {
+          zone = java.time.ZoneId.of(id);
+        }
+      }
+    } else if (abbreviation != null && !abbreviation.matches("-?\\d+")) {
+      throw new PgException.Argument(
+          "0A000",
+          "Unsupported: the time zone abbreviation "
+              + token
+              + ", whose offset follows "
+              + abbreviation);
+    } else if (abbreviation != null) {
+      zone = java.time.ZoneOffset.ofTotalSeconds(Integer.parseInt(abbreviation));
+    }
+    if (zone == null) {
+      throw new PgException.Argument(
+          "22007", "invalid input syntax for a date or time: \"" + original + "\"");
+    }
+    text[0] = t.substring(0, space).trim();
+    return zone;
   }
 
   private static OffsetDateTime offsetDateTime(String t) {
