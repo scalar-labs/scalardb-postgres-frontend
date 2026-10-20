@@ -1100,6 +1100,7 @@ class QueryParser {
       return out; // {} or { }
     }
     StringBuilder cur = new StringBuilder();
+    int kept = 0; // cur up to its last quoted, escaped or non-space character
     boolean quoted = false;
     boolean wasQuoted = false;
     boolean any = false;
@@ -1113,10 +1114,12 @@ class QueryParser {
         } else {
           cur.append(c);
         }
+        kept = cur.length(); // spaces in quotes are data: {" a "} is " a "
         continue;
       }
       if (c == '\\' && i + 2 < s.length()) {
         cur.append(s.charAt(++i)); // an escaped character outside quotes: {a\,b} is one element
+        kept = cur.length();
         wasQuoted = true;
       } else if (c == '}') {
         throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
@@ -1126,11 +1129,16 @@ class QueryParser {
       } else if (c == '{') {
         throw new PgException.Argument("0A000", "Nested arrays are not supported: " + text);
       } else if (c == ',') {
+        cur.setLength(kept);
         out.add(arrayElement(cur, wasQuoted, text));
         cur.setLength(0);
+        kept = 0;
         wasQuoted = false;
-      } else {
+      } else if (" \t\n\r\u000B\f".indexOf(c) < 0) {
         cur.append(c);
+        kept = cur.length();
+      } else if (cur.length() > 0) {
+        cur.append(c); // a space between words stays; trailing ones are dropped at the end
       }
       any = true;
     }
@@ -1138,6 +1146,7 @@ class QueryParser {
       throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
     }
     if (any) {
+      cur.setLength(kept);
       out.add(arrayElement(cur, wasQuoted, text));
     }
     return out;
@@ -1145,7 +1154,7 @@ class QueryParser {
 
   /** An element of array text: NULL unless quoted; an empty one unquoted is malformed ({a,,b}). */
   @Nullable private static String arrayElement(StringBuilder cur, boolean quoted, String text) {
-    String e = cur.toString().trim();
+    String e = cur.toString();
     if (!quoted && e.isEmpty()) {
       throw new PgException.Argument("22P02", "malformed array literal: \"" + text + "\"");
     }
