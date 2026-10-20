@@ -1684,6 +1684,16 @@ class QueryParser {
       if (insert.getConflictAction() != null
           && insert.getConflictAction().getUpdateSets() != null) {
         checkSingleAssignments(insert.getConflictAction().getUpdateSets());
+        if (insert.getTable().getAlias() == null
+            && unquote(insert.getTable().getName()).equalsIgnoreCase("excluded")
+            && insert
+                .getConflictAction()
+                .toString()
+                .toLowerCase(Locale.ROOT)
+                .contains("excluded.")) {
+          // the target and the proposed row are both "excluded"; PostgreSQL wants an alias
+          throw new PgException.Argument("42P09", "table reference \"excluded\" is ambiguous");
+        }
       }
       Map<String, Cte> saved = pushCtes(insert.getWithItemsList());
       try {

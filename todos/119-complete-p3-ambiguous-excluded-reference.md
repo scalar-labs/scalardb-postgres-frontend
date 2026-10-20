@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "119"
 tags: [dml, validation, regress-suite]
@@ -27,9 +27,10 @@ In ON CONFLICT DO UPDATE on a table named `excluded` without an alias, `excluded
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: INSERT INTO a table named excluded, without an alias, whose ON CONFLICT DO UPDATE refers to excluded.* fails with 42P09, as in PostgreSQL; with an alias, or without an excluded reference, it runs. Checked live against PostgreSQL 18 (insert_conflict.sql #150).
