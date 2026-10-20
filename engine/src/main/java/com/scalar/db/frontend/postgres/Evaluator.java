@@ -930,15 +930,12 @@ final class Evaluator {
 
   /**
    * A value used as a condition (WHERE, AND, OR, NOT, CASE WHEN, ...): a boolean or NULL, as
-   * PostgreSQL requires; a quoted 't' is boolean input. Anything else fails with 42804 rather than
-   * being given a truth value of its own.
+   * PostgreSQL requires. Anything else, text included, fails with 42804 rather than being given a
+   * truth value of its own.
    */
   @Nullable static Boolean condition(@Nullable Object v) {
     if (v == null || v instanceof Boolean) {
       return (Boolean) v;
-    }
-    if (v instanceof String) {
-      return parseBoolean((String) v);
     }
     throw new PgException.Argument(
         "42804", "argument must be type boolean, not type " + pgTypeName(v));

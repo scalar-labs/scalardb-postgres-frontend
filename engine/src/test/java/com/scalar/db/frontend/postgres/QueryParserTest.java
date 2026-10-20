@@ -1455,13 +1455,22 @@ public class QueryParserTest {
           // a condition is boolean: no truth value for a number (found by SQLancer's TLP)
           {"SELECT 1 WHERE 0.5::real", "42804"},
           {"SELECT true AND 2", "42804"},
-          {"SELECT 0.5::float8::boolean", "42846"}
+          {"SELECT 0.5::float8::boolean", "42846"},
+          {"SELECT 1 WHERE 'x'::text", "42804"}
         }) {
       assertThatThrownBy(() -> parser.parse(bad[0]).execute(transaction))
           .as(bad[0])
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
     }
+    // a comma binds more loosely than JOIN (found by SQLancer)
+    assertThatThrownBy(() -> parser.parse("SELECT 1 FROM t a, t b JOIN t c ON a.id = c.id"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42P01"));
+    assertThatThrownBy(() -> parser.parse("SELECT 1 FROM t a, t b RIGHT JOIN t c ON b.id = c.id"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThat(parser.parse("SELECT 1 FROM t a, t b LEFT JOIN t c ON b.id = c.id")).isNotNull();
     assertThatThrownBy(
             () -> parser.parse("CREATE TABLE p (a int PRIMARY KEY) PARTITION BY RANGE (a)"))
         .isInstanceOfSatisfying(

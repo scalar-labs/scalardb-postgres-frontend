@@ -2969,6 +2969,7 @@ class QueryParser {
    * made here.
    */
   private LogicalPlan bind(PlainSelect select, @Nullable Scope outer) throws ExecutionException {
+    checkCommaJoins(select);
     LogicalPlan plan = new LogicalPlan();
     List<Join> joinNodes = select.getJoins() == null ? Collections.emptyList() : select.getJoins();
     List<FromItem> fromItems = new ArrayList<>();
@@ -6055,6 +6056,56 @@ class QueryParser {
   }
 
   /** The column references in {@code e}, not descending into subqueries. */
+  /**
+   * In PostgreSQL a comma binds more loosely than JOIN: {@code FROM a, b RIGHT JOIN c ON ...} is a
+   * times (b RIGHT JOIN c), whose ON cannot see a (42P01). The frontend joins left to right, which
+   * is the same for INNER and LEFT joins but not for RIGHT or FULL ones, so those are refused after
+   * a comma.
+   */
+  private static void checkCommaJoins(PlainSelect select) {
+    if (select.getJoins() == null || select.getJoins().stream().noneMatch(Join::isSimple)) {
+      return;
+    }
+    Set<String> earlier = new HashSet<>();
+    Set<String> group = new HashSet<>();
+    group.add(fromName(select.getFromItem()));
+    for (Join j : select.getJoins()) {
+      if (j.isSimple()) {
+        earlier.addAll(group);
+        group = new HashSet<>();
+        group.add(fromName(j.getRightItem()));
+        continue;
+      }
+      group.add(fromName(j.getRightItem()));
+      for (Expression on : j.getOnExpressions()) {
+        for (net.sf.jsqlparser.schema.Column c : columnRefs(on)) {
+          String q =
+              c.getTable() == null || c.getTable().getName() == null
+                  ? null
+                  : unquote(c.getTable().getName()).toLowerCase(Locale.ROOT);
+          if (q != null && !group.contains(q) && earlier.contains(q)) {
+            throw new PgException.Argument(
+                "42P01", "invalid reference to FROM-clause entry for table \"" + q + "\"");
+          }
+        }
+      }
+      if (!earlier.isEmpty() && (j.isRight() || j.isFull())) {
+        throw new PgException.Argument(
+            "0A000",
+            "Unsupported: a RIGHT or FULL JOIN after a comma in FROM (it joins only the items after"
+                + " the comma)");
+      }
+    }
+  }
+
+  /** The name a FROM item is referred to by: its alias, or a table's name; "" for neither. */
+  private static String fromName(FromItem item) {
+    if (item.getAlias() != null) {
+      return unquote(item.getAlias().getName()).toLowerCase(Locale.ROOT);
+    }
+    return item instanceof Table ? unquote(((Table) item).getName()).toLowerCase(Locale.ROOT) : "";
+  }
+
   static List<net.sf.jsqlparser.schema.Column> columnRefs(Expression e) {
     List<net.sf.jsqlparser.schema.Column> out = new ArrayList<>();
     e.accept(
