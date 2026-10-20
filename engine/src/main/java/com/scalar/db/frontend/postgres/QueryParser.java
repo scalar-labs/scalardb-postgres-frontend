@@ -2414,6 +2414,11 @@ class QueryParser {
     return declared.encoded() ? declared : ColumnType.of(columnType(declaredType));
   }
 
+  /** x IS NOT NULL, also written x NOTNULL (which JSQLParser marks apart from NOT). */
+  static boolean isNotNull(IsNullExpression n) {
+    return n.isNot() || n.isUseNotNull();
+  }
+
   /** Whether a table or column exists now, asked after a DDL that would have created it failed. */
   private interface Exists {
     boolean now() throws ExecutionException;
@@ -5818,7 +5823,7 @@ class QueryParser {
       Column<?> column = column(t, columnName(n.getLeftExpression()), null);
       return ConditionBuilder.buildConditionalExpression(
           column,
-          n.isNot()
+          isNotNull(n)
               ? ConditionalExpression.Operator.IS_NOT_NULL
               : ConditionalExpression.Operator.IS_NULL);
     }

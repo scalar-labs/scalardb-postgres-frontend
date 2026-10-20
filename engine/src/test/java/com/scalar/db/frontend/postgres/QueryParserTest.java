@@ -1456,13 +1456,21 @@ public class QueryParserTest {
           {"SELECT 1 WHERE 0.5::real", "42804"},
           {"SELECT true AND 2", "42804"},
           {"SELECT 0.5::float8::boolean", "42846"},
-          {"SELECT 1 WHERE 'x'::text", "42804"}
+          {"SELECT 1 WHERE 'x'::text", "42804"},
+          // an aggregate not implemented must not run as a function (none over no rows)
+          {"SELECT bit_or(id) FROM t WHERE false", "0A000"}
         }) {
       assertThatThrownBy(() -> parser.parse(bad[0]).execute(transaction))
           .as(bad[0])
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
     }
+    // x NOTNULL is x IS NOT NULL (found by differential testing)
+    assertThat(
+            parser
+                .parse("SELECT 1 NOTNULL AS a, NULL NOTNULL AS b, 1 ISNULL AS c")
+                .execute(transaction))
+        .containsExactly(map("a", true, "b", false, "c", false));
     // a comma binds more loosely than JOIN (found by SQLancer)
     assertThatThrownBy(() -> parser.parse("SELECT 1 FROM t a, t b JOIN t c ON a.id = c.id"))
         .isInstanceOfSatisfying(

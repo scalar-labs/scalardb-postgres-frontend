@@ -943,8 +943,30 @@ final class Evaluator {
         "42804", "argument must be type boolean, not type " + pgTypeName(v));
   }
 
+  // PostgreSQL's aggregates (pg_proc.prokind 'a'): one not implemented here must not run as a plain
+  // function, which over no rows would answer no row instead of one
+  private static final java.util.Set<String> PG_AGGREGATES =
+      new java.util.HashSet<>(
+          Arrays.asList(
+              ("ANY_VALUE ARRAY_AGG AVG BIT_AND BIT_OR BIT_XOR BOOL_AND BOOL_OR CORR COUNT COVAR_POP"
+                      + " COVAR_SAMP CUME_DIST DENSE_RANK EVERY JSON_AGG JSON_AGG_STRICT JSON_OBJECT_AGG"
+                      + " JSON_OBJECT_AGG_STRICT JSON_OBJECT_AGG_UNIQUE JSON_OBJECT_AGG_UNIQUE_STRICT"
+                      + " JSONB_AGG JSONB_AGG_STRICT JSONB_OBJECT_AGG JSONB_OBJECT_AGG_STRICT"
+                      + " JSONB_OBJECT_AGG_UNIQUE JSONB_OBJECT_AGG_UNIQUE_STRICT MAX MIN MODE PERCENT_RANK"
+                      + " PERCENTILE_CONT PERCENTILE_DISC RANGE_AGG RANGE_INTERSECT_AGG RANK REGR_AVGX"
+                      + " REGR_AVGY REGR_COUNT REGR_INTERCEPT REGR_R2 REGR_SLOPE REGR_SXX REGR_SXY REGR_SYY"
+                      + " STDDEV STDDEV_POP STDDEV_SAMP STRING_AGG SUM VAR_POP VAR_SAMP VARIANCE XMLAGG")
+                  .split(" ")));
+
   static boolean isAggregate(Function f) {
-    return AGGREGATES.contains(functionName(f));
+    String name = functionName(f);
+    if (AGGREGATES.contains(name)) {
+      return true;
+    }
+    if (PG_AGGREGATES.contains(name)) {
+      throw new PgException.Argument("0A000", "Unsupported aggregate function: " + f.getName());
+    }
+    return false;
   }
 
   static boolean isAggregateName(String upperCaseName) {
@@ -1228,7 +1250,13 @@ final class Evaluator {
     if (e instanceof CollateExpression
         || (e instanceof RowGetExpression
             && ((RowGetExpression) e).getExpression() instanceof CollateExpression)) {
-      return eval(QueryParser.unwrap(e), group, ctx);
+      Object v = eval(QueryParser.unwrap(e), group, ctx);
+      if (v != null && !(v instanceof String) && !(v instanceof List)) {
+        // only text (and arrays of it) has a collation
+        throw new PgException.Argument(
+            "42804", "collations are not supported by type " + pgTypeName(v));
+      }
+      return v;
     }
     if (e instanceof RowGetExpression) {
       // (record).field, also over a set-returning function's list of records
@@ -1323,7 +1351,7 @@ final class Evaluator {
     }
     if (e instanceof IsNullExpression) {
       IsNullExpression n = (IsNullExpression) e;
-      return (eval(n.getLeftExpression(), group, ctx) == null) != n.isNot();
+      return (eval(n.getLeftExpression(), group, ctx) == null) != QueryParser.isNotNull(n);
     }
     if (e instanceof IsBooleanExpression) {
       IsBooleanExpression b = (IsBooleanExpression) e;
@@ -3599,8 +3627,9 @@ final class Evaluator {
         return bpchar ? TRAILING_SPACES.matcher(out).replaceFirst("") : out;
       }
       if (t.equals("boolean") || t.equals("bool")) {
-        if (v instanceof Number && !isIntegral(v)) {
-          // PostgreSQL casts only integer to boolean
+        if (v instanceof Number
+            && !(v instanceof Integer || v instanceof Long || v instanceof Short)) {
+          // PostgreSQL casts only integer to boolean (not numeric 1, not real 1)
           throw new PgException.Argument(
               "42846", "cannot cast type " + pgTypeName(v) + " to boolean");
         }
