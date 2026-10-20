@@ -23,7 +23,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.AbstractMap;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -99,8 +98,34 @@ public class QueryProcessor {
   @Nullable private Plan describedPlan;
   // Savepoints: accepted inside a transaction; ROLLBACK TO can only be honored while nothing was
   // written since the savepoint, as ScalarDB has no partial rollback
-  // Each savepoint with the transaction's write count when it was set, innermost first
-  private final Deque<Map.Entry<String, Integer>> savepoints = new ArrayDeque<>();
+  // Each savepoint, innermost first
+  private final Deque<Savepoint> savepoints = new ArrayDeque<>();
+
+  /**
+   * A savepoint: the transaction's write count when it was set, and the settings and transaction
+   * characteristics then, which ROLLBACK TO restores as PostgreSQL does.
+   */
+  private static final class Savepoint {
+    final String name;
+    final int writes;
+    final Map<String, String> settings;
+    final boolean readOnly;
+    final boolean deferrable;
+
+    Savepoint(
+        String name,
+        int writes,
+        Map<String, String> settings,
+        boolean readOnly,
+        boolean deferrable) {
+      this.name = name;
+      this.writes = writes;
+      this.settings = new LinkedHashMap<>(settings);
+      this.readOnly = readOnly;
+      this.deferrable = deferrable;
+    }
+  }
+
   private int writes; // write statements run in this transaction, failed ones included
   // Whether every write so far was a plain INSERT: a conflict at commit then means an existing key
   private boolean onlyInserts = true;
@@ -192,8 +217,6 @@ public class QueryProcessor {
   // SET LOCAL: the values to restore when the transaction ends (null: the setting was absent)
   private final Map<String, String> localSaved = new LinkedHashMap<>();
   // the session settings at BEGIN, which ROLLBACK restores
-  // ponytail: ROLLBACK TO SAVEPOINT keeps SETs made after the savepoint; snapshot per savepoint
-  // if a client relies on it
   private Map<String, String> settingsAtBegin = new LinkedHashMap<>();
   private String zoneName = "";
   private ZoneId zone = ZoneOffset.UTC;
@@ -454,9 +477,10 @@ public class QueryProcessor {
 
   // SET TIME ZONE 9, SET TIME ZONE '-3.5': hours east of UTC
   private static final Pattern NUMERIC_ZONE = Pattern.compile("^[+-]?\\d{1,2}(?:\\.\\d+)?$");
-  // SET TIME ZONE '+05:30', 'UTC+9': a POSIX zone, whose offset is positive WEST of UTC
+  // SET TIME ZONE '+05:30', '04:30', 'UTC+9': a POSIX zone, whose offset is positive WEST of UTC,
+  // with or without a sign ('04:30' is -04:30; a bare number of hours is matched before this)
   private static final Pattern POSIX_ZONE =
-      Pattern.compile("(?i)^(?:UTC|GMT)?([+-])(\\d{1,2})(?::(\\d{2}))?$");
+      Pattern.compile("(?i)^(?:UTC|GMT)?([+-]?)(\\d{1,2})(?::(\\d{2}))?$");
 
   // the zone database's fixed-offset zones Java names only as aliases
   private static final java.util.Map<String, String> FIXED_ZONES =
@@ -834,8 +858,8 @@ public class QueryProcessor {
             throw new PgException.State(
                 "25P01", "ROLLBACK TO SAVEPOINT can only be used in transaction blocks");
           }
-          Map.Entry<String, Integer> target = savepoint(sql);
-          if (writes > target.getValue()) {
+          Savepoint target = savepoint(sql);
+          if (writes > target.writes) {
             throw new PgException.Argument(
                 "0A000",
                 "Cannot roll back to a savepoint after writes: ScalarDB has no partial rollback");
@@ -843,6 +867,12 @@ public class QueryProcessor {
           while (savepoints.peek() != target) {
             savepoints.pop(); // the savepoint itself stays, as in PostgreSQL
           }
+          // SET, SET LOCAL and SET TRANSACTION since the savepoint are undone with it
+          settings.clear();
+          settings.putAll(target.settings);
+          searchPathChanged("search_path");
+          pendingReadOnly = target.readOnly;
+          deferrable = target.deferrable;
           aborted = false;
           lastCommandTag = "ROLLBACK";
           return new Rows(null, Plan.Cursor.EMPTY);
@@ -858,7 +888,8 @@ public class QueryProcessor {
         }
         Matcher sp = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
         savepoints.push(
-            new AbstractMap.SimpleImmutableEntry<>(sp.matches() ? sp.group(1) : "", writes));
+            new Savepoint(
+                sp.matches() ? sp.group(1) : "", writes, settings, pendingReadOnly, deferrable));
         lastCommandTag = "SAVEPOINT";
         return new Rows(null, Plan.Cursor.EMPTY);
       case "RELEASE":
@@ -866,7 +897,7 @@ public class QueryProcessor {
           throw new PgException.State(
               "25P01", "RELEASE SAVEPOINT can only be used in transaction blocks");
         }
-        Map.Entry<String, Integer> released = savepoint(sql);
+        Savepoint released = savepoint(sql);
         while (savepoints.pop() != released) {
           // releases the savepoints set after it too
         }
@@ -979,11 +1010,11 @@ public class QueryProcessor {
   }
 
   /** The innermost savepoint named in a ROLLBACK TO or RELEASE statement. */
-  private Map.Entry<String, Integer> savepoint(String sql) {
+  private Savepoint savepoint(String sql) {
     Matcher m = SAVEPOINT_NAME.matcher(QueryParser.trimStatement(sql));
     String name = m.matches() ? m.group(1) : "";
-    for (Map.Entry<String, Integer> s : savepoints) {
-      if (s.getKey().equalsIgnoreCase(name)) {
+    for (Savepoint s : savepoints) {
+      if (s.name.equalsIgnoreCase(name)) {
         return s;
       }
     }

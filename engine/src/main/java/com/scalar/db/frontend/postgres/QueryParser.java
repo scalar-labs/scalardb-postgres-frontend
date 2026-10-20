@@ -4612,10 +4612,25 @@ class QueryParser {
     wellFormedStep(name, body.getSelects().get(1), self.references);
     int[] anchorOids = anchor.outputOids();
     int[] stepOids = step.outputOids();
+    int[] anchorTypmods = anchor.outputTypmods();
+    int[] stepTypmods = step.outputTypmods();
     for (int i = 0; i < Math.min(anchorOids.length, stepOids.length); i++) {
-      if (NUMERIC_OIDS.contains(anchorOids[i])
-          && NUMERIC_OIDS.contains(stepOids[i])
-          && anchorOids[i] != stepOids[i]) {
+      // numeric(3,0) against numeric(10,0) is plain numeric overall, not the anchor's numeric(3,0)
+      boolean otherTypmod =
+          anchorOids[i] == stepOids[i]
+              && anchorTypmods[i] != -1
+              && anchorTypmods[i] != stepTypmods[i];
+      // text against varchar or char is text overall: only a text anchor keeps its type
+      boolean strings =
+          STRING_OIDS.contains(anchorOids[i])
+              && STRING_OIDS.contains(stepOids[i])
+              && anchorOids[i] != stepOids[i]
+              && anchorOids[i] != 25;
+      if (otherTypmod
+          || strings
+          // numbers: only a step wider than the anchor makes the overall type another one
+          || NUMERIC_RANK.indexOf(stepOids[i]) > Math.max(-1, NUMERIC_RANK.indexOf(anchorOids[i]))
+              && NUMERIC_RANK.indexOf(anchorOids[i]) >= 0) {
         // the working table keeps the anchor's type, which PostgreSQL checks the step against
         throw new PgException.Argument(
             "42804",
@@ -4642,6 +4657,8 @@ class QueryParser {
    * its own FROM and not on the nullable side of an outer join, with no aggregate, set operation,
    * ORDER BY, LIMIT, OFFSET or FOR UPDATE.
    */
+  private static final Set<Integer> STRING_OIDS = Set.of(25, 1043, 1042);
+
   private static void wellFormedStep(String name, Select step, int references) {
     while (step instanceof ParenthesedSelect && step.getWithItemsList() == null) {
       step = ((ParenthesedSelect) step).getSelect();

@@ -492,6 +492,24 @@ public class QueryProcessorTest {
   }
 
   @Test
+  public void execute_RollbackToSavepoint_ShouldUndoSettingsAndCharacteristics() throws Exception {
+    processor.execute("BEGIN");
+    processor.execute("SAVEPOINT x");
+    processor.execute("SET TRANSACTION READ ONLY");
+    processor.execute("SET search_path = nosuch");
+    processor.execute("SET timezone = '04:30'"); // POSIX, unsigned: west of UTC
+    assertThat(processor.execute("SHOW timezone").get(0).values()).containsExactly("04:30");
+    processor.execute("ROLLBACK TO SAVEPOINT x");
+    assertThat(processor.execute("SHOW transaction_read_only").get(0).values())
+        .containsExactly("off");
+    assertThat(processor.execute("SHOW search_path").get(0).values())
+        .containsExactly("\"$user\", public");
+    processor.execute("ROLLBACK");
+    assertThat(QueryProcessor.zoneOf("04:30"))
+        .isEqualTo(java.time.ZoneOffset.ofHoursMinutes(-4, -30));
+  }
+
+  @Test
   public void execute_BeginReadOnly_ShouldStartAReadOnlyTransaction() throws Exception {
     DistributedTransaction readOnly = mock(DistributedTransaction.class);
     when(manager.beginReadOnly()).thenReturn(readOnly);
