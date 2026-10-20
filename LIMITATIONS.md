@@ -241,6 +241,12 @@ at the end of this section.
 - **Assigning to a subscript is refused** (`UPDATE t SET j['a'] = v`, `SET a[2] = v`, the same in
   `INSERT ... (col[1])` and `ON CONFLICT DO UPDATE`), with `0A000`; assign the whole new value instead.
   Reading a jsonb subscript (`j['a'][0]`) works as in PostgreSQL.
+- **An ambiguous operator over no rows.** PostgreSQL fails while planning when two operators fit
+  equally well (`time_col + time '00:01'`: `time + interval` and `interval + time` through the
+  implicit cast, "operator is not unique", `42725`). The frontend picks one, so over an empty table
+  it answers with no rows; with a row the evaluation fails, as in PostgreSQL. Constant
+  subexpressions PostgreSQL's planner evaluates (`1/0` in a `CASE` arm no row reaches) do fail here
+  while planning, as there.
 - **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` naming a collation other than
   ScalarDB's (`"C"`/`POSIX` under `BINARY`, the ICU one that `pg_collation` lists under `ICU`), a
   `COLLATE` other than `"default"` in a column definition,

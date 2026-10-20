@@ -28,7 +28,8 @@ even when no row reaches the arm; the frontend answered (case #20 of the regress
 ## Not done
 
 - `time + time` over an empty table: PostgreSQL finds the operator ambiguous (42725) through the
-  implicit time-to-interval cast; the frontend answers no rows (with a row it fails).
+  implicit time-to-interval cast; the frontend answers no rows (with a row it fails). Left
+  documented in LIMITATIONS.md at the user's request (2026-10-21).
 
 ## Work Log
 
