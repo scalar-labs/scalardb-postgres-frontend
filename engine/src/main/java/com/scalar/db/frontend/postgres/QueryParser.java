@@ -1925,6 +1925,17 @@ class QueryParser {
     for (String column : primaryKey) {
       notices.removeIf(n -> n.startsWith("NOT NULL on column \"" + column + "\""));
     }
+    if (create.getPartitioning() != null
+        || create.getPartitionOf() != null
+        || create.getTableOptionsStrings() != null
+            && String.join(" ", create.getTableOptionsStrings())
+                .toUpperCase(Locale.ROOT)
+                .matches("(?s).*\\bPARTITION\\s+BY\\b.*")) {
+      // a partitioned table routes rows to its partitions and rejects the rest; a plain table would
+      // take every row
+      throw new PgException.Argument(
+          "0A000", "Unsupported: partitioned tables (PARTITION BY, PARTITION OF)");
+    }
     Map<String, String> options = new HashMap<>();
     if (create.getTableOptionsStrings() != null) {
       Matcher m =

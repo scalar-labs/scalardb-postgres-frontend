@@ -230,17 +230,29 @@ final class Interval implements Comparable<Interval> {
   }
 
   Interval plus(Interval o) {
-    return new Interval(months + o.months, days + o.days, micros + o.micros);
+    try {
+      return new Interval(
+          (long) months + o.months, (long) days + o.days, Math.addExact(micros, o.micros));
+    } catch (ArithmeticException e) {
+      throw new PgException.Argument("22008", "interval out of range");
+    }
   }
 
   Interval negate() {
-    return new Interval(-months, -days, -micros);
+    try {
+      return new Interval(-(long) months, -(long) days, Math.negateExact(micros));
+    } catch (ArithmeticException e) {
+      throw new PgException.Argument("22008", "interval out of range");
+    }
   }
 
   /**
    * Multiplies as PostgreSQL does: fractional months spill into days, fractional days into time.
    */
   Interval times(double factor) {
+    if (!Double.isFinite(factor)) {
+      throw new PgException.Argument("22008", "interval out of range");
+    }
     BigDecimal f = new BigDecimal(Double.toString(factor));
     BigDecimal m = BigDecimal.valueOf(months).multiply(f);
     BigDecimal d =
@@ -249,7 +261,12 @@ final class Interval implements Comparable<Interval> {
         BigDecimal.valueOf(micros)
             .multiply(f)
             .add(fraction(d).multiply(BigDecimal.valueOf(MICROS_PER_DAY)));
-    return new Interval(whole(m), whole(d), us.setScale(0, RoundingMode.HALF_UP).longValue());
+    try {
+      return new Interval(
+          whole(m), whole(d), us.setScale(0, RoundingMode.HALF_UP).longValueExact());
+    } catch (ArithmeticException e) {
+      throw new PgException.Argument("22008", "interval out of range"); // it wrapped before
+    }
   }
 
   LocalDateTime addTo(LocalDateTime t) {

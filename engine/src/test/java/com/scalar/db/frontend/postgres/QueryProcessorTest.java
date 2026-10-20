@@ -594,6 +594,16 @@ public class QueryProcessorTest {
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
     processor.execute("RESET bytea_output");
+    // extra_float_digits <= 0 writes DBL_DIG (FLT_DIG) plus it digits, as printf's %g
+    processor.execute("SET extra_float_digits = 0");
+    assertThat(
+            processor.execute(
+                "SELECT (1 / 3::float8)::text AS d, (2::float4 / 3::float4)::text AS r"))
+        .containsExactly(map2("d", "0.333333333333333", "r", "0.666667"));
+    processor.execute("RESET extra_float_digits");
+    assertThatThrownBy(() -> processor.execute("SET extra_float_digits = 4"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22023"));
     // the transaction's own settings: shown as they stand, and not reset
     processor.execute("BEGIN READ ONLY DEFERRABLE");
     assertThat(processor.execute("SHOW transaction_read_only"))
@@ -743,5 +753,12 @@ public class QueryProcessorTest {
   public void regex_ShouldUnderstandPosixClassesAndStopRunawayMatches() throws Exception {
     assertThat(processor.execute("SELECT 'abc' ~ '^[[:alpha:]]+$' AS a, 'a b' ~ '\\yb' AS b"))
         .containsExactly(map("a", true, "b", true));
+  }
+
+  private static Map<String, Object> map2(String k1, Object v1, String k2, Object v2) {
+    Map<String, Object> m = new java.util.LinkedHashMap<>();
+    m.put(k1, v1);
+    m.put(k2, v2);
+    return m;
   }
 }

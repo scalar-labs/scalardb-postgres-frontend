@@ -1353,6 +1353,11 @@ final class Evaluator {
       Object v = eval(in.getLeftExpression(), group, ctx);
       List<Object> values = new ArrayList<>();
       if (in.getRightExpression() instanceof ParenthesedSelect) {
+        if (v instanceof Number && textTyped(in.getRightExpression(), ctx)) {
+          // no implicit cast between text and numbers: bigint = text is no operator
+          throw new PgException.Argument(
+              "42883", "operator does not exist: " + numericTypeName(v) + " = text");
+        }
         // x IN (uncorrelated subquery): a hash probe instead of a scan per outer row (todo 007)
         InSet set = ctx.inSet((ParenthesedSelect) in.getRightExpression(), group);
         if (set != null) {
@@ -1604,6 +1609,16 @@ final class Evaluator {
       return x ^ y;
     }
     if (e instanceof net.sf.jsqlparser.expression.ArrayExpression) {
+      int depth = 0;
+      for (Expression x = e;
+          x instanceof net.sf.jsqlparser.expression.ArrayExpression;
+          x = ((net.sf.jsqlparser.expression.ArrayExpression) x).getObjExpression()) {
+        depth++;
+      }
+      if (depth > 6) {
+        throw new PgException.Argument(
+            "54000", "number of array dimensions (" + depth + ") exceeds the maximum allowed (6)");
+      }
       net.sf.jsqlparser.expression.ArrayExpression a =
           (net.sf.jsqlparser.expression.ArrayExpression) e;
       Object array = eval(a.getObjExpression(), group, ctx);
@@ -2660,6 +2675,17 @@ final class Evaluator {
    * for decimal exponents from -4 up to {@code maxPlainExponent} - 1 and as {@code 1.5e+20}
    * otherwise.
    */
+  /** The session's extra_float_digits: above 0 floats are written shortest, as by default. */
+  private static int extraFloatDigits() {
+    Settings settings = settings();
+    String v = settings == null ? null : settings.get("extra_float_digits");
+    try {
+      return v == null ? 1 : Integer.parseInt(v.trim());
+    } catch (NumberFormatException e) {
+      return 1;
+    }
+  }
+
   private static String floatText(double d, int maxPlainExponent) {
     if (Double.isNaN(d)) {
       return "NaN";
@@ -2670,7 +2696,19 @@ final class Evaluator {
     if (d == 0) {
       return 1 / d < 0 ? "-0" : "0";
     }
-    BigDecimal b = (maxPlainExponent == 6 ? shortest((float) d) : shortest(d)).stripTrailingZeros();
+    boolean real = maxPlainExponent == 6;
+    int extra = extraFloatDigits();
+    BigDecimal b;
+    if (extra > 0) {
+      b = real ? shortest((float) d) : shortest(d);
+    } else {
+      // extra_float_digits <= 0: printf's %.*g at FLT_DIG or DBL_DIG plus it, as float8out does
+      maxPlainExponent = Math.max(1, maxPlainExponent + extra);
+      b =
+          (real ? new BigDecimal((float) d) : new BigDecimal(d))
+              .round(new java.math.MathContext(maxPlainExponent, RoundingMode.HALF_EVEN));
+    }
+    b = b.stripTrailingZeros();
     int exponent = b.precision() - b.scale() - 1;
     if (exponent >= -4 && exponent < maxPlainExponent) {
       return b.toPlainString();
@@ -3372,6 +3410,10 @@ final class Evaluator {
       } else if (name.equals("MOD")) {
         Object other = args.size() == 2 ? args.get(1 - i) : null;
         type = other instanceof Number ? numericTypeName(other) : "integer";
+      } else if ((name.equals("POWER") || name.equals("POW"))
+          && args.size() == 2
+          && args.get(1 - i) instanceof BigDecimal) {
+        type = "numeric"; // power(numeric, '3') is power(numeric, numeric)
       }
       args.set(i, cast(type, args.get(i)));
     }
@@ -4544,7 +4586,12 @@ final class Evaluator {
                   ((net.sf.jsqlparser.statement.select.ParenthesedSelect) e).getSelect())
               .getSelectItem(0)
               .getExpression();
-      return QueryParser.unwrap(out) instanceof StringValue || textTyped(out, ctx);
+      if (QueryParser.unwrap(out) instanceof StringValue) {
+        return true;
+      }
+      Plan plan = ctx.subplans.get(e); // the subquery's own column types, from its own FROM
+      int[] oids = plan == null ? new int[0] : plan.outputOids();
+      return oids.length > 0 && (oids[0] == 25 || oids[0] == 1043 || oids[0] == 1042);
     }
     if (e instanceof StringValue || e instanceof JdbcParameter) {
       return false; // unknown until compared, as in PostgreSQL

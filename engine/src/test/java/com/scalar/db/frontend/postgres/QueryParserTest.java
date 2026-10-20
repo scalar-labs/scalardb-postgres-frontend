@@ -1444,6 +1444,23 @@ public class QueryParserTest {
                     .execute(transaction))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22004"));
+    // found by the full regression run: each fails as in PostgreSQL rather than answering
+    for (String[] bad :
+        new String[][] {
+          {"SELECT power(2.0, '3')", "0A000"},
+          {"SELECT 1 WHERE 1 IN (SELECT '1'::text)", "42883"},
+          {"SELECT ('{}'::int[])[1][1][1][1][1][1][1]", "54000"},
+          {"SELECT interval '1 day' * 'NaN'::float8", "22008"}
+        }) {
+      assertThatThrownBy(() -> parser.parse(bad[0]).execute(transaction))
+          .as(bad[0])
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
+    }
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE p (a int PRIMARY KEY) PARTITION BY RANGE (a)"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // a short VALUES row leaves trailing columns NULL, unless they are keys or listed
     for (String sql :
         new String[] {

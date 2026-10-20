@@ -299,6 +299,20 @@ public class QueryProcessor {
     if ("DateStyle".equals(key)) {
       value = dateStyle(value, current("DateStyle"));
     }
+    if ("extra_float_digits".equals(key)) {
+      String v = value.trim().replace("'", "");
+      if (!v.matches("-?\\d{1,9}")) {
+        throw new PgException.Argument(
+            "22023", "invalid value for parameter \"extra_float_digits\": \"" + value + "\"");
+      }
+      int n = Integer.parseInt(v);
+      if (n < -15 || n > 3) {
+        throw new PgException.Argument(
+            "22023",
+            n + " is outside the valid range for parameter \"extra_float_digits\" (-15 .. 3)");
+      }
+      value = Integer.toString(n);
+    }
     if ("IntervalStyle".equals(key) || "bytea_output".equals(key)) {
       String style = value.trim().replace("'", "").toLowerCase(Locale.ROOT);
       if (!style.matches("postgres|postgres_verbose|sql_standard|iso_8601|hex|escape")

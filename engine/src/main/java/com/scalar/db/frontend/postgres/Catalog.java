@@ -100,8 +100,7 @@ final class Catalog {
       null,
       "Sets the default read-only status of new transactions."
     },
-    // extra_float_digits and IntervalStyle: pgjdbc and ActiveRecord set them on connect; floats are
-    // written shortest-exact, as for any value above 0
+    // extra_float_digits: above 0 floats are written shortest, else to 15 (6) plus it digits
     {
       "extra_float_digits",
       "1",
