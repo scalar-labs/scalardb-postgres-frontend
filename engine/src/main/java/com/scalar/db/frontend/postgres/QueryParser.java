@@ -3210,18 +3210,33 @@ class QueryParser {
       rows.add(row);
     }
     Plan plan = Plan.constant(names, rows, "SELECT");
-    // a column's type from a cast written in it, which a NULL value cannot tell: (null::int[])
-    int[] oids = new int[names.size()];
-    boolean any = false;
+    // each column's type as PostgreSQL's select_common_type gives it, from its typed items (1 is
+    // int4, a cast says so even of NULL) as CASE unifies them; quoted literals and NULLs alone
+    // make text; a column of nothing typed keeps the type of its values
+    int[] oids = plan.outputOids();
     for (int i = 0; i < oids.length; i++) {
+      List<Expression> typed = new ArrayList<>();
       for (List<Expression> tuple : tuples) {
-        if (oids[i] == 0 && i < tuple.size() && unwrap(tuple.get(i)) instanceof CastExpression) {
-          oids[i] = inferOid(tuple.get(i), Collections.emptyList());
-          any |= oids[i] != 0;
+        Expression e = i < tuple.size() ? unwrap(tuple.get(i)) : null;
+        if (e != null && !(e instanceof NullValue) && !(e instanceof StringValue)) {
+          typed.add(e);
+        }
+      }
+      int common = unifiedOid(typed, Collections.emptyList());
+      oids[i] = typed.isEmpty() ? 25 : common != 0 ? common : oids[i];
+      if (!typed.isEmpty() && common != 0) {
+        // a quoted literal is read as the column's type, as PostgreSQL resolves it: ('x'), (9)
+        // fails
+        for (int r = 0; r < tuples.size(); r++) {
+          List<Expression> tuple = tuples.get(r);
+          if (i < tuple.size() && unwrap(tuple.get(i)) instanceof StringValue) {
+            Object v = rows.get(r).get(names.get(i));
+            rows.get(r).put(names.get(i), Evaluator.cast(Catalog.typeName(common), v));
+          }
         }
       }
     }
-    return any ? plan.withOids(oids) : plan;
+    return plan.withOids(oids);
   }
 
   /**

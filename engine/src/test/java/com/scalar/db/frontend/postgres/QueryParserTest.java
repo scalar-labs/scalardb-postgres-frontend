@@ -186,6 +186,26 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_ValuesColumns_ShouldTakePostgreSqlCommonTypes() throws Exception {
+    // 1 is int4, so its sum is bigint; a NULL takes the typed items' type, quoted literals alone
+    // text
+    assertThat(
+            parser
+                .parse("SELECT g, sum(x) FROM (VALUES (1, 1), (1, 4)) v(g, x) GROUP BY g")
+                .outputOids())
+        .containsExactly(23, 20);
+    assertThat(
+            parser
+                .parse("SELECT * FROM (VALUES (NULL, 'a', 1), (2.5, 'b', 2::int8)) v")
+                .outputOids())
+        .containsExactly(1700, 25, 20);
+    // a quoted literal is read as the column's type
+    assertThatThrownBy(() -> parser.parse("SELECT * FROM (VALUES ('x'), (9)) v"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
+  }
+
+  @Test
   public void parse_DeeplyNestedParentheses_ShouldFailFast() throws Exception {
     // JSQLParser's time grows with the cube of the depth: these ran for minutes unbounded
     for (String sql :
