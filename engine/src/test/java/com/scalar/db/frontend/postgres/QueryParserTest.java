@@ -1943,6 +1943,11 @@ public class QueryParserTest {
         .hasMessageContaining("window \"w\" is already defined");
     assertThat(parser.parse("SELECT count(*) c FROM t GROUP BY id ORDER BY c, id, max(seq)"))
         .isNotNull();
+    assertThatThrownBy(() -> parser.parse("SELECT grouping(id) FROM t"))
+        .hasMessageContaining("arguments to GROUPING must be grouping expressions");
+    assertThatThrownBy(() -> parser.parse("SELECT (SELECT grouping(t.id)) FROM t GROUP BY id"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     // the whole primary key grouped lets the other columns through (functional dependency), and
     // grouped expressions may be reused as a whole
     assertThat(parser.parse("SELECT id, seq, name, price * 2 FROM t GROUP BY id, seq").getWrite())

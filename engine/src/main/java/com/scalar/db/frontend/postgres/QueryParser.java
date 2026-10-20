@@ -5969,7 +5969,7 @@ class QueryParser {
         new ExpressionVisitorAdapter<Void>() {
           @Override
           public <S> Void visit(Function f, S context) {
-            if (Evaluator.isAggregate(f) && f.getParameters() != null) {
+            if ((Evaluator.isAggregate(f) || isGrouping(f)) && f.getParameters() != null) {
               arguments.add(Collections.singletonList(f.getParameters()));
             }
             return super.visit(f, context);
@@ -6288,6 +6288,22 @@ class QueryParser {
         }
       }
     }
+    List<Expression> checked = new ArrayList<>(plan.outputExpressions);
+    if (plan.having != null) {
+      checked.add(plan.having);
+    }
+    for (Expression e : checked) {
+      for (Function g : groupingCalls(e)) {
+        // GROUPING's arguments are this level's grouping expressions, as in PostgreSQL
+        for (Expression a : g.getParameters()) {
+          if (plan.groupBy == null || !grouped(plan).contains(unwrap(a).toString())) {
+            throw new PgException.Argument(
+                "42803",
+                "arguments to GROUPING must be grouping expressions of the associated query level");
+          }
+        }
+      }
+    }
     if (!plan.aggregated) {
       return;
     }
@@ -6298,6 +6314,36 @@ class QueryParser {
     if (plan.having != null) {
       checkGrouped(plan.having, grouped, plan);
     }
+  }
+
+  private static boolean isGrouping(Function f) {
+    return f.getName().equalsIgnoreCase("grouping");
+  }
+
+  /** The GROUPING calls in {@code e}, outside subqueries. */
+  private static List<Function> groupingCalls(Expression e) {
+    List<Function> out = new ArrayList<>();
+    e.accept(
+        new ExpressionVisitorAdapter<Void>() {
+          @Override
+          public <S> Void visit(Function f, S context) {
+            if (isGrouping(f) && f.getParameters() != null) {
+              out.add(f);
+            }
+            return super.visit(f, context);
+          }
+
+          @Override
+          public <S> Void visit(ParenthesedSelect select, S context) {
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select select, S context) {
+            return null;
+          }
+        });
+    return out;
   }
 
   /** The grouping expressions' texts; GROUP BY c1 resolves to the output's (x + y) as written. */

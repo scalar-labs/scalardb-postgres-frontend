@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "102"
 tags: [aggregates, grouping-sets, regress-suite]
@@ -29,9 +29,10 @@ GROUPING()'s arguments belong to the query level of their columns. The frontend 
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: GROUPING's arguments must be grouping expressions of its own query (42803, also with no GROUP BY at all), and a GROUPING of only an outer query's columns is refused with 0A000 (PostgreSQL evaluates it at the outer level, which the frontend does not). groupingsets.sql #56 (wrong) and #67 (accepted) fixed; #49, #55, #61, #62, which gave the right answer by chance (GROUPING 0 under a plain GROUP BY), are now refused too.
