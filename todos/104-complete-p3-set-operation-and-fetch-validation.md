@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "104"
 tags: [validation, regress-suite]
@@ -29,9 +29,10 @@ Statements PostgreSQL rejects run.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: As PostgreSQL: a set operation's ORDER BY names a result column or position (42703 for another name, so a column of a later branch fails; 0A000 for an expression), FOR UPDATE/SHARE on a set operation fails with 0A000, and FETCH ... WITH TIES fails without ORDER BY or with SKIP LOCKED (42601) or with a NULL count (2201W). WITH TIES on a set operation, which was ignored, is refused (0A000). union.sql #34, #106 and limit.sql #72, #73 now SAME (vs PostgreSQL 18).

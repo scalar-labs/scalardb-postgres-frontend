@@ -1943,6 +1943,17 @@ public class QueryParserTest {
         .hasMessageContaining("window \"w\" is already defined");
     assertThat(parser.parse("SELECT count(*) c FROM t GROUP BY id ORDER BY c, id, max(seq)"))
         .isNotNull();
+    // a set operation sorts by a result column's name or position only; WITH TIES needs ORDER BY
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t UNION SELECT seq FROM t ORDER BY seq"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42703"));
+    assertThatThrownBy(
+            () -> parser.parse("SELECT id FROM t UNION SELECT seq FROM t ORDER BY id + 1"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
+    assertThatThrownBy(() -> parser.parse("SELECT id FROM t FETCH FIRST 1 ROW WITH TIES"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42601"));
     assertThatThrownBy(() -> parser.parse("SELECT grouping(id) FROM t"))
         .hasMessageContaining("arguments to GROUPING must be grouping expressions");
     assertThatThrownBy(() -> parser.parse("SELECT (SELECT grouping(t.id)) FROM t GROUP BY id"))

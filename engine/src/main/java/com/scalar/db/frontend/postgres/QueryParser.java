@@ -2826,7 +2826,31 @@ class QueryParser {
       }
       result = Plan.setOf(kind, all, result, terms.get(i + 1));
     }
+    if (set.getForMode() != null
+        || set.getForUpdateTable() != null
+        || set.getSelects().stream().anyMatch(m -> m.getForMode() != null)) {
+      throw new PgException.Argument(
+          "0A000", "FOR UPDATE and FOR SHARE are not allowed with UNION/INTERSECT/EXCEPT");
+    }
+    if (set.getFetch() != null && withTies(set)) {
+      throw new PgException.Argument(
+          "0A000", "Unsupported: FETCH ... WITH TIES on UNION/INTERSECT/EXCEPT");
+    }
     if (set.getOrderByElements() != null) {
+      // as PostgreSQL: a result column's name or position, nothing else
+      for (OrderByElement o : set.getOrderByElements()) {
+        Expression x = unwrap(o.getExpression());
+        if (x instanceof LongValue) {
+          continue;
+        }
+        if (!isColumn(x) || ((net.sf.jsqlparser.schema.Column) x).getTable() != null) {
+          throw new PgException.Argument("0A000", "invalid UNION/INTERSECT/EXCEPT ORDER BY clause");
+        }
+        if (!result.getColumnLabels().contains(columnName(x))) {
+          throw new PgException.Argument(
+              "42703", "column \"" + columnName(x) + "\" does not exist");
+        }
+      }
       result.orderBy = set.getOrderByElements();
     }
     if (set.getLimit() != null && !set.getLimit().isLimitAll()) {
@@ -2842,6 +2866,10 @@ class QueryParser {
       result.offset = intValue(set.getOffset().getOffset(), 0, "OFFSET");
     }
     return result;
+  }
+
+  private static boolean withTies(Select select) {
+    return select.getFetch().toString().toUpperCase(Locale.ROOT).contains("WITH TIES");
   }
 
   /** The rows of a VALUES list; a one-column row parses as a plain parenthesis. */
@@ -3094,7 +3122,19 @@ class QueryParser {
     }
     if (select.getFetch() != null) {
       plan.limit = fetchCount(select.getFetch());
-      plan.withTies = select.getFetch().toString().toUpperCase(Locale.ROOT).contains("WITH TIES");
+      plan.withTies = withTies(select);
+      if (plan.withTies && plan.orderBy.isEmpty()) {
+        throw new PgException.Argument(
+            "42601", "WITH TIES cannot be specified without ORDER BY clause");
+      }
+      if (plan.withTies && select.isSkipLocked()) {
+        throw new PgException.Argument(
+            "42601", "SKIP LOCKED and WITH TIES options cannot be used together");
+      }
+      if (plan.withTies && select.getFetch().getExpression() instanceof NullValue) {
+        throw new PgException.Argument(
+            "2201W", "row count cannot be null in FETCH FIRST ... WITH TIES clause");
+      }
     }
     java.util.function.ToIntFunction<Expression> typeOf = x -> inferOid(x, plan.sources);
     for (SelectItem<?> item : select.getSelectItems()) {
