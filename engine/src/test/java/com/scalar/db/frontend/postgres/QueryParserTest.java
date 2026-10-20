@@ -138,6 +138,25 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_DeeplyNestedParentheses_ShouldFailFast() {
+    // JSQLParser's time grows with the cube of the depth: these ran for minutes unbounded
+    for (String sql :
+        List.of(
+            "SELECT " + "(".repeat(20000) + "1" + ")".repeat(20000) + " + 1",
+            "SELECT 1 FROM " + "(".repeat(20000) + "t" + ")".repeat(20000))) {
+      long start = System.nanoTime();
+      assertThatThrownBy(() -> parser.parse(sql))
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("54001"));
+      assertThat(System.nanoTime() - start).isLessThan(QueryParser.PARSE_BUDGET_NANOS);
+    }
+    // brackets in literals and comments are data, not nesting
+    assertThat(
+            QueryParser.normalize("SELECT '" + "(".repeat(300) + "' /* " + "[".repeat(300) + " */"))
+        .startsWith("SELECT '(((");
+  }
+
+  @Test
   public void parse_SelectWithFullPrimaryKey_ShouldReturnGet() throws Exception {
     assertThat(
             parser

@@ -1218,10 +1218,11 @@ class QueryParser {
       // timeout, which more than doubles the cost of parsing a short statement
       // Complex parsing (more lookahead) is only tried when the simple grammar fails: it costs
       // an order of magnitude more on INSERT ... VALUES
+      long deadline = System.nanoTime() + PARSE_BUDGET_NANOS;
       try {
-        statement = parser(sql).withAllowComplexParsing(false).Statement();
+        statement = parseWithin(parser(sql).withAllowComplexParsing(false), deadline);
       } catch (net.sf.jsqlparser.parser.ParseException e) {
-        statement = parser(sql).withAllowComplexParsing(true).Statement();
+        statement = parseWithin(parser(sql).withAllowComplexParsing(true), deadline);
       }
     } catch (net.sf.jsqlparser.parser.ParseException
         | net.sf.jsqlparser.parser.TokenMgrException e) {
@@ -1231,13 +1232,68 @@ class QueryParser {
     return statement;
   }
 
+  /** How long parsing one statement may run: JSQLParser's lookahead grows exponentially. */
+  static final long PARSE_BUDGET_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+
+  /** Interrupts parsers past their budget; the parsing itself stays on the calling thread. */
+  private static final java.util.concurrent.ScheduledThreadPoolExecutor PARSE_WATCHDOG =
+      parseWatchdog();
+
+  private static java.util.concurrent.ScheduledThreadPoolExecutor parseWatchdog() {
+    java.util.concurrent.ScheduledThreadPoolExecutor e =
+        new java.util.concurrent.ScheduledThreadPoolExecutor(
+            1,
+            r -> {
+              Thread t = new Thread(r, "postgres-frontend-parse-watchdog");
+              t.setDaemon(true);
+              return t;
+            });
+    e.setRemoveOnCancelPolicy(true); // most parses finish long before their deadline
+    return e;
+  }
+
+  /**
+   * Parses with {@code p}, failing with 54001 past {@code deadline} (System.nanoTime()). An
+   * interrupted parser's lookahead gives up, so whatever it returns then is not trusted either.
+   */
+  private static Statement parseWithin(net.sf.jsqlparser.parser.CCJSqlParser p, long deadline)
+      throws net.sf.jsqlparser.parser.ParseException {
+    java.util.concurrent.ScheduledFuture<?> watchdog =
+        PARSE_WATCHDOG.schedule(
+            () -> {
+              p.interrupted = true;
+            },
+            deadline - System.nanoTime(),
+            java.util.concurrent.TimeUnit.NANOSECONDS);
+    try {
+      Statement statement = p.Statement();
+      if (p.interrupted) {
+        throw tooComplex();
+      }
+      return statement;
+    } catch (net.sf.jsqlparser.parser.ParseException
+        | net.sf.jsqlparser.parser.TokenMgrException e) {
+      if (p.interrupted) {
+        throw tooComplex();
+      }
+      throw e;
+    } finally {
+      watchdog.cancel(false);
+    }
+  }
+
+  private static PgException.Argument tooComplex() {
+    return new PgException.Argument("54001", "statement is too complex to parse");
+  }
+
   /** Rewrites PostgreSQL syntax that JSQLParser does not accept. */
   static String normalize(String sql) {
+    int[] depth = {0};
     return parenthesisedJsonOperands(
         outsideLiterals(
             escapeStringQuotes(sql),
             code ->
-                typedEmptyArrays(code)
+                typedEmptyArrays(nestingChecked(code, depth))
                     // no table inheritance here, so FROM ONLY t and FROM t* are just t
                     .replaceAll(
                         "(?i)\\b(FROM|JOIN|UPDATE|INTO|USING|TABLE|,)(\\s+)ONLY\\s+(?=[A-Za-z_\"])",
@@ -1252,6 +1308,25 @@ class QueryParser {
                     .replaceAll(
                         "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
                         "AS \"$1\"")));
+  }
+
+  /**
+   * How deep brackets may nest: JSQLParser's time grows with the cube of the depth (2000 levels
+   * take seconds), and some of its lookahead never checks the parse budget.
+   */
+  static final int MAX_NESTING = 256;
+
+  /** The code, checked that its brackets, with those before it ({@code depth}), nest shallowly. */
+  private static String nestingChecked(String code, int[] depth) {
+    for (int i = 0; i < code.length(); i++) {
+      char c = code.charAt(i);
+      if ((c == '(' || c == '[') && ++depth[0] > MAX_NESTING) {
+        throw tooComplex();
+      } else if (c == ')' || c == ']') {
+        depth[0]--;
+      }
+    }
+    return code;
   }
 
   // ARRAY[] not cast where it is written
