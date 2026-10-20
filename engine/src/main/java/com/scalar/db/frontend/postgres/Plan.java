@@ -179,6 +179,11 @@ final class Plan {
     return mutations;
   }
 
+  /** Whether running the plan writes rows: its own writes, or its data-modifying WITH queries. */
+  boolean writes() {
+    return write != null || mutations != null || mutationBuilder != null || !prelude.isEmpty();
+  }
+
   /** True if this plan can run again with other parameter values, see {@link #rebind}. */
   public boolean isCacheable() {
     return cacheable;

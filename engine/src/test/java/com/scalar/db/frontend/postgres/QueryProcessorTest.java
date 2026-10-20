@@ -473,6 +473,22 @@ public class QueryProcessorTest {
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     verify(transaction).mutate(any()); // still only the first statement's write
+    // a read-only transaction refuses a write whatever the statement's first word
+    processor.execute("START TRANSACTION READ ONLY");
+    assertThatThrownBy(
+            () ->
+                processor.execute(
+                    "WITH i AS (INSERT INTO t (id) VALUES (9) RETURNING id) SELECT id FROM i"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("25006"));
+    processor.execute("ROLLBACK");
+    processor.execute("START TRANSACTION READ ONLY");
+    assertThatThrownBy(
+            () ->
+                processor.execute("WITH s AS (SELECT 9 AS id) INSERT INTO t (id) SELECT id FROM s"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("25006"));
+    processor.execute("ROLLBACK");
   }
 
   @Test

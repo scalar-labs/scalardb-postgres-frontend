@@ -1168,6 +1168,17 @@ public class QueryProcessor {
               : plan(sql, parameters);
       describedSql = null;
       describedPlan = null;
+      if (plan.writes() && !WRITES.contains(firstWord(sql))) {
+        // WITH ... INSERT, or a data-modifying WITH query: the first word, which the read-only
+        // check and the transaction's write tracking go by, did not tell
+        Plan written = plan.prelude.isEmpty() ? plan : plan.prelude.get(0).write;
+        String command = written.commandTag(0).split(" ")[0];
+        checkWritable(command, command);
+        if (inTransaction()) {
+          writes++;
+          onlyInserts = false;
+        }
+      }
       if (!plan.prelude.isEmpty()) {
         return withWrites(plan);
       }
