@@ -1,8 +1,11 @@
 package com.scalar.db.frontend.postgres.server;
 
+import com.scalar.db.api.DistributedTransactionAdmin;
+import com.scalar.db.api.DistributedTransactionManager;
 import com.scalar.db.config.ConfigUtils;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.frontend.postgres.PostgresServer;
+import com.scalar.db.frontend.postgres.Timing;
 import com.scalar.db.service.TransactionFactory;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.FileInputStream;
@@ -68,9 +71,19 @@ public final class Main {
     String listen = properties.getProperty("scalar.db.postgres.listen_address");
     java.net.InetAddress address =
         listen == null ? null : java.net.InetAddress.getByName(listen.trim());
-    PostgresServer server =
-        new PostgresServer(
-            factory.getTransactionManager(), factory.getTransactionAdmin(), port, address);
+    DistributedTransactionManager manager = factory.getTransactionManager();
+    DistributedTransactionAdmin admin = factory.getTransactionAdmin();
+    // scalar.db.postgres.timing_log_interval: seconds between logs of the time spent in ScalarDB
+    // versus in the frontend, for benchmarks; 0 (the default) is off
+    long timing =
+        Long.parseLong(
+            properties.getProperty("scalar.db.postgres.timing_log_interval", "0").trim());
+    if (timing > 0) {
+      manager = Timing.wrap(DistributedTransactionManager.class, manager);
+      admin = Timing.wrap(DistributedTransactionAdmin.class, admin);
+      Timing.start(timing);
+    }
+    PostgresServer server = new PostgresServer(manager, admin, port, address);
     if (!auth.equals("none")) {
       server.setAuthenticator(
           new ClusterAuthenticator(factory.getTransactionAdmin(), auth.equals("oidc_jwt")));

@@ -683,49 +683,57 @@ public final class PostgresServer implements AutoCloseable {
         byte[] body = new byte[length - 4];
         in.readFully(body);
         ByteBuffer msg = ByteBuffer.wrap(body);
-        if (type == 'S') {
-          failed = false;
-          if (implicit) {
-            try {
-              scoped(() -> endImplicit(processor)); // commits, or rolls back after an error
-            } catch (Exception | Error e) {
-              sendError(e);
+        long start = System.nanoTime(); // the whole message, error and ReadyForQuery included
+        try {
+          if (type == 'S') {
+            failed = false;
+            if (implicit) {
+              try {
+                scoped(() -> endImplicit(processor)); // commits, or rolls back after an error
+              } catch (Exception | Error e) {
+                sendError(e);
+              }
+            }
+            readyForQuery(processor);
+            continue;
+          }
+          if (type == 'H') {
+            out.flush();
+            continue;
+          }
+          if ("QPBDECFdcf".indexOf(type) < 0) {
+            // not a PostgreSQL message: as PostgreSQL does, end the session rather than guess
+            fatal("08P01", "invalid frontend message type " + type);
+            return;
+          }
+          if (failed) {
+            continue;
+          }
+          try {
+            scoped(() -> dispatch(processor, type, msg)); // as the session's user, if it has one
+          } catch (Exception | Error e) {
+            // an Error (a stack overflow on deeply nested SQL, a missing class) is reported like
+            // any
+            // failure and the connection goes on, instead of dying with no message to the client
+            String code = sendError(e);
+            processor.fail(); // any error inside a transaction block aborts it, as in PostgreSQL
+            if (code.equals("28000")) {
+              out.flush();
+              return; // the session's credentials are no longer valid: the client reconnects
+            }
+            if (type == 'Q') {
+              readyForQuery(processor);
+            } else {
+              failed = true;
             }
           }
-          readyForQuery(processor);
-          continue;
-        }
-        if (type == 'H') {
-          out.flush();
-          continue;
-        }
-        if ("QPBDECFdcf".indexOf(type) < 0) {
-          // not a PostgreSQL message at all: as PostgreSQL does, end the session rather than guess
-          fatal("08P01", "invalid frontend message type " + type);
-          return;
-        }
-        if (failed) {
-          continue;
-        }
-        try {
-          scoped(() -> dispatch(processor, type, msg)); // as the session's user, if it has one
-        } catch (Exception | Error e) {
-          // an Error (a stack overflow on deeply nested SQL, a missing class) is reported like any
-          // failure and the connection goes on, instead of dying with no message to the client
-          String code = sendError(e);
-          processor.fail(); // any error inside a transaction block aborts it, as in PostgreSQL
-          if (code.equals("28000")) {
-            out.flush();
-            return; // the session's credentials are no longer valid: the client reconnects
-          }
-          if (type == 'Q') {
-            readyForQuery(processor);
-          } else {
-            failed = true;
+          // No flush per message: ReadyForQuery (after a Query or a Sync) and Flush send what is
+          // buffered, as PostgreSQL does, so a pgjdbc Bind/Execute/Sync is answered in one write
+        } finally {
+          if (Timing.enabled) {
+            Timing.handled(start, type == 'Q' || type == 'E');
           }
         }
-        // No flush per message: ReadyForQuery (after a Query or a Sync) and Flush send what is
-        // buffered, as PostgreSQL does, so a pgjdbc Bind/Execute/Sync is answered in one write
       }
     }
 
