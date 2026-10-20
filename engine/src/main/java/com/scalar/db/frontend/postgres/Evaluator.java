@@ -1063,7 +1063,7 @@ final class Evaluator {
   }
 
   /** The upper-cased function name without a {@code pg_catalog.} schema prefix. */
-  private static String functionName(Function f) {
+  static String functionName(Function f) {
     String name = f.getName().toUpperCase(Locale.ROOT);
     return name.substring(name.lastIndexOf('.') + 1);
   }

@@ -1,6 +1,7 @@
 package com.scalar.db.frontend.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
@@ -211,6 +212,28 @@ public class QueryParserTest {
     assertThatThrownBy(() -> parser.parse("SELECT * FROM (VALUES ('x'), (9)) v"))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
+  }
+
+  @Test
+  public void parse_ConstantSubexpressions_ShouldFailWhilePlanningAsPostgreSqlFolds() {
+    // PostgreSQL's planner evaluates them though no row reaches them
+    for (String sql :
+        List.of(
+            "SELECT CASE WHEN id > 100 THEN 1/0 ELSE 0 END FROM t",
+            "SELECT id FROM t WHERE id > 0 AND 1/0 = 1",
+            "SELECT CASE WHEN false THEN 'x'::int END")) {
+      assertThatThrownBy(() -> parser.parse(sql)).as(sql).isInstanceOf(PgException.class);
+    }
+    // but not past the points where its simplifier stops
+    for (String sql :
+        List.of(
+            "SELECT CASE WHEN true THEN 0 ELSE 1/0 END",
+            "SELECT CASE WHEN 1 = 2 THEN 1/0 ELSE 0 END",
+            "SELECT coalesce(1, 1/0)",
+            "SELECT false AND 1/0 = 1",
+            "SELECT 'pg_class'::regclass::oid")) {
+      assertThatCode(() -> parser.parse(sql)).as(sql).doesNotThrowAnyException();
+    }
   }
 
   @Test

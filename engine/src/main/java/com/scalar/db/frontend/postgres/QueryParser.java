@@ -68,6 +68,7 @@ import javax.annotation.Nullable;
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.BooleanValue;
+import net.sf.jsqlparser.expression.CaseExpression;
 import net.sf.jsqlparser.expression.CastExpression;
 import net.sf.jsqlparser.expression.CollateExpression;
 import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
@@ -81,6 +82,7 @@ import net.sf.jsqlparser.expression.NullValue;
 import net.sf.jsqlparser.expression.RowGetExpression;
 import net.sf.jsqlparser.expression.SignedExpression;
 import net.sf.jsqlparser.expression.StringValue;
+import net.sf.jsqlparser.expression.WhenClause;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.relational.ComparisonOperator;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
@@ -3021,6 +3023,215 @@ class QueryParser {
     return false;
   }
 
+  // ---- constant folding: what PostgreSQL's planner evaluates without reading a row ----
+
+  private static final Object NOT_CONSTANT = new Object();
+
+  /**
+   * Fails as PostgreSQL does while planning: its eval_const_expressions evaluates every constant
+   * subexpression of immutable operators and functions, so 1/0 in a CASE arm, or over an empty
+   * table, is an error there though no row reaches it. Nothing is rewritten here: the clauses are
+   * walked, and what PostgreSQL would evaluate is evaluated once to see whether it fails.
+   */
+  private static void foldConstants(PlainSelect select) {
+    if (select.getSelectItems() != null) {
+      for (SelectItem<?> item : select.getSelectItems()) {
+        fold(item.getExpression(), true);
+      }
+    }
+    fold(select.getWhere(), true);
+    fold(select.getHaving(), true);
+    if (select.getGroupBy() != null && select.getGroupBy().getGroupByExpressionList() != null) {
+      for (Object e : select.getGroupBy().getGroupByExpressionList()) {
+        fold((Expression) e, true);
+      }
+    }
+    if (select.getOrderByElements() != null) {
+      for (OrderByElement o : select.getOrderByElements()) {
+        fold(o.getExpression(), true);
+      }
+    }
+    if (select.getJoins() != null) {
+      for (Join j : select.getJoins()) {
+        for (Expression on : j.getOnExpressions()) {
+          fold(on, true);
+        }
+      }
+    }
+  }
+
+  /**
+   * A constant subexpression's value, or NOT_CONSTANT. As PostgreSQL's simplifier: a CASE stops at
+   * a WHEN that folds to true and skips an arm whose WHEN folds to false, COALESCE stops at a
+   * non-null constant, AND at false and OR at true; below such a stop ({@code live} false) only a
+   * quoted literal's cast, which PostgreSQL reads while parsing, is evaluated.
+   */
+  @Nullable private static Object fold(@Nullable Expression e, boolean live) {
+    if (e == null) {
+      return NOT_CONSTANT;
+    }
+    e = unwrap(e);
+    if (e instanceof CastExpression
+        && ((CastExpression) e)
+            .getColDataType()
+            .getDataType()
+            .toLowerCase(Locale.ROOT)
+            .startsWith("reg")) {
+      return NOT_CONSTANT; // 'pg_class'::regclass reads the catalog, which planning has not got
+    }
+    if (e instanceof CastExpression
+        && unwrap(((CastExpression) e).getLeftExpression()) instanceof StringValue) {
+      Object v = evaluated(e);
+      return live ? v : NOT_CONSTANT;
+    }
+    if (!live) {
+      for (Expression c : foldChildren(e)) {
+        fold(c, false);
+      }
+      return NOT_CONSTANT;
+    }
+    if (e instanceof LongValue
+        || e instanceof DoubleValue
+        || e instanceof StringValue
+        || e instanceof NullValue
+        || e instanceof BooleanValue
+        || (isColumn(e) && isBooleanLiteral(columnName(e)))) {
+      return evaluated(e);
+    }
+    if (e instanceof AndExpression
+        || e instanceof net.sf.jsqlparser.expression.operators.conditional.OrExpression) {
+      Boolean stop = e instanceof AndExpression ? Boolean.FALSE : Boolean.TRUE;
+      BinaryExpression b = (BinaryExpression) e;
+      Object left = fold(b.getLeftExpression(), true);
+      if (stop.equals(left)) {
+        fold(b.getRightExpression(), false);
+        return stop;
+      }
+      Object right = fold(b.getRightExpression(), true);
+      return left != NOT_CONSTANT && right != NOT_CONSTANT ? evaluated(e) : NOT_CONSTANT;
+    }
+    if (e instanceof CaseExpression) {
+      CaseExpression c = (CaseExpression) e;
+      Object subject = c.getSwitchExpression() == null ? null : fold(c.getSwitchExpression(), true);
+      boolean decided = false;
+      for (WhenClause w : c.getWhenClauses()) {
+        if (decided) {
+          fold(w.getWhenExpression(), false);
+          fold(w.getThenExpression(), false);
+          continue;
+        }
+        Object test = fold(w.getWhenExpression(), true);
+        if (c.getSwitchExpression() != null && test != NOT_CONSTANT) {
+          test =
+              subject == NOT_CONSTANT
+                  ? NOT_CONSTANT
+                  : evaluated(new EqualsTo(c.getSwitchExpression(), w.getWhenExpression()));
+        }
+        if (test == NOT_CONSTANT) {
+          fold(w.getThenExpression(), true);
+        } else if (Boolean.TRUE.equals(test)) {
+          fold(w.getThenExpression(), true);
+          decided = true;
+        } else {
+          fold(w.getThenExpression(), false); // an arm that can never be taken is dropped unread
+        }
+      }
+      fold(c.getElseExpression(), !decided);
+      return NOT_CONSTANT;
+    }
+    if (e instanceof Function) {
+      Function f = (Function) e;
+      String name = Evaluator.functionName(f);
+      List<Expression> args = foldChildren(e);
+      if (name.equals("COALESCE")) {
+        boolean stop = false;
+        for (Expression a : args) {
+          Object v = fold(a, !stop);
+          stop |= v != NOT_CONSTANT && v != null;
+        }
+        return NOT_CONSTANT;
+      }
+      boolean constant = f.getParameters() != null || args.isEmpty();
+      for (Expression a : args) {
+        constant &= fold(a, true) != NOT_CONSTANT;
+      }
+      List<Builtins.Function> overloads = Builtins.overloads(name);
+      boolean immutable =
+          !overloads.isEmpty()
+              && overloads.stream().allMatch(o -> "i".equals(o.row.get("provolatile")))
+              && !Evaluator.isAggregateName(name)
+              && !args.isEmpty();
+      return constant && immutable ? evaluated(e) : NOT_CONSTANT;
+    }
+    if (e instanceof BinaryExpression
+        || e instanceof net.sf.jsqlparser.expression.NotExpression
+        || e instanceof SignedExpression
+        || e instanceof CastExpression
+        || e instanceof IsNullExpression) {
+      boolean constant = true;
+      for (Expression c : foldChildren(e)) {
+        constant &= fold(c, true) != NOT_CONSTANT;
+      }
+      return constant ? evaluated(e) : NOT_CONSTANT;
+    }
+    return NOT_CONSTANT; // a column, a parameter, a subquery (folded when it is planned), ...
+  }
+
+  /** The subexpressions the folding walks into; none for kinds it does not know. */
+  private static List<Expression> foldChildren(Expression e) {
+    List<Expression> out = new ArrayList<>();
+    if (e instanceof BinaryExpression) {
+      out.add(((BinaryExpression) e).getLeftExpression());
+      out.add(((BinaryExpression) e).getRightExpression());
+    } else if (e instanceof net.sf.jsqlparser.expression.NotExpression) {
+      out.add(((net.sf.jsqlparser.expression.NotExpression) e).getExpression());
+    } else if (e instanceof SignedExpression) {
+      out.add(((SignedExpression) e).getExpression());
+    } else if (e instanceof CastExpression) {
+      out.add(((CastExpression) e).getLeftExpression());
+    } else if (e instanceof IsNullExpression) {
+      out.add(((IsNullExpression) e).getLeftExpression());
+    } else if (e instanceof Function && ((Function) e).getParameters() != null) {
+      for (Object p : ((Function) e).getParameters()) {
+        out.add((Expression) p);
+      }
+    } else if (e instanceof CaseExpression) {
+      CaseExpression c = (CaseExpression) e;
+      if (c.getSwitchExpression() != null) {
+        out.add(c.getSwitchExpression());
+      }
+      for (WhenClause w : c.getWhenClauses()) {
+        out.add(w.getWhenExpression());
+        out.add(w.getThenExpression());
+      }
+      if (c.getElseExpression() != null) {
+        out.add(c.getElseExpression());
+      }
+    }
+    out.removeIf(java.util.Objects::isNull);
+    return out;
+  }
+
+  /**
+   * A constant expression's value while planning. PostgreSQL's errors (and overflow) are the
+   * statement's, as PostgreSQL's planner raises them; anything else this cannot evaluate without a
+   * row or a catalog only means it is not treated as constant.
+   */
+  @Nullable private static Object evaluated(Expression e) {
+    try {
+      return Evaluator.eval(e, Collections.<Map<String, Object>>emptyList(), literalContext());
+    } catch (PgException.Argument failure) {
+      if (failure.sqlState().startsWith("22")) {
+        throw failure; // a data exception: division by zero, out of range, invalid input, ...
+      }
+      return NOT_CONSTANT; // unsupported here, say: no reason to fail a statement over it
+    } catch (ArithmeticException overflow) {
+      throw overflow;
+    } catch (RuntimeException unknown) {
+      return NOT_CONSTANT;
+    }
+  }
+
   /** A common table expression in scope, with the CTEs its own query may reference. */
   private static final class Cte {
     final WithItem<?> item;
@@ -3270,6 +3481,7 @@ class QueryParser {
    */
   private LogicalPlan bind(PlainSelect select, @Nullable Scope outer) throws ExecutionException {
     checkCommaJoins(select);
+    foldConstants(select);
     LogicalPlan plan = new LogicalPlan();
     List<Join> joinNodes = select.getJoins() == null ? Collections.emptyList() : select.getJoins();
     List<FromItem> fromItems = new ArrayList<>();
@@ -3870,6 +4082,24 @@ class QueryParser {
                   b.getStringExpression().trim(), l == 0 ? r : l, r == 0 ? l : r);
       if (result != 0) {
         return (int) result; // the operator PostgreSQL would choose (Builtins)
+      }
+      if (l != 0
+          && r != 0
+          && (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Addition
+              || e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Subtraction
+              || e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Multiplication
+              || e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Division
+              || e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Modulo)) {
+        // both types known and no such operator: PostgreSQL fails while planning, even over no
+        // rows (time + time), where evaluating would fail only on the first row
+        throw new PgException.Argument(
+            "42883",
+            "operator does not exist: "
+                + Catalog.typeName(l)
+                + " "
+                + b.getStringExpression().trim()
+                + " "
+                + Catalog.typeName(r));
       }
     }
     if (e instanceof net.sf.jsqlparser.expression.operators.arithmetic.Concat) {
