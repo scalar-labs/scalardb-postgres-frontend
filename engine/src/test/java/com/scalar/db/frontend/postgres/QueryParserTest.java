@@ -1450,7 +1450,11 @@ public class QueryParserTest {
           {"SELECT power(2.0, '3')", "0A000"},
           {"SELECT 1 WHERE 1 IN (SELECT '1'::text)", "42883"},
           {"SELECT ('{}'::int[])[1][1][1][1][1][1][1]", "54000"},
-          {"SELECT interval '1 day' * 'NaN'::float8", "22008"}
+          {"SELECT interval '1 day' * 'NaN'::float8", "22008"},
+          // a condition is boolean: no truth value for a number (found by SQLancer's TLP)
+          {"SELECT 1 WHERE 0.5::real", "42804"},
+          {"SELECT true AND 2", "42804"},
+          {"SELECT 0.5::float8::boolean", "42846"}
         }) {
       assertThatThrownBy(() -> parser.parse(bad[0]).execute(transaction))
           .as(bad[0])

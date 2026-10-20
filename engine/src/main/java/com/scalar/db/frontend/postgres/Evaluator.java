@@ -925,7 +925,23 @@ final class Evaluator {
   }
 
   static boolean isTrue(@Nullable Object value) {
-    return Boolean.TRUE.equals(value);
+    return Boolean.TRUE.equals(condition(value));
+  }
+
+  /**
+   * A value used as a condition (WHERE, AND, OR, NOT, CASE WHEN, ...): a boolean or NULL, as
+   * PostgreSQL requires; a quoted 't' is boolean input. Anything else fails with 42804 rather than
+   * being given a truth value of its own.
+   */
+  @Nullable static Boolean condition(@Nullable Object v) {
+    if (v == null || v instanceof Boolean) {
+      return (Boolean) v;
+    }
+    if (v instanceof String) {
+      return parseBoolean((String) v);
+    }
+    throw new PgException.Argument(
+        "42804", "argument must be type boolean, not type " + pgTypeName(v));
   }
 
   static boolean isAggregate(Function f) {
@@ -1281,26 +1297,26 @@ final class Evaluator {
       return empty == exists.isNot();
     }
     if (e instanceof NotExpression) {
-      Object v = eval(((NotExpression) e).getExpression(), group, ctx);
-      return v == null ? null : !isTrue(v);
+      Boolean v = condition(eval(((NotExpression) e).getExpression(), group, ctx));
+      return v == null ? null : !v;
     }
     if (e instanceof AndExpression) {
-      Object l = eval(((AndExpression) e).getLeftExpression(), group, ctx);
+      Boolean l = condition(eval(((AndExpression) e).getLeftExpression(), group, ctx));
       if (Boolean.FALSE.equals(l)) {
         return false; // b <> 0 AND a / b > 1 must not divide by zero
       }
-      Object r = eval(((AndExpression) e).getRightExpression(), group, ctx);
+      Boolean r = condition(eval(((AndExpression) e).getRightExpression(), group, ctx));
       if (Boolean.FALSE.equals(l) || Boolean.FALSE.equals(r)) {
         return false;
       }
       return l == null || r == null ? null : Boolean.TRUE;
     }
     if (e instanceof OrExpression) {
-      Object l = eval(((OrExpression) e).getLeftExpression(), group, ctx);
+      Boolean l = condition(eval(((OrExpression) e).getLeftExpression(), group, ctx));
       if (isTrue(l)) {
         return true;
       }
-      Object r = eval(((OrExpression) e).getRightExpression(), group, ctx);
+      Boolean r = condition(eval(((OrExpression) e).getRightExpression(), group, ctx));
       if (isTrue(l) || isTrue(r)) {
         return true;
       }
@@ -1313,7 +1329,7 @@ final class Evaluator {
     if (e instanceof IsBooleanExpression) {
       IsBooleanExpression b = (IsBooleanExpression) e;
       Object v = eval(b.getLeftExpression(), group, ctx);
-      boolean matches = b.isTrue() ? Boolean.TRUE.equals(v) : Boolean.FALSE.equals(v);
+      boolean matches = b.isTrue() ? isTrue(v) : Boolean.FALSE.equals(condition(v));
       return matches != b.isNot();
     }
     if (e instanceof LikeExpression) {
@@ -2373,7 +2389,7 @@ final class Evaluator {
     if (v instanceof ByteBuffer) {
       return "bytea";
     }
-    return v instanceof Number ? "numeric" : "text";
+    return v instanceof Number ? numericTypeName(v) : "text";
   }
 
   private static Object now(String keyword) {
@@ -3584,9 +3600,14 @@ final class Evaluator {
         return bpchar ? TRAILING_SPACES.matcher(out).replaceFirst("") : out;
       }
       if (t.equals("boolean") || t.equals("bool")) {
+        if (v instanceof Number && !isIntegral(v)) {
+          // PostgreSQL casts only integer to boolean
+          throw new PgException.Argument(
+              "42846", "cannot cast type " + pgTypeName(v) + " to boolean");
+        }
         return v instanceof Boolean
             ? v
-            : v instanceof Number ? ((Number) v).intValue() != 0 : parseBoolean(s);
+            : v instanceof Number ? ((Number) v).longValue() != 0 : parseBoolean(s);
       }
       if (t.equals("date")) {
         return v instanceof LocalDate
