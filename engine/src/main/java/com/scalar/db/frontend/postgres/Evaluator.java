@@ -2024,6 +2024,21 @@ final class Evaluator {
     return result;
   }
 
+  // ponytail: these functions compute with BigDecimal, quadratic in the digits where PostgreSQL's
+  // arithmetic is not (log of a 16000-digit number took a minute); longer arguments are refused
+  private static final int MAX_NUMERIC_DIGITS = 2000;
+
+  /** {@code x}, unless written out in full it takes more than MAX_NUMERIC_DIGITS digits. */
+  private static BigDecimal bounded(BigDecimal x, String function) {
+    long digits = Math.max(x.precision(), Math.max(x.precision() - (long) x.scale(), x.scale()));
+    if (digits > MAX_NUMERIC_DIGITS) {
+      throw new PgException.Argument(
+          "54000",
+          "numeric argument of " + function + " longer than " + MAX_NUMERIC_DIGITS + " digits");
+    }
+    return x;
+  }
+
   // numeric.c: NUMERIC_MIN_SIG_DIGITS and NUMERIC_MAX_DISPLAY_SCALE
   private static final int MIN_SIG_DIGITS = 16;
   private static final int MAX_DISPLAY_SCALE = 1000;
@@ -2040,6 +2055,7 @@ final class Evaluator {
    * and rounded once, as PostgreSQL's ln_var does with its guard digits.
    */
   static BigDecimal numericLn(BigDecimal x) {
+    bounded(x, "ln");
     checkLogArgument(x.signum());
     int rscale = resultScale(MIN_SIG_DIGITS - lnDweight(x), x);
     return ln(x, rscale + 30).setScale(rscale, RoundingMode.HALF_UP);
@@ -2047,6 +2063,8 @@ final class Evaluator {
 
   /** numeric_log: log_base(x), at log_var's scale: ln(x) / ln(base), rounded once. */
   static BigDecimal numericLog(BigDecimal base, BigDecimal x) {
+    bounded(base, "log");
+    bounded(x, "log");
     checkLogArgument(base.signum());
     checkLogArgument(x.signum());
     int baseDweight = lnDweight(base);
@@ -2066,7 +2084,7 @@ final class Evaluator {
 
   /** numeric_exp: e^x at PostgreSQL's scale, and its overflow and underflow. */
   static BigDecimal numericExp(BigDecimal x) {
-    double val = x.doubleValue();
+    double val = bounded(x, "exp").doubleValue();
     double weight = Math.max(-2000, Math.min(val * 0.434294481903252, 2000));
     int rscale = resultScale(MIN_SIG_DIGITS - (int) weight, x);
     if (Math.abs(val) >= 6000) { // exp_var's limit
@@ -2080,8 +2098,9 @@ final class Evaluator {
     for (double v = val; Math.abs(v) > 0.01; v /= 2) {
       halvings++;
     }
-    java.math.MathContext mc =
-        new java.math.MathContext(Math.max(0, (int) weight) + rscale + 30 + halvings);
+    // the result's own weight, not the one clamped for the scale: e^5999 has 2606 integer digits
+    int digits = Math.max(0, (int) (val * 0.434294481903252)) + rscale + 30 + halvings;
+    java.math.MathContext mc = new java.math.MathContext(digits);
     BigDecimal r = x.divide(BigDecimal.valueOf(2).pow(halvings)); // exact: a power of two
     BigDecimal sum = BigDecimal.ONE;
     BigDecimal term = BigDecimal.ONE;
@@ -2190,6 +2209,9 @@ final class Evaluator {
   /** width_bucket_numeric: the bucket by exact floor division. */
   private static int widthBucket(BigDecimal operand, BigDecimal low, BigDecimal high, int count) {
     checkBucketArguments(count, false);
+    bounded(operand, "width_bucket");
+    bounded(low, "width_bucket");
+    bounded(high, "width_bucket");
     int order = low.compareTo(high);
     if (order == 0) {
       throw new PgException.Argument("2201G", "lower bound cannot equal upper bound");
@@ -4472,12 +4494,29 @@ final class Evaluator {
           if (s.isEmpty()) {
             return fields;
           }
-          if (arg(args, 1) == null) {
+          String delimiter = arg(args, 1) == null ? null : str(args, 1);
+          // counted before splitting: a field is an object here, far more than its characters
+          long count = 1;
+          if (delimiter == null) {
+            count = s.codePointCount(0, s.length());
+          } else if (!delimiter.isEmpty()) {
+            for (int at = s.indexOf(delimiter);
+                at >= 0;
+                at = s.indexOf(delimiter, at + delimiter.length())) {
+              count++;
+            }
+          }
+          if (count > QueryParser.MAX_SERIES_ROWS) {
+            throw new PgException.Argument(
+                "54000",
+                "string_to_array makes more than " + QueryParser.MAX_SERIES_ROWS + " fields");
+          }
+          if (delimiter == null) {
             s.codePoints().forEach(c -> fields.add(new String(Character.toChars(c))));
-          } else if (str(args, 1).isEmpty()) {
+          } else if (delimiter.isEmpty()) {
             fields.add(s);
           } else {
-            fields.addAll(Arrays.asList(s.split(Pattern.quote(str(args, 1)), -1)));
+            fields.addAll(Arrays.asList(s.split(Pattern.quote(delimiter), -1)));
           }
           if (args.size() > 2 && arg(args, 2) != null) {
             String nullString = str(args, 2);
@@ -5571,7 +5610,7 @@ final class Evaluator {
       if (!isFinite(v)) {
         return v; // numeric NaN or infinity: NaN out, as PostgreSQL gives
       }
-      BigDecimal x = toDecimal(v);
+      BigDecimal x = bounded(toDecimal(v), "stddev and variance");
       sumX = sumX.add(x);
       sumX2 = sumX2.add(x.multiply(x));
     }
