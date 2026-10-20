@@ -683,7 +683,8 @@ public final class PostgresServer implements AutoCloseable {
         byte[] body = new byte[length - 4];
         in.readFully(body);
         ByteBuffer msg = ByteBuffer.wrap(body);
-        long start = System.nanoTime(); // the whole message, error and ReadyForQuery included
+        // the whole message, error and ReadyForQuery included; no clock read when timing is off
+        long start = Timing.enabled ? System.nanoTime() : 0;
         try {
           if (type == 'S') {
             failed = false;
