@@ -3873,6 +3873,9 @@ final class Evaluator {
       case "STRPOS":
         {
           String s = str(args, 0);
+          if (s.isEmpty() && bitLiterals(f)) {
+            return 0L; // bitposition: nothing is found in an empty bit string, not even B''
+          }
           int at = s.indexOf(str(args, 1));
           return at < 0 ? 0L : (long) s.codePointCount(0, at) + 1; // in characters, not UTF-16
         }
@@ -4454,6 +4457,23 @@ final class Evaluator {
           "function does not exist: argument " + (i + 1) + " is " + typeLabel(v) + ", not text");
     }
     return text(v);
+  }
+
+  /** Whether a call's arguments are bit-string literals (B'...'), the only bit strings here. */
+  private static boolean bitLiterals(Function f) {
+    List<?> params =
+        f.getParameters() != null
+            ? f.getParameters()
+            : f.getNamedParameters() != null
+                ? f.getNamedParameters().getExpressions()
+                : Collections.emptyList();
+    return params.stream()
+        .anyMatch(
+            p ->
+                QueryParser.unwrap((Expression) p) instanceof StringValue
+                    && "B"
+                        .equalsIgnoreCase(
+                            ((StringValue) QueryParser.unwrap((Expression) p)).getPrefix()));
   }
 
   /** A value's type for an error message. */

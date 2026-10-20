@@ -1790,6 +1790,12 @@ public class QueryParserTest {
     }
     assertThat(parser.parse("SELECT 3 || 'a' AS a WHERE 1 = '1'").execute(transaction))
         .containsExactly(map("a", "3a"));
+    // a bit-string literal holds only binary digits, and nothing is in an empty one
+    assertThatThrownBy(() -> parser.parse("SELECT b'12'").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22P02"));
+    assertThat(parser.parse("SELECT position(B'' IN B'') AS p").execute(transaction))
+        .containsExactly(map("p", 0L));
     // "char" is one byte: \\ooo or the first byte, written \\ooo past ASCII
     assertThat(
             parser

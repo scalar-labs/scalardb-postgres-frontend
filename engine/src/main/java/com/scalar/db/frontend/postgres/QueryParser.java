@@ -6763,6 +6763,13 @@ class QueryParser {
   /** A string literal's value: doubled quotes undone, and C-style escapes in an {@code E'...'}. */
   static String stringLiteral(StringValue s) {
     String v = s.getNotExcapedValue();
+    if ("B".equalsIgnoreCase(s.getPrefix())) {
+      for (char c : v.toCharArray()) {
+        if (c != '0' && c != '1') {
+          throw new PgException.Argument("22P02", "\"" + c + "\" is not a valid binary digit");
+        }
+      }
+    }
     return "E".equalsIgnoreCase(s.getPrefix()) ? unescape(v) : v;
   }
 
