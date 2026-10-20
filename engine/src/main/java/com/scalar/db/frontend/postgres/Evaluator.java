@@ -3038,10 +3038,13 @@ final class Evaluator {
 
   /** An INT value, or an integer literal small enough to be int4 in PostgreSQL. */
   private static boolean isInt(Object v, Expression e) {
+    e = QueryParser.unwrap(e); // (1) is the int4 literal 1
     if (e instanceof SignedExpression
-        && ((SignedExpression) e).getExpression() instanceof LongValue) {
+        && QueryParser.unwrap(((SignedExpression) e).getExpression()) instanceof LongValue) {
       // -2147483648 is an int4 literal too
-      BigInteger n = ((LongValue) ((SignedExpression) e).getExpression()).getBigIntegerValue();
+      BigInteger n =
+          ((LongValue) QueryParser.unwrap(((SignedExpression) e).getExpression()))
+              .getBigIntegerValue();
       return (((SignedExpression) e).getSign() == '-' ? n.negate() : n).bitLength() < 32;
     }
     return v instanceof Integer

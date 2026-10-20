@@ -1512,6 +1512,27 @@ class QueryParser {
       } else if (e instanceof CollateExpression) {
         Evaluator.checkCollation(((CollateExpression) e).getCollate());
         e = ((CollateExpression) e).getLeftExpression();
+        Expression collated = unwrap(e);
+        if (collated instanceof ComparisonOperator
+            || collated instanceof net.sf.jsqlparser.expression.operators.conditional.AndExpression
+            || collated instanceof net.sf.jsqlparser.expression.operators.conditional.OrExpression
+            || collated instanceof net.sf.jsqlparser.expression.NotExpression
+            || collated instanceof IsNullExpression
+            || collated instanceof InExpression
+            || collated instanceof LikeExpression
+            || collated
+                instanceof net.sf.jsqlparser.expression.operators.relational.ExistsExpression
+            || collated instanceof BooleanValue
+            || collated instanceof LongValue
+            || collated instanceof DoubleValue) {
+          // only text has a collation: (a = b) COLLATE "C" is 42804 in PostgreSQL
+          throw new PgException.Argument(
+              "42804",
+              "collations are not supported by type "
+                  + (collated instanceof LongValue
+                      ? "integer"
+                      : collated instanceof DoubleValue ? "numeric" : "boolean"));
+        }
       } else if (e instanceof RowGetExpression
           && ((RowGetExpression) e).getExpression() instanceof CollateExpression) {
         // JSQLParser reads COLLATE pg_catalog.default after ~ as (x COLLATE pg_catalog).default

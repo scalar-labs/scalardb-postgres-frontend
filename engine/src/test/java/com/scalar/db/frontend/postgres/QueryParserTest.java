@@ -1458,13 +1458,17 @@ public class QueryParserTest {
           {"SELECT 0.5::float8::boolean", "42846"},
           {"SELECT 1 WHERE 'x'::text", "42804"},
           // an aggregate not implemented must not run as a function (none over no rows)
-          {"SELECT bit_or(id) FROM t WHERE false", "0A000"}
+          {"SELECT bit_or(id) FROM t WHERE false", "0A000"},
+          // int4 arithmetic overflows also through parentheses; no collation on a boolean
+          {"SELECT 1 WHERE (1 = 1) COLLATE \"C\"", "42804"}
         }) {
       assertThatThrownBy(() -> parser.parse(bad[0]).execute(transaction))
           .as(bad[0])
           .isInstanceOfSatisfying(
               PgException.class, e -> assertThat(e.sqlState()).isEqualTo(bad[1]));
     }
+    assertThatThrownBy(() -> parser.parse("SELECT (2147483647) + (1)").execute(transaction))
+        .hasMessageContaining("integer out of range"); // int4 through parentheses too
     // under the C collation (BINARY), upper() and lower() change only ASCII letters
     assertThat(parser.parse("SELECT lower('ÄBC') AS l, upper('äbc') AS u").execute(transaction))
         .containsExactly(map("l", "Äbc", "u", "äBC"));
