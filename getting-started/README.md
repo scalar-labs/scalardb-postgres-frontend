@@ -61,7 +61,6 @@ The same file takes the frontend's own settings, all optional:
 | `scalar.db.postgres.max_connections` | `100` | Sessions at once; one more is refused with `53300`, as in PostgreSQL |
 | `scalar.db.postgres.max_rows_per_write_ceiling` | none | The most a client may raise `scalardb.max_rows_per_write` to; `0` (no cap) and higher values are refused with `42501` |
 | `scalar.db.postgres.allow_drop_coordinator_tables` | `false` | Let any session run `DROP COORDINATOR TABLES`; otherwise only a Cluster superuser may (`42501`) |
-| `scalar.db.postgres.max_lookup_threads` | `100` | Threads all sessions share for a join's reads by key, up to 16 per join; when all are busy, a session reads on its own thread. Keep it under ScalarDB's connection pool (`scalar.db.jdbc.connection_pool.max_total`, 200) |
 | `scalar.db.postgres.max_rows_in_memory` | `1000000` | Rows one sort, aggregate, window or join side may hold; past it the statement fails with `54000` |
 | `scalar.db.postgres.auth` | `none` | `userpass` or `oidc_jwt` to log in as Cluster users: see [Connect as a user](#connect-as-a-user) |
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | none | PEM certificate chain and key, to accept TLS |

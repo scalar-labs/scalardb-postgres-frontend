@@ -18,6 +18,7 @@ import com.scalar.db.api.Delete;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
+import com.scalar.db.api.Get;
 import com.scalar.db.api.Result;
 import com.scalar.db.api.Scan;
 import com.scalar.db.api.TableMetadata;
@@ -48,6 +49,7 @@ public class QueryProcessorTest {
     manager = mock(DistributedTransactionManager.class);
     transaction = mock(DistributedTransaction.class);
     when(manager.begin()).thenReturn(transaction);
+    when(manager.beginReadOnly()).thenReturn(transaction); // an auto-commit read
     TestScanners.stub(transaction);
     TestScanners.stub(manager);
     DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
@@ -112,6 +114,42 @@ public class QueryProcessorTest {
                     .condition(ConditionBuilder.deleteIfExists())
                     .build()));
     verify(manager, never()).begin();
+  }
+
+  private static Result row(int id) {
+    return new ResultImpl(Collections.singletonMap("id", IntColumn.of("id", id)), METADATA);
+  }
+
+  @Test
+  public void autoCommitRead_ShouldRunInOneTransactionOfItsOwn() throws Exception {
+    // every read of a statement outside BEGIN, a join's lookups included, in one transaction, so
+    // the isolation level covers the statement as a whole
+    when(transaction.scan(any())).thenReturn(Arrays.asList(row(1), row(2)));
+    when(transaction.get(any()))
+        .thenAnswer(
+            invocation ->
+                java.util.Optional.of(
+                    row(((Get) invocation.getArgument(0)).getPartitionKey().getIntValue(0))));
+    assertThat(processor.execute("SELECT a.id FROM t a JOIN t b ON b.id = a.id")).hasSize(2);
+    verify(manager).beginReadOnly();
+    verify(transaction).commit();
+    verify(manager, never()).scan(any());
+    verify(manager, never()).get(any());
+
+    // a statement that reads no table begins no transaction
+    processor.execute("SELECT 1");
+    verify(manager).beginReadOnly();
+
+    // a failed commit (SERIALIZABLE's validation) fails the statement
+    doThrow(new CommitConflictException("conflict", "tx")).when(transaction).commit();
+    assertThatThrownBy(() -> processor.execute("SELECT id FROM t"))
+        .isInstanceOf(CommitConflictException.class);
+
+    // rows the client stops reading early roll the transaction back
+    clearInvocations(transaction);
+    processor.open("SELECT id FROM t").close();
+    verify(transaction).rollback();
+    verify(transaction, never()).commit();
   }
 
   @Test
@@ -689,7 +727,7 @@ public class QueryProcessorTest {
   public void plan_AfterAnotherSessionsDdl_ShouldReadTheTableAgain() throws Exception {
     DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
     when(admin.getTableMetadata("ns", "t")).thenReturn(METADATA);
-    when(manager.scan(any())).thenReturn(Collections.emptyList());
+    when(transaction.scan(any())).thenReturn(Collections.emptyList());
     QueryProcessor a = new QueryProcessor(manager, admin, "ns");
     QueryProcessor b = new QueryProcessor(manager, admin, "ns");
     a.execute("SELECT * FROM t");
@@ -707,7 +745,7 @@ public class QueryProcessorTest {
     TableMetadata renamed =
         TableMetadata.newBuilder().addColumn("key", DataType.INT).addPartitionKey("key").build();
     when(admin.getTableMetadata("ns", "t")).thenReturn(METADATA);
-    when(manager.scan(any())).thenReturn(Collections.emptyList());
+    when(transaction.scan(any())).thenReturn(Collections.emptyList());
     QueryProcessor a = new QueryProcessor(manager, admin, "ns");
     a.execute("SELECT id FROM t");
     when(admin.getTableMetadata("ns", "t")).thenReturn(renamed); // RENAME COLUMN in another process

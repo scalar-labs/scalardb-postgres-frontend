@@ -428,15 +428,6 @@ final class Plan {
    * @return the number of rows written
    */
   public <E extends TransactionException> int executeWrite(CrudOperable<E> crud, int cap) throws E {
-    return executeWrite(crud, cap, null);
-  }
-
-  /**
-   * As {@link #executeWrite(CrudOperable, int)}, with the session's identity, which reads issued
-   * from other threads enter; the calling thread is inside it already.
-   */
-  public <E extends TransactionException> int executeWrite(
-      CrudOperable<E> crud, int cap, @Nullable Authenticator.Identity identity) throws E {
     if (write == null) {
       throw new IllegalStateException("Not a read-then-write statement");
     }
@@ -446,7 +437,7 @@ final class Plan {
     List<Map<String, Object>> left = new ArrayList<>();
     try {
       // The driving rows are read fully first so the mutator's own reads see no open scanner
-      try (Cursor rows = write.read.open(crud, identity)) {
+      try (Cursor rows = write.read.open(crud)) {
         for (Map<String, Object> row = rows.next(); row != null; row = rows.next()) {
           if (cap > 0 && driving.size() >= cap) {
             throw new PgException.Argument(
@@ -460,7 +451,7 @@ final class Plan {
           driving.add(row);
         }
       }
-      Reader reader = reader(crud, identity, columnMaps);
+      Reader reader = reader(crud, columnMaps);
       for (Map<String, Object> row : driving) {
         Effect effect = write.mutator.apply(row, reader);
         if (effect != null) {
@@ -507,9 +498,7 @@ final class Plan {
 
   /** Reads through {@code crud}, wrapping its failures in {@link ReadFailure}. */
   private static <E extends TransactionException> Reader reader(
-      CrudOperable<E> crud,
-      @Nullable Authenticator.Identity identity,
-      Map<String, ColumnMap> columnMaps) {
+      CrudOperable<E> crud, Map<String, ColumnMap> columnMaps) {
     return new Reader() {
       @Nullable @Override
       public ColumnMap columnMap(Operation operation) {
@@ -522,19 +511,8 @@ final class Plan {
         return map == null ? operation : map.checked(operation);
       }
 
-      @Nullable @Override
-      public Authenticator.Identity identity() {
-        return identity;
-      }
-
       private final java.util.concurrent.atomic.AtomicLong reads =
           new java.util.concurrent.atomic.AtomicLong();
-
-      @Override
-      public boolean concurrent() {
-        // The manager runs each read as its own transaction; a transaction is not thread-safe
-        return crud instanceof com.scalar.db.api.DistributedTransactionManager;
-      }
 
       @Override
       public long reads() {
@@ -869,18 +847,9 @@ final class Plan {
    * @return the row stream; empty for DML
    */
   public <E extends TransactionException> Cursor open(CrudOperable<E> crud) throws E {
-    return open(crud, null);
-  }
-
-  /**
-   * As {@link #open(CrudOperable)}, with the session's identity, which reads issued from other
-   * threads enter; the calling thread is inside it already.
-   */
-  public <E extends TransactionException> Cursor open(
-      CrudOperable<E> crud, @Nullable Authenticator.Identity identity) throws E {
     if (analyze != null) {
       started = System.nanoTime();
-      try (Cursor rows = analyze.open(crud, identity)) {
+      try (Cursor rows = analyze.open(crud)) {
         while (rows.next() != null) {
           // only the operators' counters are of interest
         }
@@ -917,7 +886,7 @@ final class Plan {
       }
       return Cursor.EMPTY;
     }
-    Reader crudReader = reader(crud, identity, columnMaps);
+    Reader crudReader = reader(crud, columnMaps);
     attach(crudReader);
     try {
       Operator tree = root();
@@ -1517,14 +1486,6 @@ final class Plan {
 
     /** ScalarDB reads issued so far: one per Get, Scan or opened scanner. */
     long reads();
-
-    /** True if reads may be issued from several threads at once (auto-commit statements). */
-    boolean concurrent();
-
-    /**
-     * The session's identity, which a read from another thread enters; null if not authenticated.
-     */
-    @Nullable Authenticator.Identity identity();
   }
 
   /** A ScalarDB read failed while rows were being pulled; the cause is the original exception. */

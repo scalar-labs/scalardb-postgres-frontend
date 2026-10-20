@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### A statement outside BEGIN is one transaction
+
+A read outside `BEGIN` used to run each of its ScalarDB reads as a transaction of its own: a join's outer
+scan and every lookup into the inner table. Under `SERIALIZABLE` nothing then validated the statement as a
+whole, so a join next to a concurrent writer could combine rows from before and after that writer's
+commit. Now each such statement runs in one ScalarDB transaction, read-only, begun at its first read
+(`SELECT 1` begins none) and committed when its rows run out; a failed validation fails the statement with
+`40001`. A join's lookups now run one after another, as they always did inside `BEGIN`, so a join fanning
+out across many partitions outside `BEGIN` is slower than before. `scalar.db.postgres.max_lookup_threads`
+is gone with the lookup pool.
+
 ### Privileges under Cluster authentication
 
 The catalog answers were checked as a ScalarDB Cluster user with `SELECT` on one table. They are the same

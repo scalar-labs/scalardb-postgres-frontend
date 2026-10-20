@@ -1,9 +1,21 @@
 package com.scalar.db.frontend.postgres;
 
+import com.scalar.db.api.CrudOperable;
+import com.scalar.db.api.Delete;
 import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
+import com.scalar.db.api.Get;
+import com.scalar.db.api.Insert;
+import com.scalar.db.api.Mutation;
+import com.scalar.db.api.Operation;
+import com.scalar.db.api.Put;
+import com.scalar.db.api.Result;
+import com.scalar.db.api.Scan;
+import com.scalar.db.api.Update;
+import com.scalar.db.api.Upsert;
 import com.scalar.db.exception.storage.ExecutionException;
+import com.scalar.db.exception.transaction.CrudException;
 import com.scalar.db.exception.transaction.TransactionException;
 import com.scalar.db.exception.transaction.UnknownTransactionStatusException;
 import com.scalar.db.io.DataType;
@@ -27,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -561,6 +574,8 @@ public class QueryProcessor {
   public final class Rows implements Iterator<Map<String, Object>>, AutoCloseable {
     @Nullable private final Plan plan;
     private final Plan.Cursor cursor;
+    // The statement's own transaction outside BEGIN: committed when the rows run out
+    @Nullable private StatementTransaction own;
     @Nullable private Map<String, Object> pending;
     private boolean exhausted;
     private int count;
@@ -568,8 +583,13 @@ public class QueryProcessor {
     private List<String> notices = Collections.emptyList();
 
     private Rows(@Nullable Plan plan, Plan.Cursor cursor) {
+      this(plan, cursor, null);
+    }
+
+    private Rows(@Nullable Plan plan, Plan.Cursor cursor, @Nullable StatementTransaction own) {
       this.plan = plan;
       this.cursor = cursor;
+      this.own = own;
       if (plan != null) {
         notices = plan.notices;
         openPlans.add(plan);
@@ -637,6 +657,7 @@ public class QueryProcessor {
           throw e;
         }
         if (pending == null) {
+          commitOwn();
           exhausted = true;
           if (plan != null) {
             lastCommandTag = plan.commandTag(count);
@@ -657,9 +678,36 @@ public class QueryProcessor {
       return row;
     }
 
+    /**
+     * Commits the statement's own transaction; under SERIALIZABLE this validates its reads, and a
+     * failure reaches the client in place of the command tag.
+     */
+    private void commitOwn() {
+      StatementTransaction t = own;
+      if (t == null) {
+        return;
+      }
+      own = null; // committed or failed: nothing to roll back on close
+      cursor.close(); // its scanners, before the commit
+      try {
+        t.commit();
+      } catch (TransactionException e) {
+        throw new Plan.ReadFailure(e);
+      }
+    }
+
     @Override
     public void close() {
       cursor.close();
+      if (own != null) { // the client stopped before the end: nothing to validate for it
+        StatementTransaction t = own;
+        own = null;
+        try {
+          t.rollback();
+        } catch (TransactionException e) {
+          // nothing was written; the transaction expires on its own
+        }
+      }
       if (plan != null) {
         openPlans.remove(plan);
         plan.release(); // a cached plan must not keep this run's rows and operators (todo 008)
@@ -848,7 +896,7 @@ public class QueryProcessor {
       case "SHOW":
         {
           Plan plan = show(sql);
-          return new Rows(plan, plan.open(manager, identity));
+          return new Rows(plan, plan.open(manager));
         }
       default:
         if (inTransaction() && WRITES.contains(word)) {
@@ -1125,7 +1173,7 @@ public class QueryProcessor {
         Rows rows =
             plan.getOutputColumns().isEmpty()
                 ? new Rows(null, Plan.Cursor.EMPTY)
-                : new Rows(plan, plan.open(manager, identity)); // what the DDL reports
+                : new Rows(plan, plan.open(manager)); // what the DDL reports
         rows.notices = plan.notices;
         if (ddlNotice != null && CHANGES_EXISTING_TABLES.contains(lastCommandTag)) {
           rows.notices = new ArrayList<>(plan.notices);
@@ -1137,25 +1185,18 @@ public class QueryProcessor {
         // The read and the writes must share one transaction
         int written;
         if (inTransaction()) {
-          written = plan.executeWrite(active(), maxRowsPerWrite(), identity);
+          written = plan.executeWrite(active(), maxRowsPerWrite());
         } else {
-          DistributedTransaction own =
-              isOn(current("default_transaction_read_only"))
-                  ? manager.beginReadOnly()
-                  : manager.begin();
+          DistributedTransaction own = begin(false);
           try {
-            written = plan.executeWrite(own, maxRowsPerWrite(), identity);
+            written = plan.executeWrite(own, maxRowsPerWrite());
             own.commit();
           } catch (UnknownTransactionStatusException e) {
             // The commit may have landed: as ScalarDB advises, no rollback, and the client checks
             // the outcome by the transaction ID in the message (40003), as after a COMMIT
             throw e;
           } catch (RuntimeException | TransactionException e) {
-            try {
-              own.rollback();
-            } catch (TransactionException rollback) {
-              e.addSuppressed(rollback);
-            }
+            rollback(own, e);
             throw e;
           }
         }
@@ -1167,9 +1208,141 @@ public class QueryProcessor {
             ? new Rows(null, Plan.Cursor.EMPTY)
             : new Rows(plan, plan.returned());
       }
-      Plan.Cursor cursor =
-          inTransaction() ? plan.open(active(), identity) : plan.open(manager, identity);
-      return new Rows(plan, cursor);
+      if (inTransaction()) {
+        return new Rows(plan, plan.open(active()));
+      }
+      if (plan.mutations() != null) {
+        return new Rows(plan, plan.open(manager)); // one mutate call: one transaction already
+      }
+      // As PostgreSQL gives a statement one snapshot: all of its reads, a join's lookups included,
+      // in one transaction, so the isolation level covers the statement as a whole
+      StatementTransaction own = new StatementTransaction(plan.getAnalyze() == null);
+      try {
+        return new Rows(plan, plan.open(own), own);
+      } catch (RuntimeException | TransactionException e) {
+        try {
+          own.rollback();
+        } catch (TransactionException rollback) {
+          e.addSuppressed(rollback);
+        }
+        throw e;
+      }
+    }
+  }
+
+  /** A transaction of a statement's own, outside BEGIN. */
+  private DistributedTransaction begin(boolean readOnly) throws TransactionException {
+    return readOnly || isOn(current("default_transaction_read_only"))
+        ? manager.beginReadOnly()
+        : manager.begin();
+  }
+
+  /**
+   * The transaction of a statement outside BEGIN, begun at its first ScalarDB call: a statement
+   * that reads no table (SELECT 1, a catalog query, a client's health check) begins none.
+   */
+  private final class StatementTransaction implements CrudOperable<CrudException> {
+    private final boolean readOnly;
+    @Nullable private DistributedTransaction transaction;
+
+    StatementTransaction(boolean readOnly) {
+      this.readOnly = readOnly;
+    }
+
+    private DistributedTransaction begun() throws CrudException {
+      if (transaction == null) {
+        try {
+          transaction = begin(readOnly);
+        } catch (CrudException e) {
+          throw e;
+        } catch (TransactionException e) {
+          throw new CrudException(e.getMessage(), e, null); // the message keeps the error code
+        }
+      }
+      return transaction;
+    }
+
+    void commit() throws TransactionException {
+      if (transaction != null) {
+        transaction.commit();
+      }
+    }
+
+    void rollback() throws TransactionException {
+      if (transaction != null) {
+        transaction.rollback();
+      }
+    }
+
+    @Override
+    public Optional<Result> get(Get get) throws CrudException {
+      return begun().get(get);
+    }
+
+    @Override
+    public List<Result> scan(Scan scan) throws CrudException {
+      return begun().scan(scan);
+    }
+
+    @Override
+    public Scanner<CrudException> getScanner(Scan scan) throws CrudException {
+      return begun().getScanner(scan);
+    }
+
+    @Deprecated
+    @Override
+    public void put(Put put) throws CrudException {
+      begun().put(put);
+    }
+
+    @Deprecated
+    @Override
+    public void put(List<Put> puts) throws CrudException {
+      begun().put(puts);
+    }
+
+    @Override
+    public void insert(Insert insert) throws CrudException {
+      begun().insert(insert);
+    }
+
+    @Override
+    public void upsert(Upsert upsert) throws CrudException {
+      begun().upsert(upsert);
+    }
+
+    @Override
+    public void update(Update update) throws CrudException {
+      begun().update(update);
+    }
+
+    @Override
+    public void delete(Delete delete) throws CrudException {
+      begun().delete(delete);
+    }
+
+    @Deprecated
+    @Override
+    public void delete(List<Delete> deletes) throws CrudException {
+      begun().delete(deletes);
+    }
+
+    @Override
+    public void mutate(List<? extends Mutation> mutations) throws CrudException {
+      begun().mutate(mutations);
+    }
+
+    @Override
+    public List<BatchResult> batch(List<? extends Operation> operations) throws CrudException {
+      return begun().batch(operations);
+    }
+  }
+
+  private static void rollback(DistributedTransaction own, Exception cause) {
+    try {
+      own.rollback();
+    } catch (TransactionException rollback) {
+      cause.addSuppressed(rollback);
     }
   }
 

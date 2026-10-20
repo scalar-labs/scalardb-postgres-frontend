@@ -40,6 +40,7 @@ public class BuiltinsTest {
     DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
     DistributedTransaction transaction = mock(DistributedTransaction.class);
     when(manager.begin()).thenReturn(transaction);
+    when(manager.beginReadOnly()).thenReturn(transaction); // an auto-commit read
     TestScanners.stub(transaction);
     TestScanners.stub(manager);
     when(manager.scan(any())).thenReturn(Collections.emptyList());

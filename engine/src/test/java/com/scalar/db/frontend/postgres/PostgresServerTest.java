@@ -77,6 +77,7 @@ public class PostgresServerTest {
     manager = mock(DistributedTransactionManager.class);
     transaction = mock(DistributedTransaction.class);
     when(manager.begin()).thenReturn(transaction);
+    when(manager.beginReadOnly()).thenReturn(transaction); // an auto-commit read
     TestScanners.stub(transaction);
     TestScanners.stub(manager);
     when(manager.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b")));
@@ -631,19 +632,25 @@ public class PostgresServerTest {
 
   /** Every ScalarDB call fails unless it happens inside the identity, on whichever thread. */
   private void requireScope() throws Exception {
-    when(manager.scan(any()))
+    when(transaction.scan(any()))
         .thenAnswer(
             invocation -> {
               insideScope();
               return Arrays.asList(row(1, "a"), row(2, "b"));
             });
-    when(manager.get(any()))
+    when(transaction.get(any()))
         .thenAnswer(
             invocation -> {
               insideScope();
               return Optional.of(row(1, "a"));
             });
     when(manager.begin())
+        .thenAnswer(
+            invocation -> {
+              insideScope();
+              return transaction;
+            });
+    when(manager.beginReadOnly())
         .thenAnswer(
             invocation -> {
               insideScope();
@@ -710,7 +717,7 @@ public class PostgresServerTest {
           assertThat(rs.next()).isTrue();
         }
       }
-      // a lookup join reads its inner side from the pool: those threads enter the identity too
+      // a lookup join reads its inner side in the statement's transaction, inside the identity
       try (ResultSet rs =
           statement.executeQuery("SELECT a.id, b.name FROM t a JOIN t b ON b.id = a.id")) {
         int rows = 0;
@@ -722,9 +729,7 @@ public class PostgresServerTest {
       assertSqlState(statement, "SET ROLE bob", "0A000");
       assertSqlState(statement, "SET SESSION AUTHORIZATION bob", "0A000");
     }
-    assertThat(lastIdentity.threads)
-        .anyMatch(thread -> thread.startsWith("postgres-frontend-"))
-        .anyMatch(thread -> thread.equals("lookup"));
+    assertThat(lastIdentity.threads).allMatch(thread -> thread.startsWith("postgres-frontend-"));
     for (int i = 0; i < 100 && !lastIdentity.closed; i++) {
       Thread.sleep(20); // the server closes the identity after the client has gone
     }
@@ -735,7 +740,7 @@ public class PostgresServerTest {
   public void auth_TokenInvalidMidSession_ShouldReport28000AndCloseTheSession() throws Exception {
     allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
-    when(manager.scan(any()))
+    when(transaction.scan(any()))
         .thenThrow(new CrudException("DB-AUTH-10006: Access denied: Invalid auth token", "tx"));
     try (Connection connection = connectAs("alice", "secret");
         Statement statement = connection.createStatement()) {
@@ -748,7 +753,7 @@ public class PostgresServerTest {
   public void auth_MissingPrivilege_ShouldReport42501AndKeepTheSession() throws Exception {
     allowPlaintext(); // the tests have no TLS; with an authenticator it is otherwise required
     server.setAuthenticator(this::stubAuthenticate);
-    when(manager.scan(any()))
+    when(transaction.scan(any()))
         .thenThrow(
             new CrudException(
                 "DB-AUTH-10012: Access denied: You need the READ privilege on the table ns.t",
@@ -1587,7 +1592,7 @@ public class PostgresServerTest {
       value = "UNENCRYPTED_SOCKET",
       justification = "A test speaking the plaintext protocol to a local server")
   public void protocol_ExecuteRowLimit_ShouldSuspendThePortal() throws Exception {
-    when(manager.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b"), row(3, "c")));
+    when(transaction.scan(any())).thenReturn(Arrays.asList(row(1, "a"), row(2, "b"), row(3, "c")));
     try (java.net.Socket socket = new java.net.Socket("localhost", server.getPort());
         java.io.DataOutputStream out =
             new java.io.DataOutputStream(

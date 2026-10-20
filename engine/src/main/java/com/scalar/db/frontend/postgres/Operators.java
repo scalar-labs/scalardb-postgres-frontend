@@ -1381,54 +1381,6 @@ final class Operators {
 
     static final int MAX_BATCH = 128;
 
-    /** Reads in flight at once when the reads may run concurrently. */
-    static final int PARALLEL = 16;
-
-    /** Lookup threads across all sessions, unless scalar.db.postgres.max_lookup_threads says. */
-    static final int DEFAULT_MAX_THREADS = 100;
-
-    // Shared by every session and capped: each thread holds one ScalarDB read, so threads beyond
-    // the storage's connections would only wait for one. There is no queue: when every thread is
-    // busy, the session runs the read on its own thread (see run), so a session that fills the
-    // pool with slow reads slows itself, never another session. Idle threads exit after a minute.
-    private static final java.util.concurrent.ThreadPoolExecutor LOOKUPS =
-        new java.util.concurrent.ThreadPoolExecutor(
-            DEFAULT_MAX_THREADS,
-            DEFAULT_MAX_THREADS,
-            60,
-            java.util.concurrent.TimeUnit.SECONDS,
-            new java.util.concurrent.SynchronousQueue<>(),
-            runnable -> {
-              Thread t = new Thread(runnable, "lookup");
-              t.setDaemon(true);
-              return t;
-            });
-
-    static {
-      LOOKUPS.allowCoreThreadTimeOut(true);
-    }
-
-    /** Caps the lookup threads of all sessions together. */
-    static void setMaxThreads(int max) {
-      if (max < 1) {
-        throw new IllegalArgumentException(
-            "scalar.db.postgres.max_lookup_threads must be at least 1: " + max);
-      }
-      // raise the maximum first when growing, lower the core first when shrinking: core <= max
-      if (max > LOOKUPS.getMaximumPoolSize()) {
-        LOOKUPS.setMaximumPoolSize(max);
-        LOOKUPS.setCorePoolSize(max);
-      } else {
-        LOOKUPS.setCorePoolSize(max);
-        LOOKUPS.setMaximumPoolSize(max);
-      }
-    }
-
-    /** The lookup threads alive now, for tests. */
-    static int threads() {
-      return LOOKUPS.getPoolSize();
-    }
-
     private final java.util.ArrayDeque<Map<String, Object>> pendingLeft =
         new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<List<Map<String, Object>>> pendingCandidates =
@@ -1457,9 +1409,9 @@ final class Operators {
 
     /**
      * Left rows are read ahead in batches and their lookups issued together: lookups into one
-     * partition become a single scan, and independent reads overlap when the reader allows it, so a
-     * fan-out of N rows costs a few round trips, not N. The batch starts small in case the consumer
-     * stops early (LIMIT) and doubles while the join keeps going.
+     * partition become a single scan, so N rows looking into a few partitions cost a few round
+     * trips, not N. The batch starts small in case the consumer stops early (LIMIT) and doubles
+     * while the join keeps going.
      */
     @Override
     @Nullable Map<String, Object> nextLeft() {
@@ -1489,49 +1441,9 @@ final class Operators {
       return pendingCandidates.poll(); // in step with nextLeft()
     }
 
-    /**
-     * Runs independent reads: {@link #PARALLEL} at a time on the pool when allowed, else in order.
-     */
+    /** Runs independent reads in order: a transaction is not thread-safe. */
     private void run(List<Runnable> tasks) {
-      if (!execution().reader.concurrent() || tasks.size() == 1) {
-        tasks.forEach(Runnable::run);
-        return;
-      }
-      // A pool thread enters the session's identity, which the connection thread is in already
-      Authenticator.Identity identity = execution().reader.identity();
-      for (int from = 0; from < tasks.size(); from += PARALLEL) {
-        List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
-        for (Runnable task : tasks.subList(from, Math.min(from + PARALLEL, tasks.size()))) {
-          try {
-            futures.add(
-                LOOKUPS.submit(
-                    identity == null
-                        ? task
-                        : () ->
-                            identity.<Void, RuntimeException>run(
-                                () -> {
-                                  task.run();
-                                  return null;
-                                })));
-          } catch (java.util.concurrent.RejectedExecutionException full) {
-            task.run(); // every pool thread is busy: read here, in the session's identity already
-          }
-        }
-        for (java.util.concurrent.Future<?> future : futures) {
-          try {
-            future.get();
-          } catch (java.util.concurrent.ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException) {
-              throw (RuntimeException) cause;
-            }
-            throw new IllegalStateException(cause);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
-          }
-        }
-      }
+      tasks.forEach(Runnable::run);
     }
 
     @Override

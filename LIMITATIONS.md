@@ -291,6 +291,8 @@ the result is not what PostgreSQL would return.
   `SELECT sum(balance) FROM accounts` during a transfer can report a total that never existed.
   PostgreSQL's `READ COMMITTED` gives each statement one snapshot. ScalarDB's `SERIALIZABLE`
   (`scalar.db.consensus_commit.isolation_level`) validates the read at commit and fails it instead.
+  A statement outside `BEGIN` is one ScalarDB transaction, all of its reads included, so this holds
+  for it too.
 - **A read inside a batch splits it.** Writes outside `BEGIN` sent together, as one Query string
   (`psql -c "INSERT ...; INSERT ..."`) or as a pgjdbc batch, run in one implicit transaction, as in
   PostgreSQL: one failing write undoes the others. A read or any other statement among them commits
