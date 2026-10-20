@@ -756,6 +756,8 @@ final class Evaluator {
     return Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
   }
 
+  private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
   /** The session's IntervalStyle, which interval output and sql_standard input follow. */
   static String intervalStyle() {
     Settings settings = settings();
@@ -4082,6 +4084,8 @@ final class Evaluator {
             int4(args, 1, name),
             args.size() > 2 ? str(args, 2) : " ",
             name.equals("LPAD"));
+      case "RANDOM":
+        return RANDOM.nextDouble(); // [0, 1), per call
       case "DATE_PART":
         {
           Object part = extract(str(args, 0), arg(args, 1));

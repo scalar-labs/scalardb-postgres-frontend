@@ -4,6 +4,7 @@
 1396	20	SELECT abs(2::int8)
 1397	23	SELECT abs(2::int4)
 1398	21	SELECT abs(2::int2)
+1598	701	SELECT random()
 1705	1700	SELECT abs(1.5::numeric)
 1199	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz, '2024-02-29 12:34:56+00'::timestamptz)
 1386	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz)
