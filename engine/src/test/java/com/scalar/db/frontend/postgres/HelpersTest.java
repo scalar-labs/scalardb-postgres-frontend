@@ -296,6 +296,12 @@ public class HelpersTest {
     assertThatThrownBy(() -> Operators.normalize(json))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+    // a trailing escape: SIMILAR TO drops it ('ab\\' is ab), LIKE refuses it (22025)
+    assertThat(Evaluator.similarPattern("ab\\", "\\").matcher("ab").matches()).isTrue();
+    assertThat(Evaluator.similarPattern("ab\\", "\\").matcher("ab\\").matches()).isFalse();
+    assertThatThrownBy(() -> Evaluator.likePattern("ab#", "#"))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22025"));
     // AT TIME ZONE reads a POSIX spec west of UTC, as PostgreSQL does; abbreviations are refused
     assertThat(Evaluator.atZone("+02")).isEqualTo(java.time.ZoneOffset.ofHours(-2));
     assertThat(Evaluator.atZone("UTC+3")).isEqualTo(java.time.ZoneOffset.ofHours(-3));

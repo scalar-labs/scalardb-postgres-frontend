@@ -6222,6 +6222,10 @@ class QueryParser {
       }
       // PostgreSQL's default escape character is a backslash
       String escape = like.getEscape() == null ? "\\" : literal(like.getEscape());
+      String pattern = ((TextColumn) column).getTextValue();
+      if (escape != null && pattern != null && Evaluator.endsWithEscape(pattern, escape)) {
+        return null; // in memory, where it fails as in PostgreSQL (22025)
+      }
       return ConditionBuilder.buildLikeExpression(
           (TextColumn) column,
           like.isNot()

@@ -1905,6 +1905,8 @@ final class Evaluator {
       char c = pattern.charAt(i);
       if (!escape.isEmpty() && c == escape.charAt(0) && i + 1 < pattern.length()) {
         sb.append(Pattern.quote(String.valueOf(pattern.charAt(++i))));
+      } else if (!escape.isEmpty() && c == escape.charAt(0)) {
+        continue; // a trailing escape escapes nothing: PostgreSQL drops it ('ab\\' is ^(?:ab)$)
       } else if (inClass) {
         inClass = c != ']';
         sb.append(c == '\\' ? "\\\\" : String.valueOf(c));
@@ -5852,8 +5854,21 @@ final class Evaluator {
     }
   }
 
+  /** Whether the pattern ends with an escape character that escapes nothing. */
+  static boolean endsWithEscape(String pattern, String escape) {
+    for (int i = 0; !escape.isEmpty() && i < pattern.length(); i++) {
+      if (pattern.charAt(i) == escape.charAt(0) && ++i == pattern.length()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Translates a SQL LIKE pattern into a regex; {@code %} is any string and {@code _} any char. */
   static Pattern likePattern(String pattern, String escape) {
+    if (endsWithEscape(pattern, escape)) {
+      throw new PgException.Argument("22025", "LIKE pattern must not end with escape character");
+    }
     StringBuilder regex = new StringBuilder();
     for (int i = 0; i < pattern.length(); i++) {
       char c = pattern.charAt(i);
