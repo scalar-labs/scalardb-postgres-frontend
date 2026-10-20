@@ -3009,8 +3009,23 @@ final class Evaluator {
     }
     String unit = field.toUpperCase(Locale.ROOT);
     if (v instanceof LocalTime
-        && !Arrays.asList("HOUR", "MINUTE", "SECOND", "EPOCH").contains(unit)) {
+        && !Arrays.asList("HOUR", "MINUTE", "SECOND", "MILLISECONDS", "MICROSECONDS", "EPOCH")
+            .contains(unit)) {
       throw new PgException.Argument("0A000", "Unit \"" + field + "\" not supported for type time");
+    }
+    if (v instanceof LocalDate
+        && Arrays.asList(
+                "HOUR",
+                "MINUTE",
+                "SECOND",
+                "MILLISECONDS",
+                "MICROSECONDS",
+                "TIMEZONE",
+                "TIMEZONE_HOUR",
+                "TIMEZONE_MINUTE")
+            .contains(unit)) {
+      throw new PgException.Argument(
+          "0A000", "unit \"" + field.toLowerCase(Locale.ROOT) + "\" not supported for type date");
     }
     LocalDateTime t =
         v instanceof LocalDateTime
@@ -3046,9 +3061,16 @@ final class Evaluator {
         return (long) t.getMinute();
       case "SECOND":
         return BigDecimal.valueOf(t.getSecond()).add(BigDecimal.valueOf(t.getNano() / 1000, 6));
+      case "MILLISECONDS":
+        return BigDecimal.valueOf(t.getSecond() * 1_000_000L + t.getNano() / 1000, 3);
+      case "MICROSECONDS":
+        return t.getSecond() * 1_000_000L + t.getNano() / 1000;
       case "EPOCH":
-        return BigDecimal.valueOf(t.toEpochSecond(ZoneOffset.UTC))
-            .add(BigDecimal.valueOf(t.getNano() / 1000, 6));
+        // a date's epoch is whole seconds, as PostgreSQL's numeric result for a date
+        return v instanceof LocalDate
+            ? BigDecimal.valueOf(t.toEpochSecond(ZoneOffset.UTC))
+            : BigDecimal.valueOf(t.toEpochSecond(ZoneOffset.UTC))
+                .add(BigDecimal.valueOf(t.getNano() / 1000, 6));
       default:
         throw new PgException.Argument("0A000", "Unsupported EXTRACT field: " + field);
     }
@@ -3990,7 +4012,10 @@ final class Evaluator {
             args.size() > 2 ? str(args, 2) : " ",
             name.equals("LPAD"));
       case "DATE_PART":
-        return extract(str(args, 0), arg(args, 1));
+        {
+          Object part = extract(str(args, 0), arg(args, 1));
+          return part == null ? null : (Object) ((Number) part).doubleValue(); // float8
+        }
       case "UNNEST":
         return arg(args, 0) == null
             ? Collections.emptyList()

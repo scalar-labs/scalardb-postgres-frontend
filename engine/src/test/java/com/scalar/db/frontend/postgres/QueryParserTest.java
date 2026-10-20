@@ -1798,6 +1798,17 @@ public class QueryParserTest {
                         + " AS y, (DATE '0001-01-01' - 1)::text AS p")
                 .execute(transaction))
         .containsExactly(map("d", "2020-08-11 BC", "y", -2020L, "p", "0001-12-31 BC"));
+    assertThat(
+            parser
+                .parse(
+                    "SELECT EXTRACT(EPOCH FROM DATE '1970-01-02')::text AS e,"
+                        + " date_part('second', TIMESTAMP '2020-01-01 00:00:05.5') AS s")
+                .execute(transaction))
+        .containsExactly(map("e", "86400", "s", 5.5));
+    assertThatThrownBy(
+            () -> parser.parse("SELECT EXTRACT(HOUR FROM DATE '2020-08-11')").execute(transaction))
+        .isInstanceOfSatisfying(
+            PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"));
     assertThatThrownBy(() -> parser.parse("SELECT DATE '4714-11-23 BC'").execute(transaction))
         .isInstanceOfSatisfying(
             PgException.class, e -> assertThat(e.sqlState()).isEqualTo("22008"));

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "107"
 tags: [datetime, regress-suite]
@@ -28,9 +28,10 @@ EXTRACT from a date is numeric with scale 0, date_part returns double precision,
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: EXTRACT from a date gives whole numbers (EPOCH 1597104000), date_part returns float8 (5.5, written shortest), time-of-day units (hour, minute, second, milliseconds, microseconds, timezone*) on a date fail with 0A000, and MILLISECONDS and MICROSECONDS are read from times and timestamps. date.sql #176, #203-205, #225 now SAME (vs PostgreSQL 18). Left as errors: JULIAN, and an unknown unit fails with 0A000 where PostgreSQL gives 22023.
