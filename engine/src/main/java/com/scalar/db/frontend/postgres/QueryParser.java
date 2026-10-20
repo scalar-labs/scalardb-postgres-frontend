@@ -1959,6 +1959,19 @@ class QueryParser {
       builder.addClusteringKey(parts[0], desc ? Scan.Ordering.Order.DESC : Scan.Ordering.Order.ASC);
     }
     TableMetadata metadata = builder.build();
+    List<String> stored = new ArrayList<>(metadata.getPartitionKeyNames());
+    stored.addAll(metadata.getClusteringKeyNames());
+    columns.stream().filter(c -> !stored.contains(c)).forEach(stored::add);
+    if (!stored.equals(columns)) {
+      // ScalarDB keeps the key columns first, so SELECT *, INSERT without a column list and
+      // attnum would see that order, not the declared one: a value would land in another column
+      throw new PgException.Argument(
+          "0A000",
+          "Unsupported column order: declare the key columns first, in key order, as ScalarDB"
+              + " stores them: ("
+              + String.join(", ", stored)
+              + ")");
+    }
     if (options.containsKey("encrypted")) {
       // ScalarDB Cluster's encryption: the values are stored as ciphertext, so a key column, which
       // the storage looks rows up by, cannot be one
@@ -4886,15 +4899,14 @@ class QueryParser {
       checkConflictTarget(insert.getConflictTarget(), t);
     }
     List<Mutation> mutations = new ArrayList<>();
-    for (List<Expression> row : tuples(values)) {
-      if (row.size() != names.size()) {
-        throw new IllegalArgumentException("INSERT row must have one value per column: " + row);
-      }
+    List<List<Expression>> rows = tuples(values);
+    for (List<Expression> row : rows) {
+      checkRowLength(insert, names, row, rows.get(0).size(), t);
       Map<String, Column<?>> columns = new LinkedHashMap<>();
       for (int i = 0; i < names.size(); i++) {
         columns.put(
             names.get(i),
-            isDefaultKeyword(row.get(i))
+            i >= row.size() || isDefaultKeyword(row.get(i))
                 ? columnFromText(t, names.get(i), null) // no column defaults: NULL
                 : value(t, names.get(i), row.get(i), ctx));
       }
@@ -4941,6 +4953,35 @@ class QueryParser {
         if (!seen.add(name)) {
           throw new PgException.Argument(
               "42601", "multiple assignments to same column \"" + name + "\"");
+        }
+      }
+    }
+  }
+
+  /**
+   * A VALUES row has a value per target column, as in PostgreSQL; without a column list a shorter
+   * row leaves the trailing columns to their defaults, which are NULL here, so they must not be key
+   * columns. All rows have one length.
+   */
+  private static void checkRowLength(
+      net.sf.jsqlparser.statement.insert.Insert insert,
+      List<String> names,
+      List<Expression> row,
+      int first,
+      Target t) {
+    if (row.size() != first) {
+      throw new PgException.Argument("42601", "VALUES lists must all be the same length");
+    }
+    if (row.size() > names.size()) {
+      throw new PgException.Argument("42601", "INSERT has more expressions than target columns");
+    }
+    if (row.size() < names.size()) {
+      if (insert.getColumns() != null) {
+        throw new PgException.Argument("42601", "INSERT has more target columns than expressions");
+      }
+      for (String key : keyColumns(t)) {
+        if (names.indexOf(key) >= row.size()) {
+          throw notNullViolation(key);
         }
       }
     }
@@ -5395,13 +5436,16 @@ class QueryParser {
       keys = names;
     } else if (insert.getSelect() instanceof Values) {
       List<Map<String, Object>> rows = new ArrayList<>();
-      for (List<Expression> tuple : tuples(((Values) insert.getSelect()).getExpressions())) {
-        if (tuple.size() != names.size()) {
-          throw new IllegalArgumentException("INSERT row must have one value per column: " + tuple);
-        }
+      List<List<Expression>> tuples = tuples(((Values) insert.getSelect()).getExpressions());
+      for (List<Expression> tuple : tuples) {
+        checkRowLength(insert, names, tuple, tuples.get(0).size(), t);
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < names.size(); i++) {
-          row.put(names.get(i), isDefaultKeyword(tuple.get(i)) ? null : evalLiteral(tuple.get(i)));
+          row.put(
+              names.get(i),
+              i >= tuple.size() || isDefaultKeyword(tuple.get(i))
+                  ? null
+                  : evalLiteral(tuple.get(i)));
         }
         rows.add(row);
       }

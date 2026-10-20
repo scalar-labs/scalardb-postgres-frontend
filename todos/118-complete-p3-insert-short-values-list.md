@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "118"
 tags: [dml, regress-suite]
@@ -27,9 +27,10 @@ on both servers.
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: Without a column list a VALUES row may be shorter than the table: the trailing columns are written NULL (there are no column defaults here), and a key column left out fails with 23502. More values than columns, fewer values than listed columns, and VALUES rows of different lengths fail with 42601, as in PostgreSQL. Checked live against PostgreSQL 18, including ON CONFLICT DO NOTHING / DO UPDATE. Found meanwhile: todo 122 (key columns not declared first).

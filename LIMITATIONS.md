@@ -262,6 +262,10 @@ the result is not what PostgreSQL would return.
   its scale (`19.9`). `sum()` and `avg()` over any `double precision` column are computed exactly and
   rounded once, so their last digit can differ from PostgreSQL's running float sum. `SMALLINT`
   arithmetic does not overflow at 32767 (`s + s` on 20000 is 40000, where PostgreSQL errors).
+- **Tables whose key columns were not declared first, created by an earlier release or another
+  ScalarDB client.** ScalarDB stores the partition and clustering key columns first, so such a table
+  lists its columns in that order: `SELECT *`, `INSERT` without a column list and `attnum` follow it,
+  not the declared order. `CREATE TABLE` now refuses a declared order that differs (todo 122).
 - **A RENAME COLUMN interrupted midway.** ScalarDB renames a column and its transaction before-image
   column in two steps. If the frontend or the database stops between them, the table is left with
   the new column and the old before-image: clients see an extra column named `before_<old name>`,

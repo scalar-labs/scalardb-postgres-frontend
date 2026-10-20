@@ -1437,6 +1437,22 @@ public class QueryParserTest {
     assertThatThrownBy(() -> parser.parse("CREATE TABLE nokey (id int, name text)"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("PRIMARY KEY");
+    // a short VALUES row leaves trailing columns NULL, unless they are keys or listed
+    for (String sql :
+        new String[] {
+          "INSERT INTO t VALUES (1)",
+          "INSERT INTO t (id, seq, name) VALUES (1, 2)",
+          "INSERT INTO t VALUES (1, 2), (3, 4, 'x')"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql).execute(transaction))
+          .as(sql)
+          .isInstanceOf(PgException.class);
+    }
+    // ScalarDB stores the key columns first: another declared order would move values around
+    assertThatThrownBy(
+            () -> parser.parse("CREATE TABLE late (a int, k int PRIMARY KEY)").getDdl().run())
+        .isInstanceOfSatisfying(PgException.class, e -> assertThat(e.sqlState()).isEqualTo("0A000"))
+        .hasMessageContaining("(k, a)");
   }
 
   @Test
