@@ -1443,6 +1443,16 @@ final class Evaluator {
       if (l == null || r == null) {
         return null;
       }
+      // text has no implicit cast to a number: bigint = text is no operator in PostgreSQL
+      if (l instanceof Number && r instanceof String && textTyped(op.getRightExpression(), ctx)
+          || r instanceof Number && l instanceof String && textTyped(op.getLeftExpression(), ctx)) {
+        throw new PgException.Argument(
+            "42883",
+            "operator does not exist: "
+                + (l instanceof Number
+                    ? numericTypeName(l) + " " + op.getStringExpression() + " text"
+                    : "text " + op.getStringExpression() + " " + numericTypeName(r)));
+      }
       // An untyped parameter compared with text is text: name = $1 with '007' looks for 007
       if (r instanceof String && untyped(op.getLeftExpression(), ctx)) {
         l = untypedText(op.getLeftExpression(), ctx);
@@ -1492,6 +1502,13 @@ final class Evaluator {
       }
       if (l == null || r == null) {
         return null;
+      }
+      if (!(l instanceof String || r instanceof String)
+          && !(l instanceof Json.Value || r instanceof Json.Value)
+          && !(isBytea(l) && isBytea(r))) {
+        // || is text || anything: 3 || 4.0 has no operator in PostgreSQL
+        throw new PgException.Argument(
+            "42883", "operator does not exist: " + typeLabel(l) + " || " + typeLabel(r));
       }
       if (l instanceof Json.Value || r instanceof Json.Value) {
         return new Json.Value(Json.concat(Json.of(l).node, Json.of(r).node), true, null);
@@ -4420,7 +4437,42 @@ final class Evaluator {
     if (i >= args.size()) {
       throw new IllegalArgumentException("Missing function argument " + (i + 1));
     }
-    return text(args.get(i));
+    Object v = args.get(i);
+    if (v instanceof Number || v instanceof Boolean) {
+      // no implicit cast to text: length(42) is no function in PostgreSQL
+      throw new PgException.Argument(
+          "42883",
+          "function does not exist: argument " + (i + 1) + " is " + typeLabel(v) + ", not text");
+    }
+    return text(v);
+  }
+
+  /** A value's type for an error message. */
+  private static String typeLabel(Object v) {
+    return v instanceof Number
+        ? numericTypeName(v)
+        : v instanceof Boolean ? "boolean" : v.getClass().getSimpleName().toLowerCase(Locale.ROOT);
+  }
+
+  /** Whether {@code e} is typed text, varchar or bpchar as planning infers it; a literal is not. */
+  private static boolean textTyped(Expression e, Context ctx) {
+    e = QueryParser.unwrap(e);
+    if (e instanceof net.sf.jsqlparser.statement.select.ParenthesedSelect
+        && ((net.sf.jsqlparser.statement.select.ParenthesedSelect) e).getSelect()
+            instanceof net.sf.jsqlparser.statement.select.PlainSelect) {
+      // a subquery's quoted literal comes out as text, as in PostgreSQL
+      Expression out =
+          ((net.sf.jsqlparser.statement.select.PlainSelect)
+                  ((net.sf.jsqlparser.statement.select.ParenthesedSelect) e).getSelect())
+              .getSelectItem(0)
+              .getExpression();
+      return QueryParser.unwrap(out) instanceof StringValue || textTyped(out, ctx);
+    }
+    if (e instanceof StringValue || e instanceof JdbcParameter) {
+      return false; // unknown until compared, as in PostgreSQL
+    }
+    int oid = ctx.catalog == null ? 0 : QueryParser.inferOid(e, ctx.sources);
+    return oid == 25 || oid == 1043 || oid == 1042;
   }
 
   /**

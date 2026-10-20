@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "097"
 tags: [types, validation, regress-suite]
@@ -28,9 +28,10 @@ PostgreSQL has no implicit cast from integer to text (except into `||` with a te
 
 ## Acceptance Criteria
 
-- [ ] The statements above give PostgreSQL 16's answer, or an error.
-- [ ] `difftest/regress` shows no DIFF or PG_ERR for them.
+- [x] The statements above give PostgreSQL 16's answer, or an error.
+- [x] `difftest/regress` shows no DIFF or PG_ERR for them.
 
 ## Work Log
 
 - 2026-10-19: Filed from the regression-suite run (39 files after the 5-file calibration).
+- 2026-10-20: No implicit casts between text and numbers, as in PostgreSQL: a text function given a number or boolean (length(42)) and || between two non-text values (3 || 4.0) fail with 42883, and so does comparing a number with a value typed text, varchar or bpchar as planning infers it, including a subquery's quoted literal ((select '123')). A quoted literal and an untyped parameter stay unknown and compare as before. Regress sweep (text, strings, subselect, select, case, union, aggregates, date, timestamp, interval, json vs PostgreSQL 18): no statement newly refused; two backend errors (cached plan must not change result type) come from select.sql and json.sql both creating a table foo.

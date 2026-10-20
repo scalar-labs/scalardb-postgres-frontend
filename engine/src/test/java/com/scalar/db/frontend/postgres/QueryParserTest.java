@@ -1778,6 +1778,18 @@ public class QueryParserTest {
         .containsExactly(map("v", "1e2"), map("v", "[1,2]"));
     assertThatThrownBy(() -> parser.parse("SELECT json_array_elements('[1]')::text"))
         .hasMessageContaining("set-returning function inside an expression");
+    // no implicit casts between text and numbers, except for a quoted literal
+    for (String sql :
+        new String[] {
+          "SELECT length(42)", "SELECT 3 || 4.0", "SELECT 1 WHERE 1 = (SELECT '1'::text)"
+        }) {
+      assertThatThrownBy(() -> parser.parse(sql).execute(transaction))
+          .as(sql)
+          .isInstanceOfSatisfying(
+              PgException.class, e -> assertThat(e.sqlState()).isEqualTo("42883"));
+    }
+    assertThat(parser.parse("SELECT 3 || 'a' AS a WHERE 1 = '1'").execute(transaction))
+        .containsExactly(map("a", "3a"));
     // json extraction keeps the text as written (strings re-escaped, the last duplicate key); jsonb
     // normalises
     String raw =
