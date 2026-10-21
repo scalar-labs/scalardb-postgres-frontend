@@ -14,6 +14,7 @@ import com.scalar.db.exception.storage.ExecutionException;
 import com.scalar.db.exception.transaction.TransactionException;
 import com.scalar.db.io.DataType;
 import com.scalar.db.io.Key;
+import com.scalar.db.util.ThrowableSupplier;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -70,6 +71,8 @@ class TypeStore {
   private final boolean auth; // Cluster authentication: rows are the service user's
   private final String user;
   @Nullable private final Map<String, String> attributes; // null: auth on, no password configured
+  // what rows are read and written as, when the host has an identity of its own (a Cluster node)
+  @Nullable private final Authenticator.Identity frontend;
   private volatile boolean exists; // once seen, assumed to stay
 
   private TypeStore() {
@@ -78,24 +81,37 @@ class TypeStore {
     this.auth = false;
     this.user = DEFAULT_USER;
     this.attributes = Collections.emptyMap();
+    this.frontend = null;
+  }
+
+  TypeStore(
+      DistributedTransactionManager manager,
+      DistributedTransactionAdmin admin,
+      Properties properties) {
+    this(manager, admin, properties, null);
   }
 
   /**
    * The store of a deployment: {@code scalar.db.postgres.auth} says whether rows are the service
    * user's, {@code scalar.db.postgres.metadata_user} and {@code metadata_password} who that is.
+   * With {@code frontend} (see {@link Authenticator#frontend}) there is no service user: rows are
+   * read and written as that identity, with no credentials on the operations.
    */
   TypeStore(
       DistributedTransactionManager manager,
       DistributedTransactionAdmin admin,
-      Properties properties) {
+      Properties properties,
+      @Nullable Authenticator.Identity frontend) {
     this.manager = manager;
     this.admin = admin;
+    this.frontend = frontend;
     this.auth =
-        !properties
-            .getProperty("scalar.db.postgres.auth", "none")
-            .trim()
-            .toLowerCase(Locale.ROOT)
-            .equals("none");
+        frontend == null
+            && !properties
+                .getProperty("scalar.db.postgres.auth", "none")
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .equals("none");
     this.user = properties.getProperty("scalar.db.postgres.metadata_user", DEFAULT_USER).trim();
     String password = properties.getProperty("scalar.db.postgres.metadata_password");
     if (!auth) {
@@ -341,7 +357,17 @@ class TypeStore {
     @Nullable R run(DistributedTransaction tx) throws TransactionException;
   }
 
+  /** Runs {@code call} as the {@link #frontend} identity when there is one. */
+  @Nullable private <R> R asFrontend(ThrowableSupplier<R, ExecutionException> call)
+      throws ExecutionException {
+    return frontend == null ? call.get() : frontend.run(call);
+  }
+
   @Nullable private <R> R inTransaction(Body<R> body) throws ExecutionException {
+    return asFrontend(() -> transaction(body));
+  }
+
+  @Nullable private <R> R transaction(Body<R> body) throws ExecutionException {
     if (manager == null) {
       throw new IllegalStateException("No ScalarDB transaction manager for the metadata table");
     }
@@ -373,20 +399,26 @@ class TypeStore {
   }
 
   private List<Result> scan(String namespace, String table) throws ExecutionException {
-    if (manager == null) {
+    DistributedTransactionManager m = manager;
+    if (m == null) {
       return Collections.emptyList();
     }
-    try {
-      return manager.scan(
-          Scan.newBuilder()
-              .namespace(NAMESPACE)
-              .table(TABLE)
-              .partitionKey(Key.ofText("full_table_name", namespace + "." + table))
-              .attributes(credentials())
-              .build());
-    } catch (TransactionException e) {
-      throw failed(e);
-    }
+    List<Result> rows =
+        asFrontend(
+            () -> {
+              try {
+                return m.scan(
+                    Scan.newBuilder()
+                        .namespace(NAMESPACE)
+                        .table(TABLE)
+                        .partitionKey(Key.ofText("full_table_name", namespace + "." + table))
+                        .attributes(credentials())
+                        .build());
+              } catch (TransactionException e) {
+                throw failed(e);
+              }
+            });
+    return rows == null ? Collections.emptyList() : rows;
   }
 
   private static List<Result> rows(DistributedTransaction tx, String full)

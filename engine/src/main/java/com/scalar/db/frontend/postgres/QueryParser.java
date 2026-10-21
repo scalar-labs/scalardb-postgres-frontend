@@ -1,6 +1,7 @@
 package com.scalar.db.frontend.postgres;
 
 import com.scalar.db.api.AndConditionSet;
+import com.scalar.db.api.AuthAdmin;
 import com.scalar.db.api.ConditionBuilder;
 import com.scalar.db.api.ConditionSetBuilder;
 import com.scalar.db.api.ConditionalExpression;
@@ -209,6 +210,13 @@ class QueryParser {
   void setTypeStore(TypeStore store) {
     typeStore = store;
     catalog.typeStore = store;
+  }
+
+  // the session's authenticated user, whose privilege DDL checks before writing type rows
+  @Nullable private volatile String ddlUser;
+
+  void setDdlUser(String user) {
+    ddlUser = user;
   }
 
   /** Forgets cached table metadata, after DDL, in every session of this process. */
@@ -2295,6 +2303,7 @@ class QueryParser {
                   name,
                   recorded,
                   null,
+                  AuthAdmin.Privilege.CREATE,
                   () -> admin.createTable(namespace, name, table, false),
                   () -> admin.tableExists(namespace, name),
                   ifNotExists);
@@ -2569,6 +2578,7 @@ class QueryParser {
                     name,
                     rows,
                     Collections.singleton(column),
+                    AuthAdmin.Privilege.ALTER,
                     () -> admin.addNewColumnToTable(namespace, name, column, type),
                     () -> {
                       TableMetadata now = admin.getTableMetadata(namespace, name);
@@ -2604,6 +2614,7 @@ class QueryParser {
                   name,
                   rows,
                   Collections.singleton(newName),
+                  AuthAdmin.Privilege.ALTER,
                   () -> admin.renameColumn(namespace, name, oldName, newName),
                   () -> false,
                   false);
@@ -2697,6 +2708,7 @@ class QueryParser {
       String table,
       Map<String, ColumnType> types,
       @Nullable Set<String> scope,
+      AuthAdmin.Privilege privilege,
       Ddl ddl,
       Exists exists,
       boolean ifNotExists)
@@ -2705,6 +2717,7 @@ class QueryParser {
       ddl.run();
       return;
     }
+    checkPrivilege(namespace, table, privilege);
     if (!types.isEmpty()) {
       typeStore.requireTable();
     }
@@ -2725,6 +2738,27 @@ class QueryParser {
         return;
       }
       throw e;
+    }
+  }
+
+  /**
+   * Refuses DDL the session's user may not run (42501) before {@link #withTypes} writes its rows:
+   * they go in as the service user or the frontend itself, not as the user, so rows for a DDL that
+   * ScalarDB then refuses would change the table's declared types until they were taken back.
+   * CREATE is checked on the namespace, as ScalarDB checks it for a table that does not exist yet.
+   */
+  private void checkPrivilege(String namespace, String table, AuthAdmin.Privilege privilege)
+      throws ExecutionException {
+    String user = ddlUser;
+    if (user == null) {
+      return; // no authentication: the configured ScalarDB user's access is everyone's
+    }
+    boolean create = privilege == AuthAdmin.Privilege.CREATE;
+    if (create
+        ? !admin.hasPrivilege(user, namespace, privilege)
+        : !admin.hasPrivilege(user, namespace, table, privilege)) {
+      throw new PgException.Argument(
+          "42501", "permission denied for " + (create ? "schema " + namespace : "table " + table));
     }
   }
 

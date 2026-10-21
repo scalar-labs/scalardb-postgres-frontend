@@ -107,4 +107,61 @@ public class TypeStoreTest {
     assertThatThrownBy(() -> store.read("ns", "t", T))
         .hasMessageContaining("scalar.db.postgres.metadata_password");
   }
+
+  /** An identity that records whether a call ran inside it, as a Cluster node's would. */
+  private static final class Frontend implements Authenticator.Identity {
+    int inside;
+    int calls;
+
+    @Override
+    public String user() {
+      return "frontend";
+    }
+
+    @Override
+    public boolean superuser() {
+      return false;
+    }
+
+    @Override
+    public <R, T extends Throwable> R run(com.scalar.db.util.ThrowableSupplier<R, T> call)
+        throws T {
+      calls++;
+      inside++;
+      try {
+        return call.get();
+      } finally {
+        inside--;
+      }
+    }
+
+    @Override
+    public void close() {}
+  }
+
+  @Test
+  public void withAFrontendIdentity_ShouldReadAsItWithNoCredentialsAndMakeNoServiceUser()
+      throws Exception {
+    DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
+    when(admin.tableExists(TypeStore.NAMESPACE, TypeStore.TABLE)).thenReturn(true);
+    DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
+    Frontend frontend = new Frontend();
+    when(manager.scan(any()))
+        .thenAnswer(
+            i -> {
+              assertThat(frontend.inside).isEqualTo(1);
+              return Collections.emptyList();
+            });
+    // the properties name a service user, which a host with its own identity does not use
+    TypeStore store =
+        new TypeStore(manager, admin, auth("scalar.db.postgres.metadata_password", "pw"), frontend);
+    store.read("ns", "t", T);
+    org.mockito.ArgumentCaptor<Scan> scan = org.mockito.ArgumentCaptor.forClass(Scan.class);
+    verify(manager).scan(scan.capture());
+    assertThat(scan.getValue().getAttributes()).isEmpty();
+    assertThat(frontend.calls).isEqualTo(1);
+    assertThat(store.authenticated()).isFalse();
+    assertThat(store.create()).isEmpty();
+    verify(admin, never()).createUser(anyString(), any());
+  }
 }

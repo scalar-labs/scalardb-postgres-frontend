@@ -235,7 +235,10 @@ public final class PostgresServer implements AutoCloseable {
         config.getCollation() == Collation.ICU
             ? config.getCollationIcuLocale().orElse("und")
             : null);
-    typeStore = new TypeStore(manager, admin, properties);
+    Properties copy = new Properties();
+    copy.putAll(properties);
+    configured = copy;
+    typeStore = typeStore();
     // The engine caches table metadata and its admin does not refresh the cache, so DDL on an
     // existing table is not seen until the cache expires: sessions wait it out when it is short
     long cacheSecs = DatabaseConfig.getMetadataCacheExpirationTimeSecs(properties);
@@ -266,6 +269,16 @@ public final class PostgresServer implements AutoCloseable {
    */
   public void setAuthenticator(Authenticator authenticator) {
     this.authenticator = authenticator;
+    typeStore = typeStore();
+  }
+
+  // the properties configure was given, which the type store is built from
+  private Properties configured = new Properties();
+
+  /** The type store for the configuration and the authenticator so far, in whichever order. */
+  private TypeStore typeStore() {
+    Authenticator a = authenticator;
+    return new TypeStore(manager, admin, configured, a == null ? null : a.frontend());
   }
 
   /** Whether a connection must be TLS: as configured, else exactly when it must log in. */

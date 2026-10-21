@@ -28,8 +28,15 @@ Without authentication, the configured ScalarDB user reads and writes the table 
 
 Until the table exists, DDL declaring one of the types below fails with `55000`; every other statement works.
 The frontend hides the namespace from its catalog and refuses DDL and DML in it (`42501`); outside the
-frontend, nobody but the service user should hold privileges on the table, since a forged row changes how a
-column is read.
+frontend, nobody but the service user may hold privileges on the table: a user with `WRITE` on it can change
+how another user's column is read, even one whose table they cannot read (setting `type_scale` to 3 makes a
+`NUMERIC(10,2)` 19.90 read as 1.990, without an error). Since the rows are written as the service user, the
+frontend checks the session user's privilege for the DDL first (`CREATE` on the namespace for `CREATE TABLE`,
+`ALTER` on the table for `ADD COLUMN` and `RENAME COLUMN`) and refuses it with `42501` before writing any row.
+
+A host that has an identity of its own for the table (`Authenticator.frontend()`; a ScalarDB Cluster node
+running the engine runs these calls in its privileged mode) needs no service user: the command then creates
+the table only, the two properties are not used, and no user needs privileges on the table.
 
 ## The table
 

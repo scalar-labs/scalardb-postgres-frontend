@@ -190,6 +190,7 @@ public class QueryProcessor {
     this.identity = identity;
     setUser(identity.user());
     defaults.put("is_superuser", identity.superuser() ? "on" : "off");
+    parser.setDdlUser(identity.user());
     parser.setCoordinatorDropAllowed(allowCoordinatorDrop || identity.superuser());
     parser.setUserManagement(true);
   }

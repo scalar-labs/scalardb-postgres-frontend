@@ -7,9 +7,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.scalar.db.api.AuthAdmin;
 import com.scalar.db.api.ConditionBuilder;
 import com.scalar.db.api.Delete;
 import com.scalar.db.api.DistributedTransaction;
@@ -349,6 +351,31 @@ public class ColumnMapTest {
     verify(admin).createTable(eq(NS), eq("f"), created.capture(), eq(false));
     assertThat(created.getValue().getColumnNames()).containsExactly("id", "amount", "code", "note");
     assertThat(created.getValue().getColumnDataType("amount")).isEqualTo(DataType.BIGINT);
+  }
+
+  @Test
+  public void alterTable_WithoutAlter_ShouldFailWith42501BeforeWritingRows() throws Exception {
+    // the rows go in as the frontend, not as the user: written first, they would retype e for
+    // every session until ScalarDB refused the ALTER and they were taken back
+    parser.setDdlUser("mallory");
+    List<String> before = types.describe();
+    assertThat(state(() -> ddl("ALTER TABLE e ADD COLUMN x NUMERIC(10,2)"))).isEqualTo("42501");
+    assertThat(state(() -> ddl("ALTER TABLE e RENAME COLUMN name TO n2"))).isEqualTo("42501");
+    assertThat(types.describe()).isEqualTo(before);
+    verify(admin, never()).addNewColumnToTable(any(), any(), any(), any());
+    verify(admin, never()).renameColumn(any(), any(), any(), any());
+  }
+
+  @Test
+  public void createTable_ShouldCheckCreateOnTheNamespaceFirst() throws Exception {
+    parser.setDdlUser("alice");
+    assertThat(state(() -> ddl("CREATE TABLE f (id INT PRIMARY KEY, amount NUMERIC(10,2))")))
+        .isEqualTo("42501");
+    assertThat(types.describe()).noneMatch(r -> r.startsWith("ns.f/"));
+    verify(admin, never()).createTable(eq(NS), eq("f"), any(), anyBoolean());
+    when(admin.hasPrivilege("alice", NS, AuthAdmin.Privilege.CREATE)).thenReturn(true);
+    ddl("CREATE TABLE f (id INT PRIMARY KEY, amount NUMERIC(10,2))");
+    assertThat(types.describe()).contains("ns.f/amount NUMERIC 10 2 - SCALED_BIGINT BIGINT");
   }
 
   @Test

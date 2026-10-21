@@ -70,6 +70,13 @@ wrongly. Two changes:
   not exist there. `\dp` now lists the owner's entry first, as PostgreSQL does.
 - **`has_table_privilege`.** It now answers from the same grants: directly, through roles, or to
   PUBLIC. Before, it failed as unsupported.
+- **DDL that records declared types checks the user's privilege first.** The rows of
+  `scalardb_postgres_frontend.column_types` are written as the service user before the table changes, so
+  `ALTER TABLE ... ADD COLUMN` or `RENAME COLUMN` by a user without `ALTER` on the table used to retype it
+  for every session until ScalarDB refused the change and the rows were taken back. `CREATE TABLE` (`CREATE`
+  on the schema), `ADD COLUMN` and `RENAME COLUMN` (`ALTER` on the table) now fail with `42501` before any
+  row is written. Grant privileges on `scalardb_postgres_frontend` to the service user only: `WRITE` there
+  lets a user change how any table's columns are read.
 
 ### json and jsonb columns keep their type
 

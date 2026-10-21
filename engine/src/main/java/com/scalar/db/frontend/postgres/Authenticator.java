@@ -1,6 +1,7 @@
 package com.scalar.db.frontend.postgres;
 
 import com.scalar.db.util.ThrowableSupplier;
+import javax.annotation.Nullable;
 
 /**
  * Verifies a client's credentials at connection startup and hands back the identity its session
@@ -22,6 +23,19 @@ public interface Authenticator {
    */
   Identity authenticate(String user, String secret) throws AuthenticationException;
 
+  /**
+   * What the frontend's own metadata table ({@code scalardb_postgres_frontend.column_types}) is
+   * read and written as, when the implementation has such an identity: no session user then needs
+   * privileges on it, so none can rewrite another table's declared types. Its {@link Identity#run}
+   * is entered inside a session's. Null, the default, uses the service user that {@code
+   * scalar.db.postgres.metadata_user} and {@code metadata_password} name.
+   *
+   * @return the frontend's own identity, or null
+   */
+  @Nullable default Identity frontend() {
+    return null;
+  }
+
   /** What a session runs as. Credentials live only here and go away with {@link #close}. */
   interface Identity extends AutoCloseable {
     /** The canonical user name, for {@code current_user}. */
@@ -33,8 +47,8 @@ public interface Authenticator {
     /**
      * Runs {@code call} as this user on the current thread. Every ScalarDB call a session makes
      * happens inside one: the server enters it once per protocol message on the connection thread,
-     * and an operator that reads from another thread enters it there. Calls are never nested on one
-     * thread.
+     * and an operator that reads from another thread enters it there. A session's calls are never
+     * nested on one thread; only the {@link #frontend} identity's are, inside a session's.
      *
      * @param call what to run
      * @param <R> the result type
