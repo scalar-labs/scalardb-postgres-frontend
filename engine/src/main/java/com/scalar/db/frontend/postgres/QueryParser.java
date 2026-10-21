@@ -2746,6 +2746,8 @@ class QueryParser {
    * they go in as the service user or the frontend itself, not as the user, so rows for a DDL that
    * ScalarDB then refuses would change the table's declared types until they were taken back.
    * CREATE is checked on the namespace, as ScalarDB checks it for a table that does not exist yet.
+   * A missing schema or table fails first (3F000, 42P01): Cluster's hasPrivilege refuses to answer
+   * for one, and nothing may be written without an answer.
    */
   private void checkPrivilege(String namespace, String table, AuthAdmin.Privilege privilege)
       throws ExecutionException {
@@ -2754,6 +2756,12 @@ class QueryParser {
       return; // no authentication: the configured ScalarDB user's access is everyone's
     }
     boolean create = privilege == AuthAdmin.Privilege.CREATE;
+    if (create && !admin.namespaceExists(namespace)) {
+      throw new PgException.Argument("3F000", "schema \"" + namespace + "\" does not exist");
+    }
+    if (!create && !admin.tableExists(namespace, table)) {
+      throw new PgException.Argument("42P01", "relation \"" + table + "\" does not exist");
+    }
     if (create
         ? !admin.hasPrivilege(user, namespace, privilege)
         : !admin.hasPrivilege(user, namespace, table, privilege)) {

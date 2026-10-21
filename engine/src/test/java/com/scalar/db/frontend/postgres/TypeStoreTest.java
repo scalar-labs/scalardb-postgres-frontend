@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.scalar.db.api.AuthAdmin;
+import com.scalar.db.api.DistributedTransaction;
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
 import com.scalar.db.api.Scan;
@@ -160,6 +161,26 @@ public class TypeStoreTest {
     verify(manager).scan(scan.capture());
     assertThat(scan.getValue().getAttributes()).isEmpty();
     assertThat(frontend.calls).isEqualTo(1);
+    // writes too: begun inside the identity, with no credentials
+    DistributedTransaction tx = mock(DistributedTransaction.class);
+    when(tx.scan(any())).thenReturn(Collections.emptyList());
+    when(manager.begin(org.mockito.ArgumentMatchers.<Map<String, String>>any()))
+        .thenAnswer(
+            i -> {
+              assertThat(frontend.inside).isEqualTo(1);
+              assertThat((Map<?, ?>) i.getArgument(0)).isEmpty();
+              return tx;
+            });
+    store.write(
+        "ns",
+        "t",
+        Collections.singletonMap(
+            "n", ColumnType.declared("numeric(10,2)", ColumnType.MAX_SCALED_PRECISION)),
+        null,
+        "token");
+    verify(manager).begin(org.mockito.ArgumentMatchers.<Map<String, String>>any());
+    verify(tx).commit();
+    assertThat(frontend.calls).isEqualTo(2);
     assertThat(store.authenticated()).isFalse();
     assertThat(store.create()).isEmpty();
     verify(admin, never()).createUser(anyString(), any());

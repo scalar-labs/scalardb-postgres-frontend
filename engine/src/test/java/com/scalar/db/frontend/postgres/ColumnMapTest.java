@@ -367,8 +367,31 @@ public class ColumnMapTest {
   }
 
   @Test
+  public void alterTable_WithAlter_ShouldRecordTheNewColumnsType() throws Exception {
+    parser.setDdlUser("alice");
+    when(admin.hasPrivilege("alice", NS, "e", AuthAdmin.Privilege.ALTER)).thenReturn(true);
+    ddl("ALTER TABLE e ADD COLUMN x NUMERIC(10,2)");
+    assertThat(types.describe()).contains("ns.e/x NUMERIC 10 2 - SCALED_BIGINT BIGINT");
+  }
+
+  @Test
+  public void ddl_OnAMissingTableOrSchema_ShouldFailAsPostgresqlDoesBeforeAskingForPrivileges()
+      throws Exception {
+    // Cluster's hasPrivilege throws for a table or namespace that does not exist
+    parser.setDdlUser("alice");
+    assertThat(state(() -> ddl("ALTER TABLE nosuch ADD COLUMN x NUMERIC(10,2)")))
+        .isEqualTo("42P01");
+    assertThat(state(() -> ddl("CREATE TABLE nosuch.t (id INT PRIMARY KEY, n NUMERIC(5,1))")))
+        .isEqualTo("3F000");
+    verify(admin, never()).hasPrivilege(any(), any(), any(), any());
+    verify(admin, never()).hasPrivilege(any(), any(), any());
+    assertThat(types.describe()).noneMatch(r -> r.contains("nosuch"));
+  }
+
+  @Test
   public void createTable_ShouldCheckCreateOnTheNamespaceFirst() throws Exception {
     parser.setDdlUser("alice");
+    when(admin.namespaceExists(NS)).thenReturn(true);
     assertThat(state(() -> ddl("CREATE TABLE f (id INT PRIMARY KEY, amount NUMERIC(10,2))")))
         .isEqualTo("42501");
     assertThat(types.describe()).noneMatch(r -> r.startsWith("ns.f/"));

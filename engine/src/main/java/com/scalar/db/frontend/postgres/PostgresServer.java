@@ -273,7 +273,7 @@ public final class PostgresServer implements AutoCloseable {
   }
 
   // the properties configure was given, which the type store is built from
-  private Properties configured = new Properties();
+  private volatile Properties configured = new Properties();
 
   /** The type store for the configuration and the authenticator so far, in whichever order. */
   private TypeStore typeStore() {
