@@ -263,7 +263,7 @@ at the end of this section.
 - **Session settings.** `SET TIME ZONE` shapes how `timestamptz` values are read and printed, as in
   PostgreSQL; `search_path` decides where an unqualified table name is looked up; `SET LOCAL`
   reverts at the end of the transaction and only warns outside one, and `ROLLBACK` undoes a
-  transaction's `SET`s, though `ROLLBACK TO SAVEPOINT` does not. `statement_timeout` and
+  transaction's `SET`s, as `ROLLBACK TO SAVEPOINT` undoes those since the savepoint. `statement_timeout` and
   a cancel request (psql's Ctrl-C, JDBC's `Statement.cancel()`) stop a statement with `57014`, as in
   PostgreSQL; `lock_timeout` is accepted but has nothing to time, since nothing waits for a lock.
   `IntervalStyle` shapes how intervals are printed, as in PostgreSQL. A setting name the frontend does not have fails with `42704`, as in

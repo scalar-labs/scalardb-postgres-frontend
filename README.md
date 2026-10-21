@@ -28,8 +28,7 @@ the port has the configured ScalarDB user's full access: keep the frontend on a 
 
 Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `3.20.0-SNAPSHOT`,
 which the build fetches from ScalarDB's snapshot repository; a core you install from a ScalarDB checkout with
-`./gradlew :core:publishToMavenLocal` takes precedence. It needs a ScalarDB with collation support
-(`CollationComparator`, on ScalarDB's `feature/collation` branch until it is released).
+`./gradlew :core:publishToMavenLocal` takes precedence.
 
 ```sh
 ./gradlew shadowJar

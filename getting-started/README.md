@@ -151,8 +151,15 @@ psql -h localhost -p 15432 -d demo -f schema.sql -f data.sql
 ```
 
 The database name in the connection (`demo`) is the ScalarDB namespace. `schema.sql` creates
-ScalarDB's coordinator tables and the namespace if needed, and it drops and recreates the three
-tables, so running this step again starts over. Loading takes 10 to 15 seconds on a local database, longer against a container or a remote one.
+ScalarDB's coordinator tables (`CREATE COORDINATOR TABLES IF NOT EXISTS`), the frontend's metadata
+table (`CREATE FRONTEND METADATA TABLES`) and the namespace if needed, and it drops and recreates the
+three tables, so running this step again starts over. For your own schema, run `CREATE FRONTEND
+METADATA TABLES` once before the first `CREATE TABLE` that declares `NUMERIC`, `VARCHAR(n)`,
+`CHAR(n)`, `SMALLINT`, `JSON` or `JSONB`: the frontend records those declared types there
+([docs/type-encoding.md](../docs/type-encoding.md)), and refuses such a column with `55000` until
+the table exists. Running it again creates only what is missing. With [authentication](#connect-as-a-user)
+on, run it as a superuser: it also creates the frontend's service user and prints the two properties to
+add, `scalar.db.postgres.metadata_user` and `scalar.db.postgres.metadata_password`. Loading takes 10 to 15 seconds on a local database, longer against a container or a remote one.
 
 With the default `scalar.db.postgres.auth=none`, any user name works and no password is asked
 for; [Connect as a user](#connect-as-a-user) turns authentication on.
@@ -346,6 +353,22 @@ collation, which psql's `\d` shows (`und-u-ks-level2-x-icu`), and like one in Po
 The backing database compares keys and pushed-down conditions itself, so it must be set up for
 the same collation, as ScalarDB requires of any application. With Cluster, set the same
 `scalar.db.collation` in the frontend's properties as on the nodes.
+
+ScalarDB creates text columns with the database's default collation, so under `ICU` each text column
+of the backing database has to be altered to the matching collation after every `CREATE TABLE` and
+`ADD COLUMN`. On a backing PostgreSQL (with ICU support), connected to the backing database itself,
+not the frontend:
+
+```sql
+CREATE COLLATION IF NOT EXISTS ci (provider = icu, locale = 'und-u-ks-level2', deterministic = false);
+ALTER TABLE demo.customers ALTER COLUMN name TYPE text COLLATE ci;  -- each text or varchar column, keeping its type
+```
+
+[`difftest/collation-icu/backend.sql`](../difftest/collation-icu/backend.sql) does it for every text
+column of a namespace. Nothing checks this under `ICU`: a column left in the default collation makes
+key lookups, ranges and `ORDER BY` on it answer differently from the same comparison evaluated in the
+frontend, without an error. Under the default `BINARY`, the frontend checks the backing PostgreSQL or
+MySQL database at startup instead (see [LIMITATIONS.md](../LIMITATIONS.md)).
 
 [difftest/collation-icu](../difftest/collation-icu/README.md) compares the frontend under ICU with
 PostgreSQL.

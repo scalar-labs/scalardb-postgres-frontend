@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Writes in WITH, and UPDATE of a primary key
+
+`INSERT`, `UPDATE` and `DELETE` inside `WITH` (with or without `RETURNING`) now run, before the rest of
+the statement and in its transaction. Refused with `0A000`, since PostgreSQL would run them on one
+snapshot and the rest of the statement here would see their effect: one that is nested, under `WITH
+RECURSIVE`, or whose table the statement reads or writes elsewhere. A transaction's read-only check now
+goes by what a statement does, not its first word, so a write in `WITH` fails in a read-only transaction
+(`25006`).
+
+`UPDATE ... SET` on a primary-key column, refused before, now deletes the row under its old key and
+inserts it under the new one, in the statement's transaction. A new key another row has, or one another
+row of the same statement moves to or from (`SET id = id + 1` over adjacent keys), fails with `23505`.
+
+### More functions
+
+`split_part`, `string_to_array`, `repeat`, `chr`, `overlay`, `width_bucket`, `random`, `ln`, `log`,
+`log10`, `exp` and `trunc` on `numeric` (with PostgreSQL's result scale), `stddev`, `variance` and
+their `_samp`/`_pop` forms, `jsonb_set`, `jsonb_insert`, `jsonb_strip_nulls`, `date_bin`,
+`make_timestamp`, and more `date_trunc` units. Timestamp text accepts `now`, `today`, `tomorrow`,
+`yesterday` and `epoch`, and zone abbreviations and POSIX zones as PostgreSQL reads them; `infinity` is
+refused. `regexp_replace` and `to_number` stay refused.
+
+### Answers that were wrong
+
+Differential testing against PostgreSQL 18 (SQLancer, and PostgreSQL's own regression tests) found
+statements that answered differently from PostgreSQL without an error. They now answer as PostgreSQL
+does or fail. Among them: `x NOTNULL` evaluated as `IS NULL`; a comma in `FROM` bound tighter than
+`JOIN`; `upper` and `lower` under `BINARY` changing non-ASCII letters; `int4` overflow hidden by
+parentheses; a `real` key joined with a `float8` one; the column types of `VALUES`; integer literals
+past `int4` and negative ones; spaces inside quoted array elements; a `WHERE` equality moved below a
+later `FULL` or `RIGHT JOIN`; a trailing escape in `LIKE` (now `22025`) and `SIMILAR TO`.
+
+Behaviour that changes:
+
+- `ROLLBACK TO SAVEPOINT` now undoes the `SET`s, `SET TRANSACTION READ ONLY` and `search_path` changes made
+  since the savepoint, as in PostgreSQL.
+- A constant expression PostgreSQL's planner evaluates and fails on (`1/0` in a `CASE` arm no row
+  reaches), and an operator with no match for its operand types (`42883`), now fail while planning,
+  also over a table with no rows, where they answered before.
+- A statement nested more than 256 brackets deep, or taking more than 5 seconds to parse, fails with
+  `54001`.
+
 ### A statement outside BEGIN is one transaction
 
 A read outside `BEGIN` used to run each of its ScalarDB reads as a transaction of its own: a join's outer
