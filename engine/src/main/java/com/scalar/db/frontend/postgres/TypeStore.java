@@ -94,8 +94,8 @@ class TypeStore {
   /**
    * The store of a deployment: {@code scalar.db.postgres.auth} says whether rows are the service
    * user's, {@code scalar.db.postgres.metadata_user} and {@code metadata_password} who that is.
-   * With {@code frontend} (see {@link Authenticator#frontend}) there is no service user: rows are
-   * read and written as that identity, with no credentials on the operations.
+   * With {@code frontend} (see {@link Authenticator#frontend}) rows are read and written as that
+   * identity, which logs in as the service user itself, so no credentials go on the operations.
    */
   TypeStore(
       DistributedTransactionManager manager,
@@ -106,15 +106,14 @@ class TypeStore {
     this.admin = admin;
     this.frontend = frontend;
     this.auth =
-        frontend == null
-            && !properties
-                .getProperty("scalar.db.postgres.auth", "none")
-                .trim()
-                .toLowerCase(Locale.ROOT)
-                .equals("none");
+        !properties
+            .getProperty("scalar.db.postgres.auth", "none")
+            .trim()
+            .toLowerCase(Locale.ROOT)
+            .equals("none");
     this.user = properties.getProperty("scalar.db.postgres.metadata_user", DEFAULT_USER).trim();
     String password = properties.getProperty("scalar.db.postgres.metadata_password");
-    if (!auth) {
+    if (!auth || frontend != null) {
       this.attributes = Collections.emptyMap();
     } else if (password == null) {
       this.attributes = null;

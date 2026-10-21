@@ -34,9 +34,10 @@ how another user's column is read, even one whose table they cannot read (settin
 frontend checks the session user's privilege for the DDL first (`CREATE` on the namespace for `CREATE TABLE`,
 `ALTER` on the table for `ADD COLUMN` and `RENAME COLUMN`) and refuses it with `42501` before writing any row.
 
-A host that has an identity of its own for the table (`Authenticator.frontend()`; a ScalarDB Cluster node
-running the engine runs these calls in its privileged mode) needs no service user: the command then creates
-the table only, the two properties are not used, and no user needs privileges on the table.
+A host can run these calls itself (`Authenticator.frontend()`): a ScalarDB Cluster node running the engine
+logs in as the service user and runs them on a thread of their own, rather than sending its credentials on each
+operation. The setup is the same: the command creates the service user, and the node's configuration takes the
+two properties.
 
 ## The table
 

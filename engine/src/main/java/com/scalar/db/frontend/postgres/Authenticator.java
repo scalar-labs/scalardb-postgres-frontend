@@ -25,10 +25,11 @@ public interface Authenticator {
 
   /**
    * What the frontend's own metadata table ({@code scalardb_postgres_frontend.column_types}) is
-   * read and written as, when the implementation has such an identity: no session user then needs
-   * privileges on it, so none can rewrite another table's declared types. Its {@link Identity#run}
-   * is entered inside a session's. Null, the default, uses the service user that {@code
-   * scalar.db.postgres.metadata_user} and {@code metadata_password} name.
+   * read and written as, when the implementation runs those calls itself: as the service user that
+   * {@code scalar.db.postgres.metadata_user} and {@code metadata_password} name, so that no session
+   * user needs privileges on the table and none can rewrite another table's declared types. Its
+   * {@link Identity#run} is entered inside a session's. Null, the default, sends the service user's
+   * credentials on each operation instead (the Cluster client SDK reads them).
    *
    * @return the frontend's own identity, or null
    */

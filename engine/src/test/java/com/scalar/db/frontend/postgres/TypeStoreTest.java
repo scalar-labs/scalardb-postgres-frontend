@@ -141,8 +141,7 @@ public class TypeStoreTest {
   }
 
   @Test
-  public void withAFrontendIdentity_ShouldReadAsItWithNoCredentialsAndMakeNoServiceUser()
-      throws Exception {
+  public void withAFrontendIdentity_ShouldReadAndWriteAsItWithNoCredentials() throws Exception {
     DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
     when(admin.tableExists(TypeStore.NAMESPACE, TypeStore.TABLE)).thenReturn(true);
     DistributedTransactionManager manager = mock(DistributedTransactionManager.class);
@@ -181,8 +180,7 @@ public class TypeStoreTest {
     verify(manager).begin(org.mockito.ArgumentMatchers.<Map<String, String>>any());
     verify(tx).commit();
     assertThat(frontend.calls).isEqualTo(2);
-    assertThat(store.authenticated()).isFalse();
-    assertThat(store.create()).isEmpty();
-    verify(admin, never()).createUser(anyString(), any());
+    // the identity logs in as the service user, which the setup command still creates
+    assertThat(store.authenticated()).isTrue();
   }
 }
