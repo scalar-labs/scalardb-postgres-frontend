@@ -212,9 +212,9 @@ at the end of this section.
 - **While a backing database is unreachable, `COMMIT` waits** 60 to 150 seconds before it fails,
   with `40003` when the outcome is unknown. Data stays consistent, but a client timeout shorter than
   that must be treated as an unknown outcome, not a failure.
-- **Isolation levels.** ScalarDB's `SNAPSHOT` reads each record's committed version without a
-  snapshot across records, which `SHOW transaction_isolation` reports as `read committed`;
-  `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
+- **Isolation levels.** ScalarDB's `READ_COMMITTED` and `SNAPSHOT` read each record's committed
+  version without a snapshot across records, which `SHOW transaction_isolation` reports as
+  `read committed`; `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
   stronger level than the engine runs at (`BEGIN ISOLATION LEVEL SERIALIZABLE`,
   `SET TRANSACTION ...`) is refused with `0A000` rather than ignored.
 - **One collation for all text: ScalarDB's.** Text compares in `scalar.db.collation`: byte order

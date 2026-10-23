@@ -253,7 +253,8 @@ public final class PostgresServer implements AutoCloseable {
               + (cacheSecs < 0 ? "only after a restart" : "only after that");
       logger.warn("{}", ddlNotice);
     }
-    // SHOW TRANSACTION ISOLATION LEVEL: Consensus Commit's SNAPSHOT reads like REPEATABLE READ
+    // SHOW TRANSACTION ISOLATION LEVEL: Consensus Commit's READ_COMMITTED and SNAPSHOT have no
+    // snapshot across records, so both read like READ COMMITTED
     String isolation = properties.getProperty("scalar.db.consensus_commit.isolation_level", "");
     String level = isolation.equalsIgnoreCase("SERIALIZABLE") ? "serializable" : "read committed";
     defaults.put("transaction_isolation", level);

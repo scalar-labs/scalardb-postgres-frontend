@@ -46,7 +46,8 @@ java -jar server/build/libs/scalardb-postgres-frontend.jar scalardb.properties 1
 `scalardb.properties` is an ordinary ScalarDB configuration. The database name a client connects
 with is the ScalarDB namespace. [`getting-started/`](getting-started/README.md) walks through the
 whole setup with sample data, psql and JDBC, and through the container image
-(`./gradlew :server:dockerBuild`).
+(`./gradlew :server:dockerBuild`). The [user documentation](docs/user/README.md) starts with running the
+frontend in a ScalarDB Cluster node.
 
 ## Layout
 
@@ -61,6 +62,7 @@ whole setup with sample data, psql and JDBC, and through the container image
 | [`difftest/`](difftest/README.md) | differential tests against native PostgreSQL, and a concurrency test |
 | [`bench/`](bench/README.md) | benchmarks against native PostgreSQL, including BenchBase TPC-C |
 | [`compat/`](compat/README.md) | small client programs for other languages' PostgreSQL drivers |
+| [`docs/user/`](docs/user/README.md) | user documentation: quick start, configuration, SQL reference, transactions, security, clients and operations |
 | `docs/` | design notes: [running in ScalarDB Cluster nodes](docs/integration-design.md), [authentication](docs/auth-design.md) and [declared types](docs/type-encoding.md) |
 
 Changes the frontend needs in ScalarDB core itself are described in design notes kept with ScalarDB
