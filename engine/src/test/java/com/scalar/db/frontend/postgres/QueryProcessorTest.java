@@ -892,6 +892,12 @@ public class QueryProcessorTest {
     // name truncates to 63 bytes, at a character boundary
     assertThat(processor.execute("SELECT repeat('\u00e9', 40)::name AS n"))
         .containsExactly(Collections.singletonMap("n", "\u00e9".repeat(31)));
+    // in one pass: a long text is cut as fast as a short one
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(5),
+        () ->
+            assertThat(processor.execute("SELECT repeat('\uD83D\uDE00', 1000000)::name AS n"))
+                .containsExactly(Collections.singletonMap("n", "\uD83D\uDE00".repeat(15))));
     assertThat(
             processor.execute(
                 "SELECT has_schema_privilege('pg_catalog', 'USAGE') AS u,"

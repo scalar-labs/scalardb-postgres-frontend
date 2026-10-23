@@ -4261,9 +4261,14 @@ final class Evaluator {
       }
       if (t.equals("name")) {
         // the text in at most 63 bytes, cut at a character boundary, without a notice
-        int end = s.length();
-        while (s.substring(0, end).getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 63) {
-          end = s.offsetByCodePoints(end, -1);
+        int end = 0;
+        for (int bytes = 0; end < s.length(); ) {
+          int c = s.codePointAt(end);
+          bytes += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; // its UTF-8 length
+          if (bytes > 63) {
+            break;
+          }
+          end += Character.charCount(c);
         }
         return s.substring(0, end);
       }
