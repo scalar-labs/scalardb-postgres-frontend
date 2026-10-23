@@ -19,7 +19,7 @@ SELECT nspname AS "TABLE_SCHEM", current_database() AS "TABLE_CATALOG" FROM pg_c
 -----
 -- [pgjdbc]
 -- postgres16: 420 865f41bd9757
--- expect: 85  # only the catalog relations the frontend declares
+-- expect: 92  # only the catalog relations the frontend declares
 SELECT current_database() AS "TABLE_CAT", n.nspname AS "TABLE_SCHEM", c.relname AS "TABLE_NAME",  CASE n.nspname ~ '^pg_' OR n.nspname = 'information_schema'  WHEN true THEN CASE  WHEN n.nspname = 'pg_catalog' OR n.nspname = 'information_schema' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TABLE'   WHEN 'v' THEN 'SYSTEM VIEW'   WHEN 'i' THEN 'SYSTEM INDEX'   ELSE NULL   END  WHEN n.nspname = 'pg_toast' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TOAST TABLE'   WHEN 'i' THEN 'SYSTEM TOAST INDEX'   ELSE NULL   END  ELSE CASE c.relkind   WHEN 'r' THEN 'TEMPORARY TABLE'   WHEN 'p' THEN 'TEMPORARY TABLE'   WHEN 'i' THEN 'TEMPORARY INDEX'   WHEN 'S' THEN 'TEMPORARY SEQUENCE'   WHEN 'v' THEN 'TEMPORARY VIEW'   ELSE NULL   END  END  WHEN false THEN CASE c.relkind  WHEN 'r' THEN 'TABLE'  WHEN 'p' THEN 'PARTITIONED TABLE'  WHEN 'i' THEN 'INDEX'  WHEN 'P' then 'PARTITIONED INDEX'  WHEN 'S' THEN 'SEQUENCE'  WHEN 'v' THEN 'VIEW'  WHEN 'c' THEN 'TYPE'  WHEN 'f' THEN 'FOREIGN TABLE'  WHEN 'm' THEN 'MATERIALIZED VIEW'  ELSE NULL  END  ELSE NULL  END  AS "TABLE_TYPE", d.description AS "REMARKS",  '' as "TYPE_CAT", '' as "TYPE_SCHEM", '' as "TYPE_NAME", '' AS "SELF_REFERENCING_COL_NAME", '' AS "REF_GENERATION"  FROM pg_catalog.pg_namespace n, pg_catalog.pg_class c  LEFT JOIN pg_catalog.pg_description d ON (c.oid = d.objoid AND d.objsubid = 0  and d.classoid = 'pg_class'::regclass)  WHERE c.relnamespace = n.oid  AND c.relname LIKE '%' ORDER BY "TABLE_TYPE","TABLE_SCHEM","TABLE_NAME"
 -----
 -- [pgjdbc]
@@ -34,7 +34,7 @@ SELECT current_database() AS "TABLE_CAT", n.nspname AS "TABLE_SCHEM", c.relname 
 -----
 -- [pgjdbc]
 -- postgres16: 68 67f99c5194e5
--- expect: 50  # only the catalog relations the frontend declares
+-- expect: 51  # only the catalog relations the frontend declares
 SELECT current_database() AS "TABLE_CAT", n.nspname AS "TABLE_SCHEM", c.relname AS "TABLE_NAME",  CASE n.nspname ~ '^pg_' OR n.nspname = 'information_schema'  WHEN true THEN CASE  WHEN n.nspname = 'pg_catalog' OR n.nspname = 'information_schema' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TABLE'   WHEN 'v' THEN 'SYSTEM VIEW'   WHEN 'i' THEN 'SYSTEM INDEX'   ELSE NULL   END  WHEN n.nspname = 'pg_toast' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TOAST TABLE'   WHEN 'i' THEN 'SYSTEM TOAST INDEX'   ELSE NULL   END  ELSE CASE c.relkind   WHEN 'r' THEN 'TEMPORARY TABLE'   WHEN 'p' THEN 'TEMPORARY TABLE'   WHEN 'i' THEN 'TEMPORARY INDEX'   WHEN 'S' THEN 'TEMPORARY SEQUENCE'   WHEN 'v' THEN 'TEMPORARY VIEW'   ELSE NULL   END  END  WHEN false THEN CASE c.relkind  WHEN 'r' THEN 'TABLE'  WHEN 'p' THEN 'PARTITIONED TABLE'  WHEN 'i' THEN 'INDEX'  WHEN 'P' then 'PARTITIONED INDEX'  WHEN 'S' THEN 'SEQUENCE'  WHEN 'v' THEN 'VIEW'  WHEN 'c' THEN 'TYPE'  WHEN 'f' THEN 'FOREIGN TABLE'  WHEN 'm' THEN 'MATERIALIZED VIEW'  ELSE NULL  END  ELSE NULL  END  AS "TABLE_TYPE", d.description AS "REMARKS",  '' as "TYPE_CAT", '' as "TYPE_SCHEM", '' as "TYPE_NAME", '' AS "SELF_REFERENCING_COL_NAME", '' AS "REF_GENERATION"  FROM pg_catalog.pg_namespace n, pg_catalog.pg_class c  LEFT JOIN pg_catalog.pg_description d ON (c.oid = d.objoid AND d.objsubid = 0  and d.classoid = 'pg_class'::regclass)  WHERE c.relnamespace = n.oid  AND c.relname LIKE '%' AND (false  OR ( c.relkind = 'r' AND (n.nspname = 'pg_catalog' OR n.nspname = 'information_schema') ) )  ORDER BY "TABLE_TYPE","TABLE_SCHEM","TABLE_NAME"
 -----
 -- [pgjdbc]
@@ -44,7 +44,7 @@ SELECT * FROM (SELECT current_database() AS current_database, n.nspname,c.relnam
 -----
 -- [pgjdbc]
 -- postgres16: 2064 f26c5b65f869
--- expect: 834  # only the catalog relations the frontend declares, with their declared columns
+-- expect: 954  # only the catalog relations the frontend declares, with their declared columns
 SELECT * FROM (SELECT current_database() AS current_database, n.nspname,c.relname,a.attname,a.atttypid,a.attnotnull  OR (t.typtype = 'd' AND t.typnotnull) AS attnotnull,a.atttypmod,a.attlen,t.typtypmod,row_number() OVER (PARTITION BY a.attrelid ORDER BY a.attnum) AS attnum, nullif(a.attidentity, '') as attidentity,nullif(a.attgenerated, '') as attgenerated,pg_catalog.pg_get_expr(def.adbin, def.adrelid) AS adsrc,dsc.description,t.typbasetype,t.typtype  FROM pg_catalog.pg_namespace n  JOIN pg_catalog.pg_class c ON (c.relnamespace = n.oid)  JOIN pg_catalog.pg_attribute a ON (a.attrelid=c.oid)  JOIN pg_catalog.pg_type t ON (a.atttypid = t.oid)  LEFT JOIN pg_catalog.pg_attrdef def ON (a.attrelid=def.adrelid AND a.attnum = def.adnum)  LEFT JOIN pg_catalog.pg_description dsc ON (c.oid=dsc.objoid AND a.attnum = dsc.objsubid)  LEFT JOIN pg_catalog.pg_class dc ON (dc.oid=dsc.classoid AND dc.relname='pg_class')  LEFT JOIN pg_catalog.pg_namespace dn ON (dc.relnamespace=dn.oid AND dn.nspname='pg_catalog')  WHERE c.relkind in ('r','p','v','f','m') and a.attnum > 0 AND NOT a.attisdropped  AND c.relname LIKE '%') c WHERE true  AND attname LIKE '%' ORDER BY nspname,c.relname,attnum
 -----
 -- [pgjdbc]
@@ -109,7 +109,7 @@ SELECT pg_type.oid, typname   FROM pg_catalog.pg_type   LEFT   JOIN (select ns.o
 -----
 -- [pgjdbc]
 -- postgres16: 211 b65b708be95d
--- expect: 82  # only the catalog relations the frontend declares
+-- expect: 89  # only the catalog relations the frontend declares
 SELECT current_database() AS current_database, n.nspname,c.relname,r.rolname,c.relacl  FROM pg_catalog.pg_namespace n, pg_catalog.pg_class c, pg_catalog.pg_roles r  WHERE c.relnamespace = n.oid  AND c.relowner = r.oid  AND c.relkind IN ('r','p','v','m','f')  AND c.relname LIKE '%' ORDER BY nspname, relname
 -----
 -- [pgjdbc]
@@ -119,7 +119,7 @@ SELECT current_database() AS current_database, n.nspname,c.relname,r.rolname,c.r
 -----
 -- [pgjdbc]
 -- postgres16: 3125 cb74defb3ee6
--- expect: 211  # only the functions the frontend implements
+-- expect: 216  # only the functions the frontend implements
 SELECT current_database() AS "FUNCTION_CAT",  n.nspname AS "FUNCTION_SCHEM", p.proname AS "FUNCTION_NAME",  d.description AS "REMARKS",  CASE    WHEN (format_type(p.prorettype, null) = 'unknown') THEN 0   WHEN      (substring(pg_get_function_result(p.oid) from 0 for 6) = 'TABLE') OR      (substring(pg_get_function_result(p.oid) from 0 for 6) = 'SETOF') THEN 2   ELSE 1 END  AS "FUNCTION_TYPE",  p.proname || '_' || p.oid AS "SPECIFIC_NAME" FROM pg_catalog.pg_proc p INNER JOIN pg_catalog.pg_namespace n ON p.pronamespace=n.oid LEFT JOIN pg_catalog.pg_description d ON p.oid=d.objoid WHERE true   AND p.prokind='f' AND p.proname LIKE '%' ORDER BY "FUNCTION_SCHEM", "FUNCTION_NAME", p.oid::text
 -----
 -- [pgjdbc]
@@ -139,7 +139,7 @@ SELECT current_database() AS "PROCEDURE_CAT",  n.nspname AS "PROCEDURE_SCHEM", p
 -----
 -- [pgjdbc]
 -- postgres16: 3297 8d4e61cdb7ae
--- expect: 317  # only the functions the frontend implements
+-- expect: 322  # only the functions the frontend implements
 SELECT current_database() AS current_database, n.nspname,p.proname,p.prorettype,p.proargtypes, t.typtype,t.typrelid,  p.proargnames, p.proargmodes, p.proallargtypes, p.oid  FROM pg_catalog.pg_proc p, pg_catalog.pg_namespace n, pg_catalog.pg_type t  WHERE p.pronamespace=n.oid AND p.prorettype=t.oid  AND p.proname LIKE '%' ORDER BY n.nspname, p.proname, p.oid::text
 -----
 -- [pgjdbc]
@@ -149,12 +149,12 @@ SELECT a.attname,a.atttypid FROM pg_catalog.pg_attribute a  WHERE a.attrelid = '
 -----
 -- [pgjdbc]
 -- postgres16: 406 c15e7beb11d6
--- expect: 77  # only the types the frontend implements, and the tables' array types
+-- expect: 81  # only the types the frontend implements, and the tables' array types
 SELECT t.typname,t.oid FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON (t.typnamespace = n.oid)  WHERE n.nspname  != 'pg_toast' AND  (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
 -----
 -- [pgjdbc]
 -- postgres16: 617 ade0dee87ff3
--- expect: 79  # only the types the frontend implements, and the tables' row and array types
+-- expect: 83  # only the types the frontend implements, and the tables' row and array types
 SELECT typinput='pg_catalog.array_in'::regproc as is_array, typtype, typname, pg_type.oid   FROM pg_catalog.pg_type   LEFT JOIN (select ns.oid as nspoid, ns.nspname, r.r           from pg_namespace as ns           join ( select s.r, (current_schemas(false))[s.r] as nspname                    from generate_series(1, array_upper(current_schemas(false), 1)) as s(r) ) as r          using ( nspname )        ) as sp     ON sp.nspoid = typnamespace  ORDER BY sp.r, pg_type.oid DESC
 -----
 -- [pgjdbc]

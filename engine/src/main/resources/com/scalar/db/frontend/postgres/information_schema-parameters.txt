@@ -6,6 +6,11 @@ audit	pg_catalog	abs_1396	1	IN	NO	NO	\N	bigint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	
 audit	pg_catalog	abs_1397	1	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	1	\N
 audit	pg_catalog	abs_1398	1	IN	NO	NO	\N	smallint	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int2	\N	\N	\N	\N	1	\N
 audit	pg_catalog	abs_1705	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	aclexplode_1689	1	IN	NO	NO	acl	ARRAY	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	_aclitem	\N	\N	\N	\N	1	\N
+audit	pg_catalog	aclexplode_1689	2	OUT	NO	NO	grantor	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	aclexplode_1689	3	OUT	NO	NO	grantee	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	3	\N
+audit	pg_catalog	aclexplode_1689	4	OUT	NO	NO	privilege_type	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	4	\N
+audit	pg_catalog	aclexplode_1689	5	OUT	NO	NO	is_grantable	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	5	\N
 audit	pg_catalog	age_1199	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
 audit	pg_catalog	age_1199	2	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	2	\N
 audit	pg_catalog	age_1386	1	IN	NO	NO	\N	timestamp with time zone	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	timestamptz	\N	\N	\N	\N	1	\N
@@ -110,6 +115,11 @@ audit	pg_catalog	has_database_privilege_2253	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N
 audit	pg_catalog	has_database_privilege_2253	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
 audit	pg_catalog	has_database_privilege_2255	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
 audit	pg_catalog	has_database_privilege_2255	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_schema_privilege_2271	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_schema_privilege_2271	2	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	2	\N
+audit	pg_catalog	has_schema_privilege_2271	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
+audit	pg_catalog	has_schema_privilege_2273	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
+audit	pg_catalog	has_schema_privilege_2273	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
 audit	pg_catalog	has_table_privilege_1924	1	IN	NO	NO	\N	oid	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	oid	\N	\N	\N	\N	1	\N
 audit	pg_catalog	has_table_privilege_1924	2	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	2	\N
 audit	pg_catalog	has_table_privilege_1924	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N
@@ -324,6 +334,9 @@ audit	pg_catalog	round_1342	1	IN	NO	NO	\N	double precision	\N	\N	\N	\N	\N	\N	\N	
 audit	pg_catalog	round_1707	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
 audit	pg_catalog	round_1707	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
 audit	pg_catalog	round_1708	1	IN	NO	NO	\N	numeric	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	numeric	\N	\N	\N	\N	1	\N
+audit	pg_catalog	row_to_json_3155	1	IN	NO	NO	\N	record	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	record	\N	\N	\N	\N	1	\N
+audit	pg_catalog	row_to_json_3156	1	IN	NO	NO	\N	record	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	record	\N	\N	\N	\N	1	\N
+audit	pg_catalog	row_to_json_3156	2	IN	NO	NO	\N	boolean	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	bool	\N	\N	\N	\N	2	\N
 audit	pg_catalog	rpad_874	1	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	1	\N
 audit	pg_catalog	rpad_874	2	IN	NO	NO	\N	integer	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	int4	\N	\N	\N	\N	2	\N
 audit	pg_catalog	rpad_874	3	IN	NO	NO	\N	text	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	audit	pg_catalog	text	\N	\N	\N	\N	3	\N

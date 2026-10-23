@@ -5,9 +5,10 @@ An answer is `N DIGEST` (row count and a digest of the rows) or `ERROR <sqlstate
 is the first 12 hex digits of the SHA-256 of the rows' text values (tab separated, NULL as \\N), sorted
 and joined by newlines; ClientCatalogTest computes the same one.
 
-Queries name relation OIDs ('16385') of the server they were captured on, given by the file's
+Queries name relation OIDs ('16385', or bare as pgAdmin writes them, along with its schemas' and
+database's) of the server they were captured on, given by the file's
 `-- source: postgres16` (pglog2fixture.py output) or `-- source: frontend` (psql -E captures, the
-default). The quoted OIDs listed in the oids line are mapped by relation name to the other server's
+default). The OIDs listed in the oids line are mapped by relation name to the other server's
 before running there; any other quoted number of five or more digits is reported, since it is either a
 system OID or a relation the mapping does not know.
 
@@ -52,12 +53,21 @@ def queries(text):
 
 
 def oids(conn):
+    """The user relations' OIDs by schema.name, the schemas' by name, and the database's as @name."""
     rows = conn.execute(
         "SELECT c.oid::text, n.nspname || '.' || c.relname FROM pg_catalog.pg_class c"
         " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
         " WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')"
+        " UNION ALL SELECT oid::text, nspname::text FROM pg_catalog.pg_namespace"
+        " WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'"
+        " UNION ALL SELECT oid::text, '@' || datname FROM pg_catalog.pg_database"
+        " WHERE datname = current_database()"
     ).fetchall()
-    return {name.replace("audit.", "public."): oid for oid, name in rows}
+    return {re.sub(r"^audit(\.|$)", r"public\1", name): oid for oid, name in rows}
+
+
+# an OID written bare, as pgAdmin does (16385::oid, relnamespace = 2200)
+BARE_OID = re.compile(r"(?<![\w.'$])(\d{4,})(?![\w'.])")
 
 
 def digest(result):
@@ -111,6 +121,7 @@ def main():
             if oid not in mapping:
                 print("%d: '%s' is not a relation OID in the oids line" % (i, oid), file=sys.stderr)
         mapped = re.sub(r"'(\d{5,})'", lambda m: "'%s'" % mapping.get(m.group(1), m.group(1)), sql)
+        mapped = BARE_OID.sub(lambda m: mapping.get(m.group(1), m.group(1)), mapped)
         n, f = (run(native, sql), run(fe, mapped)) if source == "postgres16" else (run(native, mapped), run(fe, sql))
         print("%d | %s | %s | %s" % (i, label, n, f))
         if out:

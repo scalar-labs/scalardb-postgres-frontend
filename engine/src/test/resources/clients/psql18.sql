@@ -42,7 +42,7 @@ ORDER BY 1,2;
 -----
 -- [dS]
 -- postgres16: 141 b47968481df1
--- expect: 67  # only the catalog relations the frontend declares
+-- expect: 74  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -629,7 +629,7 @@ ORDER BY 1, 2;
 -----
 -- [dC]
 -- postgres16: 229 7e7a21ca0da2
--- expect: 98  # only the casts the frontend implements
+-- expect: 101  # only the casts the frontend implements
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -657,7 +657,7 @@ ORDER BY 1, 2;
 -----
 -- [dC+]
 -- postgres16: 229 7cf149ff5137
--- expect: 98  # only the casts the frontend implements
+-- expect: 101  # only the casts the frontend implements
 SELECT pg_catalog.format_type(castsource, NULL) AS "Source type",
        pg_catalog.format_type(casttarget, NULL) AS "Target type",
        CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'
@@ -1025,7 +1025,7 @@ ORDER BY 1,2;
 -----
 -- [dtS]
 -- postgres16: 65 86c76b658cd4
--- expect: 51  # only the catalog relations the frontend declares
+-- expect: 52  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1039,7 +1039,7 @@ ORDER BY 1,2;
 -----
 -- [dt *.*]
 -- postgres16: 111 c9f93c0a1b61
--- expect: 52  # only the catalog relations the frontend declares
+-- expect: 53  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1052,7 +1052,7 @@ ORDER BY 1,2;
 -----
 -- [dvS]
 -- postgres16: 76 653bfbb3a818
--- expect: 16  # only the catalog relations the frontend declares
+-- expect: 22  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as "Type",
@@ -1164,7 +1164,7 @@ ORDER BY 1, 2, 4;
 -----
 -- [dfS]
 -- postgres16: 3286 b40b083ee101
--- expect: 317  # only the functions the frontend implements
+-- expect: 322  # only the functions the frontend implements
 SELECT n.nspname as "Schema",
   p.proname as "Name",
   pg_catalog.pg_get_function_result(p.oid) as "Result data type",
@@ -1578,7 +1578,7 @@ ORDER BY 1, 2;
 -----
 -- [dpS]
 -- postgres16: 141 8e6b0b784f22
--- expect: 67  # only the catalog relations the frontend declares
+-- expect: 74  # only the catalog relations the frontend declares
 SELECT n.nspname as "Schema",
   c.relname as "Name",
   CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as "Type",
@@ -1797,7 +1797,7 @@ ORDER BY 1, 2;
 -----
 -- [dTS]
 -- postgres16: 107 bbc1a3f89193
--- expect: 38  # only the types the frontend implements
+-- expect: 40  # only the types the frontend implements
 SELECT n.nspname as "Schema",
   pg_catalog.format_type(t.oid, NULL) AS "Name",
   pg_catalog.obj_description(t.oid, 'pg_type') as "Description"

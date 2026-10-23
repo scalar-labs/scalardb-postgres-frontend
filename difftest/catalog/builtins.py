@@ -33,7 +33,7 @@ RESOURCES = ROOT / "engine/src/main/resources/com/scalar/db/frontend/postgres"
 TEST_RESOURCES = ROOT / "engine/src/test/resources"
 
 # sample values per argument type OID, the likeliest first
-TEXTS = ["'a'", "'day'", "'pg_class'", "'search_path'", "'1'", "'{\"a\":1}'", "'UTC'", "'a,b'", "'CONNECT'", "'SELECT'"]
+TEXTS = ["'a'", "'day'", "'pg_class'", "'search_path'", "'1'", "'{\"a\":1}'", "'UTC'", "'a,b'", "'CONNECT'", "'SELECT'", "'USAGE'", "'CREATE'"]
 SAMPLES = {
     16: ["true"],
     17: ["'\\x0102'::bytea"],
@@ -55,6 +55,8 @@ SAMPLES = {
     1009: ["ARRAY['a','b']::text[]"],
     1016: ["ARRAY[1,2]::int8[]"],
     1028: ["ARRAY[1259]::oid[]"],
+    # no role has the same name on both servers (postgres; scalardb) for an aclitem to name
+    1034: ["NULL::aclitem[]"],
     1042: ["'a'::bpchar"],
     1043: ["'a'::varchar"],
     1082: ["'2024-02-29'::date"],
@@ -66,6 +68,7 @@ SAMPLES = {
     1700: ["1.5::numeric", "2::numeric"],
     2205: ["'pg_class'::regclass"],
     2206: ["'int4'::regtype"],
+    2249: ["(SELECT t FROM (SELECT 1 AS a, 'x' AS b) t)"],  # record
     2950: ["'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::uuid"],
     3802: ["'{\"a\":[1,2]}'::jsonb", "'[1,2]'::jsonb"],
     # pseudo-types: a value of a type that resolves them

@@ -2620,6 +2620,19 @@ final class Evaluator {
 
   @Nullable private static Object column(Column c, List<Map<String, Object>> group, Context ctx) {
     String raw = QueryParser.unquote(c.getColumnName());
+    if (raw.equals(QueryParser.WHOLE_ROW) && c.getTable() != null) {
+      // t as a value: t's row, a record of its columns
+      String prefix = QueryParser.unquote(c.getTable().getName()) + ".";
+      Map<String, Object> row = group.isEmpty() ? Collections.emptyMap() : group.get(0);
+      Record record = new Record();
+      row.forEach(
+          (key, value) -> {
+            if (key.startsWith(prefix) && !key.equals(prefix + Catalog.TABLEOID)) {
+              record.put(key.substring(prefix.length()), value);
+            }
+          });
+      return record;
+    }
     // JSQLParser keeps an array subscript such as conkey[1] inside the column name
     int bracket = raw.indexOf('[');
     String name = bracket < 0 ? raw : raw.substring(0, bracket);
@@ -4243,6 +4256,17 @@ final class Evaluator {
         }
         return code == 0 ? "" : String.valueOf((char) code);
       }
+      if (t.equals("aclitem")) {
+        return s; // grantee=privileges/grantor, as relacl holds it
+      }
+      if (t.equals("name")) {
+        // the text in at most 63 bytes, cut at a character boundary, without a notice
+        int end = s.length();
+        while (s.substring(0, end).getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 63) {
+          end = s.offsetByCodePoints(end, -1);
+        }
+        return s.substring(0, end);
+      }
       if (t.contains("char") || t.equals("text") || t.equals("string")) {
         java.util.regex.Matcher length = TYPE_LENGTH.matcher(t);
         // char(n) and varchar(n) casts truncate; a bare char or character is char(1)
@@ -4602,6 +4626,23 @@ final class Evaluator {
             : Json.cast(Json.jsonText(args.get(0)), false);
       case "TO_JSONB":
         return new Json.Value(Json.toNode(args.get(0)), true, null);
+      case "ROW_TO_JSON":
+        {
+          // a record's fields as a json object; pretty puts each after the first on a line
+          if (arg(args, 0) == null) {
+            return null;
+          }
+          if (!(args.get(0) instanceof Record)) {
+            throw new PgException.Argument(
+                "0A000", "Unsupported: row_to_json of a " + pgTypeName(args.get(0)));
+          }
+          boolean pretty = args.size() > 1 && Boolean.TRUE.equals(args.get(1));
+          StringJoiner fields = new StringJoiner(pretty ? ",\n " : ",", "{", "}");
+          ((Record) args.get(0))
+              .forEach(
+                  (field, value) -> fields.add(Json.jsonText(field) + ":" + Json.jsonText(value)));
+          return Json.cast(fields.toString(), false);
+        }
       case "JSON_TYPEOF":
       case "JSONB_TYPEOF":
         return Json.typeOf(Json.of(args.get(0)).node);
@@ -5326,11 +5367,16 @@ final class Evaluator {
           }
         case "PG_PARTITION_ANCESTORS": // ScalarDB tables are not partitions: no rows
           return Collections.emptyList();
+        case "ACLEXPLODE":
+          return arg(args, 0) == null || ctx.catalog == null
+              ? Collections.emptyList()
+              : ctx.catalog.explodeAcl(elements(args.get(0)));
         case "HAS_DATABASE_PRIVILEGE": // connecting already proved it; Cluster has no such grant
           return true;
         case "HAS_TABLE_PRIVILEGE":
+        case "HAS_SCHEMA_PRIVILEGE":
           {
-            // (table, privilege) for the session's user, or (user, table, privilege); each by
+            // (object, privilege) for the session's user, or (user, object, privilege); each by
             // name or OID
             if (args.contains(null) || ctx.catalog == null) {
               return null;
@@ -5343,11 +5389,16 @@ final class Evaluator {
                     : args.get(0) instanceof Number
                         ? catalog.roleName(num(args, 0).longValue())
                         : text(args.get(0));
-            long relation =
+            boolean schema = name.equals("HAS_SCHEMA_PRIVILEGE");
+            long object =
                 args.get(t) instanceof Number
                     ? num(args, t).longValue()
-                    : catalog.relationOid(text(args.get(t)));
-            return catalog.tablePrivilege(role, relation, text(args.get(t + 1)));
+                    : schema
+                        ? catalog.namespaceOid(text(args.get(t)))
+                        : catalog.relationOid(text(args.get(t)));
+            return schema
+                ? catalog.schemaPrivilege(role, object, text(args.get(t + 1)))
+                : catalog.tablePrivilege(role, object, text(args.get(t + 1)));
           }
         case "PG_TYPE_IS_VISIBLE":
         case "PG_OPERATOR_IS_VISIBLE":

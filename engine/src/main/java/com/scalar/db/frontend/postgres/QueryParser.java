@@ -61,6 +61,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -1218,6 +1219,19 @@ class QueryParser {
         || (e instanceof JdbcParameter && bound((JdbcParameter) e) == null);
   }
 
+  // the column name a whole-row reference resolves to, t's row as a record
+  static final String WHOLE_ROW = "*";
+
+  // joins a source's qualifier and column in the name of a derived column that keeps both (a.x of
+  // SELECT * over a join): JSQLParser splits a column name at a dot, quoted or not
+  static final char QUALIFIED = '\u2024';
+
+  /** a.x as a derived column's name, a\u2024x; a name without a qualifier stays as it is. */
+  private static String qualifiedColumn(String name) {
+    int dot = name.indexOf('.');
+    return dot < 0 ? name : name.substring(0, dot) + QUALIFIED + name.substring(dot + 1);
+  }
+
   // Parsed statements by text, most recently used last; a prepared statement hits every time
   private final Map<String, Statement> statementCache =
       new LinkedHashMap<String, Statement>(64, 0.75f, true) {
@@ -1242,7 +1256,15 @@ class QueryParser {
       try {
         statement = parseWithin(parser(sql).withAllowComplexParsing(false), deadline);
       } catch (net.sf.jsqlparser.parser.ParseException e) {
-        statement = parseWithin(parser(sql).withAllowComplexParsing(true), deadline);
+        try {
+          statement = parseWithin(parser(sql).withAllowComplexParsing(true), deadline);
+        } catch (net.sf.jsqlparser.parser.ParseException again) {
+          String cast = castsInAny(sql);
+          if (cast.equals(sql)) {
+            throw again;
+          }
+          statement = parseWithin(parser(cast).withAllowComplexParsing(true), deadline);
+        }
       }
     } catch (net.sf.jsqlparser.parser.ParseException
         | net.sf.jsqlparser.parser.TokenMgrException e) {
@@ -1250,6 +1272,74 @@ class QueryParser {
     }
     statementCache.put(sql, statement);
     return statement;
+  }
+
+  private static final Pattern ANY_OPEN = Pattern.compile("(?i)\\b(?:ANY|ALL|SOME)\\s*\\(\\s*\\(");
+  private static final Pattern CAST_SUFFIX =
+      Pattern.compile(
+          "\\s*::\\s*([\\w.\"]+(?:\\s+[\\w\"]+)*(?:\\s*\\(\\s*\\d+(?:\\s*,\\s*\\d+)*\\s*\\))?"
+              + "(?:\\s*\\[\\s*\\])*)\\s*\\)");
+
+  /**
+   * The statement with each {@code ANY ((...)::type)} written {@code ANY (CAST((...) AS type))},
+   * which JSQLParser parses; pgAdmin looks up a table's primary key with {@code = ANY ((SELECT
+   * conkey ...)::oid[])}. Tried only on a statement that does not parse as it is.
+   */
+  static String castsInAny(String sql) {
+    StringBuilder out = new StringBuilder();
+    int from = 0;
+    Matcher any = ANY_OPEN.matcher(sql);
+    while (any.find(from)) {
+      int open = any.end() - 1; // the inner group's (
+      int close = closingParen(sql, open);
+      Matcher type = CAST_SUFFIX.matcher(sql).region(close + 1, sql.length());
+      if (close < 0 || inQuotes(sql, open) || !type.lookingAt()) {
+        out.append(sql, from, open + 1);
+        from = open + 1;
+        continue;
+      }
+      out.append(sql, from, open)
+          .append("CAST(")
+          .append(sql, open, close + 1)
+          .append(" AS ")
+          .append(type.group(1))
+          .append("))");
+      from = type.end();
+    }
+    return out.append(sql.substring(from)).toString();
+  }
+
+  /** The index of the ) closing the ( at {@code open}, past quoted text; -1 if none. */
+  private static int closingParen(String sql, int open) {
+    int depth = 0;
+    for (int i = open; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      if (c == '\'' || c == '"') {
+        i = sql.indexOf(c, i + 1); // '' and "" escapes are two quoted runs back to back
+        if (i < 0) {
+          return -1;
+        }
+      } else if (c == '(') {
+        depth++;
+      } else if (c == ')' && --depth == 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /** Whether the character at {@code at} is inside a quoted string or identifier. */
+  private static boolean inQuotes(String sql, int at) {
+    char quote = 0;
+    for (int i = 0; i < at; i++) {
+      char c = sql.charAt(i);
+      if (quote == 0 && (c == '\'' || c == '"')) {
+        quote = c;
+      } else if (c == quote) {
+        quote = 0;
+      }
+    }
+    return quote != 0;
   }
 
   /** How long parsing one statement may run: JSQLParser's lookahead grows exponentially. */
@@ -1667,7 +1757,7 @@ class QueryParser {
   }
 
   private static final Pattern ACLS =
-      Pattern.compile("(?i)\\b(relacl|nspacl|has_table_privilege)\\b");
+      Pattern.compile("(?i)\\b(relacl|nspacl|has_table_privilege|has_schema_privilege)\\b");
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");
@@ -2980,6 +3070,20 @@ class QueryParser {
     LogicalPlan.Source resolve(net.sf.jsqlparser.schema.Column c) {
       String name = columnName(c);
       LogicalPlan.Source found = null;
+      String joinedName = null; // a.x, the column's name in an unnamed join
+      if (c.getTable() != null && name.equals(WHOLE_ROW)) {
+        // a whole-row reference resolved before, planned again from the cached statement
+        for (LogicalPlan.Source s : sources) {
+          if (s.qualifier.equals(unquote(c.getTable().getName()))) {
+            s.star = true;
+            return s;
+          }
+        }
+        if (outer != null) {
+          correlated = true;
+          return outer.resolve(c);
+        }
+      }
       if (c.getTable() != null) {
         String qualifier = unquote(c.getTable().getName());
         for (LogicalPlan.Source s : sources) {
@@ -2988,15 +3092,29 @@ class QueryParser {
               throw new PgException.Argument("42703", "Unknown column: " + qualifier + "." + name);
             }
             found = s;
+          } else if (s.joined && s.columns.contains(qualifier + QUALIFIED + name)) {
+            found = s;
+            joinedName = qualifier + QUALIFIED + name;
           }
         }
       } else {
         for (LogicalPlan.Source s : sources) {
           // a USING column binds to the left side; the right side's copy is merged into it
-          if (s.columns.contains(name) && !s.merged.containsKey(name)) {
-            if (found != null) {
-              throw new PgException.Argument("42702", "Ambiguous column: " + name);
+          List<String> matches = new ArrayList<>();
+          for (String column : s.joined ? s.columns : Collections.<String>emptyList()) {
+            if (column.equals(name) || column.endsWith(QUALIFIED + name)) {
+              matches.add(column);
             }
+          }
+          if (matches.size() > 1
+              || !matches.isEmpty() && found != null
+              || s.columns.contains(name) && !s.merged.containsKey(name) && found != null) {
+            throw new PgException.Argument("42702", "Ambiguous column: " + name);
+          }
+          if (!matches.isEmpty()) {
+            found = s;
+            joinedName = matches.get(0);
+          } else if (s.columns.contains(name) && !s.merged.containsKey(name)) {
             found = s;
           }
         }
@@ -3011,6 +3129,17 @@ class QueryParser {
                   + " sides");
         }
       }
+      if (found == null && c.getTable() == null) {
+        for (LogicalPlan.Source s : sources) {
+          if (s.qualifier.equals(name)) {
+            // a whole-row reference: t, as in row_to_json(t), is t's row
+            c.setTable(new Table(quoteIfNeeded(s.qualifier)));
+            c.setColumnName("\"" + WHOLE_ROW + "\"");
+            s.star = true;
+            return s;
+          }
+        }
+      }
       if (found == null) {
         if (outer != null) {
           correlated = true;
@@ -3019,7 +3148,10 @@ class QueryParser {
         throw new PgException.Argument("42703", "Unknown column: " + c);
       }
       c.setTable(new Table(quoteIfNeeded(found.qualifier)));
-      found.projections.add(name);
+      if (joinedName != null) {
+        c.setColumnName(joinedName);
+      }
+      found.projections.add(joinedName != null ? joinedName : name);
       return found;
     }
   }
@@ -3608,7 +3740,7 @@ class QueryParser {
             }
           }
           plan.outputNames.add(name);
-          plan.outputLabels.add(c);
+          plan.outputLabels.add(c.substring(c.indexOf(QUALIFIED) + 1)); // a\u2024x is x
           plan.outputExpressions.add(column);
         }
       } else {
@@ -4347,8 +4479,14 @@ class QueryParser {
   @Nullable private static String strongLabel(Expression e) {
     e = unwrap(e);
     if (isColumn(e)) {
-      // JSQLParser reads TRUE and FALSE as columns
-      return isBooleanLiteral(columnName(e)) ? null : columnName(e);
+      // JSQLParser reads TRUE and FALSE as columns; a cached statement planned again holds the
+      // names resolution gave its columns: a\u2024x for x, and t."*" for a whole-row t
+      String name = columnName(e);
+      net.sf.jsqlparser.schema.Table table = ((net.sf.jsqlparser.schema.Column) e).getTable();
+      if (name.equals(WHOLE_ROW) && table != null) {
+        return unquote(table.getName());
+      }
+      return isBooleanLiteral(name) ? null : name.substring(name.indexOf(QUALIFIED) + 1);
     }
     if (e instanceof Function) {
       String name = ((Function) e).getName();
@@ -4362,6 +4500,9 @@ class QueryParser {
     }
     if (e instanceof CastExpression) {
       return strongLabel(((CastExpression) e).getLeftExpression());
+    }
+    if (e instanceof RowGetExpression) {
+      return unquote(((RowGetExpression) e).getColumnName()); // (d).grantee is grantee
     }
     if (e instanceof net.sf.jsqlparser.expression.CaseExpression) {
       return "case";
@@ -4650,7 +4791,26 @@ class QueryParser {
       net.sf.jsqlparser.statement.select.ParenthesedFromItem wrapper =
           (net.sf.jsqlparser.statement.select.ParenthesedFromItem) item;
       if (wrapper.getJoins() != null && !wrapper.getJoins().isEmpty()) {
-        throw new PgException.Argument("0A000", "Unsupported FROM item: " + item);
+        // (a JOIN b ON ...): SELECT * over the join, which names its columns a.x, b.y
+        PlainSelect body = new PlainSelect();
+        body.addSelectItem(new AllColumns());
+        body.setFromItem(wrapper.getFromItem());
+        body.setJoins(wrapper.getJoins());
+        Plan join = select(body, outer);
+        if (wrapper.getAlias() != null) {
+          return derived(join, wrapper); // an alias hides a and b: its columns are bare
+        }
+        List<String> columns = new ArrayList<>();
+        join.outputNames.forEach(name -> columns.add(qualifiedColumn(name)));
+        // named after the parsed item, the same each time a cached statement is planned again
+        LogicalPlan.Source source =
+            new LogicalPlan.Source(
+                "unnamed_join_" + Integer.toHexString(System.identityHashCode(wrapper)),
+                columns,
+                null,
+                join);
+        source.joined = true;
+        return source;
       }
       FromItem inner = wrapper.getFromItem();
       if (inner.getAlias() == null && wrapper.getAlias() != null) {
@@ -4792,6 +4952,19 @@ class QueryParser {
                 qualifier, Arrays.asList("name", "default_version", "comment"), null, null);
         source.catalogTable = "Function " + name;
         source.catalogRows = new ArrayList<>();
+        return source;
+      }
+      if (name.equals("pg_show_all_settings")) {
+        // pgAdmin's: the function behind the pg_settings view, so its rows and column types
+        String qualifier = alias != null ? alias : name;
+        LogicalPlan.Source source =
+            new LogicalPlan.Source(
+                qualifier,
+                Objects.requireNonNull(Catalog.columns("pg_catalog", "pg_settings")),
+                null,
+                null);
+        source.catalogTable = "Catalog pg_catalog.pg_settings";
+        source.catalogRows = catalog.rows("pg_catalog", "pg_settings", qualifier);
         return source;
       }
       if (!name.equals("generate_series")) {
@@ -5001,9 +5174,11 @@ class QueryParser {
     List<String> labels = derived.getColumnLabels();
     if (labels.size() == columns.size()) {
       for (int i = 0; i < columns.size(); i++) {
-        if (Collections.frequency(labels, labels.get(i)) == 1) {
-          columns.set(i, labels.get(i));
-        }
+        columns.set(
+            i,
+            Collections.frequency(labels, labels.get(i)) == 1
+                ? labels.get(i)
+                : qualifiedColumn(columns.get(i)));
       }
     }
     if (item.getAlias().getAliasColumns() != null) {

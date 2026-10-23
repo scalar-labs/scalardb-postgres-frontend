@@ -1642,7 +1642,7 @@ public class PostgresServerTest {
       // an unknown catalog table fails when described (the frontend plans at Describe, not at
       // Parse), a setting that does not exist when it runs; both fail every time they run
       String[][] cases = {
-        {"SELECT * FROM pg_catalog.pg_locks", "42P01", "42P01"},
+        {"SELECT * FROM pg_catalog.pg_stat_replication", "42P01", "42P01"},
         {"SELECT current_setting('nosuch') AS v", "", "42704"}
       };
       for (String[] c : cases) {

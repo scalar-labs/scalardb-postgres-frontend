@@ -3646,7 +3646,7 @@ public class QueryParserTest {
   @Test
   public void execute_CatalogRows_ShouldDescribeWhatExists() throws Exception {
     // t's dependencies, as PostgreSQL records them: its secondary index on column 3, the key's
-    // index on the key, t on its namespace, the key on columns 1 and 2
+    // index on the key, t on its namespace, the key on columns 1 and 2, t's row type on t
     assertThat(
             parser
                 .parse(
@@ -3658,7 +3658,8 @@ public class QueryParserTest {
             map("c", "pg_class", "r", "pg_constraint", "s", 0L, "d", "i"),
             map("c", "pg_class", "r", "pg_namespace", "s", 0L, "d", "n"),
             map("c", "pg_constraint", "r", "pg_class", "s", 1L, "d", "a"),
-            map("c", "pg_constraint", "r", "pg_class", "s", 2L, "d", "a"));
+            map("c", "pg_constraint", "r", "pg_class", "s", 2L, "d", "a"),
+            map("c", "pg_type", "r", "pg_class", "s", 0L, "d", "i"));
     assertThat(parser.parse("SELECT collname FROM pg_collation ORDER BY oid").execute(transaction))
         .containsExactly(
             map("collname", "default"),

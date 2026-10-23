@@ -624,6 +624,12 @@ public class QueryProcessorTest {
                 "session",
                 "reset_val",
                 "UTC"));
+    // pgAdmin reads the function behind the pg_settings view
+    assertThat(
+            processor.execute(
+                "SELECT s.setting FROM pg_catalog.pg_show_all_settings() s"
+                    + " WHERE s.name = 'statement_timeout'"))
+        .containsExactly(Collections.singletonMap("setting", "5000"));
     assertThat(processor.execute("SELECT current_setting('server_version_num') AS v"))
         .containsExactly(Collections.singletonMap("v", "160000"));
     for (String sql :
@@ -845,6 +851,60 @@ public class QueryProcessorTest {
   public void regex_ShouldUnderstandPosixClassesAndStopRunawayMatches() throws Exception {
     assertThat(processor.execute("SELECT 'abc' ~ '^[[:alpha:]]+$' AS a, 'a b' ~ '\\yb' AS b"))
         .containsExactly(map("a", true, "b", true));
+  }
+
+  @Test
+  public void pgAdminQueries_ShouldBeAnswered() throws Exception {
+    // a parenthesized join on the right of a join: its tables' columns, qualified or not; twice,
+    // as the second run plans the cached statement again
+    for (int run = 0; run < 2; run++) {
+      assertThat(
+              processor.execute(
+                  "SELECT x.relname, c.relkind, nspname FROM pg_class x LEFT JOIN"
+                      + " (pg_namespace n JOIN pg_class c ON c.relnamespace = n.oid)"
+                      + " ON x.oid = c.oid WHERE x.relname = 'pg_class'"))
+          .containsExactly(map("relname", "pg_class", "relkind", "r", "nspname", "pg_catalog"));
+      // a whole-row reference, as the dashboard's charts, polled, write row_to_json(t)
+      assertThat(
+              processor
+                  .execute("SELECT row_to_json(t) AS j FROM (SELECT 1 AS a, 'x' AS b) t")
+                  .stream()
+                  .map(row -> String.valueOf(row.get("j"))))
+          .containsExactly("{\"a\":1,\"b\":\"x\"}");
+    }
+    assertThatThrownBy(
+            () ->
+                processor.execute(
+                    "SELECT oid FROM pg_class x JOIN"
+                        + " (pg_namespace n JOIN pg_class c ON c.relnamespace = n.oid) ON true"))
+        .hasMessageContaining("Ambiguous column: oid");
+    // SELECT * over a subquery whose join gives two columns one name
+    assertThat(
+            processor.execute(
+                "SELECT * FROM (SELECT * FROM pg_namespace n JOIN pg_class c"
+                    + " ON c.relnamespace = n.oid) j WHERE j.relname = 'pg_class'"))
+        .hasSize(1);
+    // = ANY ((SELECT ...)::oid[]), the primary key lookup of View Data
+    assertThat(processor.execute("SELECT 1 AS one WHERE 1 = ANY ((SELECT '{1,2}'::int[])::int[])"))
+        .containsExactly(Collections.singletonMap("one", 1L));
+    assertThat(QueryParser.castsInAny("SELECT 'ANY ((x)::t)' WHERE a = ANY ((SELECT b)::oid[])"))
+        .isEqualTo("SELECT 'ANY ((x)::t)' WHERE a = ANY (CAST((SELECT b) AS oid[]))");
+    // name truncates to 63 bytes, at a character boundary
+    assertThat(processor.execute("SELECT repeat('\u00e9', 40)::name AS n"))
+        .containsExactly(Collections.singletonMap("n", "\u00e9".repeat(31)));
+    assertThat(
+            processor.execute(
+                "SELECT has_schema_privilege('pg_catalog', 'USAGE') AS u,"
+                    + " has_schema_privilege(11, 'CREATE') AS c, has_schema_privilege(1, 'USAGE') AS n"))
+        .containsExactly(map("u", true, "c", true, "n", null));
+    // aclexplode: one record per privilege, PUBLIC as grantee 0, read as (d).field
+    assertThat(
+            processor.execute(
+                "SELECT (d).grantee, (d).privilege_type, (d).is_grantable FROM (SELECT"
+                    + " aclexplode('{=r/scalardb,scalardb=a*/scalardb}'::aclitem[]) AS d) a"))
+        .containsExactly(
+            map("grantee", 0L, "privilege_type", "SELECT", "is_grantable", false),
+            map("grantee", 10L, "privilege_type", "INSERT", "is_grantable", true));
   }
 
   private static Map<String, Object> map2(String k1, Object v1, String k2, Object v2) {

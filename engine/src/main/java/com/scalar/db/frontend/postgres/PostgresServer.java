@@ -2109,7 +2109,7 @@ public final class PostgresServer implements AutoCloseable {
     if (v instanceof Catalog.Int2Vector) {
       return 22;
     }
-    if (v instanceof Evaluator.Row) {
+    if (v instanceof Evaluator.Row || v instanceof Evaluator.Record) {
       return 2249; // record
     }
     if (v instanceof List) {

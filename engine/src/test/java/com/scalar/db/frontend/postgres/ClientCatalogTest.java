@@ -44,7 +44,10 @@ import org.junit.jupiter.params.provider.ValueSource;
  * {@code ERROR <sqlstate>}. A catalog answer must be the truth or an error (todo 057).
  */
 public class ClientCatalogTest {
-  private static final Pattern QUOTED_OID = Pattern.compile("'(\\d{5,})'");
+  // a relation's OID quoted, or an OID written bare as pgAdmin does (16385::oid, relnamespace =
+  // 2200), which only the oids line's OIDs are taken as
+  private static final Pattern OID =
+      Pattern.compile("'(\\d{5,})'|(?<![\\w.'$])(\\d{4,})(?![\\w'.])");
   private static final HexFormat HEX = HexFormat.of();
 
   private DistributedTransactionAdmin admin;
@@ -126,7 +129,7 @@ public class ClientCatalogTest {
         if (line.startsWith("-- oids: ")) {
           for (String pair : line.substring("-- oids: ".length()).trim().split(" ")) {
             String[] kv = pair.split("=");
-            oids.put(kv[1], kv[0]); // captured oid -> relation name
+            oids.put(kv[1], kv[0]); // captured oid -> relation, schema or @database name
           }
         } else if (line.startsWith("-- [")) {
           q.label = line.substring(4, line.length() - 1);
@@ -210,7 +213,16 @@ public class ClientCatalogTest {
 
   @ParameterizedTest
   @ValueSource(
-      strings = {"psql18", "psql14", "pgjdbc", "sqlalchemy", "asyncpg", "django", "prisma"})
+      strings = {
+        "psql18",
+        "psql14",
+        "pgjdbc",
+        "sqlalchemy",
+        "asyncpg",
+        "django",
+        "prisma",
+        "pgadmin"
+      })
   @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
       value = "SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE",
       justification = "A test replaying the captured client queries, with this server's oids")
@@ -226,13 +238,16 @@ public class ClientCatalogTest {
       Map<String, String> captured = new HashMap<>();
       List<Query> queries = fixture(client, captured);
       assertThat(queries).isNotEmpty();
-      Map<String, String> here = new HashMap<>(); // relation name -> this server's oid
+      Map<String, String> here = new HashMap<>(); // relation, schema, @database -> its oid here
       try (ResultSet rs =
           statement.executeQuery(
-              "SELECT c.oid, n.nspname, c.relname FROM pg_catalog.pg_class c"
-                  + " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace")) {
+              "SELECT c.oid, n.nspname || '.' || c.relname FROM pg_catalog.pg_class c"
+                  + " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+                  + " UNION ALL SELECT oid, nspname FROM pg_catalog.pg_namespace"
+                  + " UNION ALL SELECT oid, '@' || datname FROM pg_catalog.pg_database"
+                  + " WHERE datname = current_database()")) {
         while (rs.next()) {
-          here.put(rs.getString(2) + "." + rs.getString(3), rs.getString(1));
+          here.put(rs.getString(2), rs.getString(1));
         }
       }
       // every relation the queries name must exist here, or its OID would match nothing (or
@@ -241,13 +256,15 @@ public class ClientCatalogTest {
       List<String> mismatches = new ArrayList<>();
       List<String> unexpected = new ArrayList<>();
       for (Query q : queries) {
-        Matcher m = QUOTED_OID.matcher(q.sql);
+        Matcher m = OID.matcher(q.sql);
         StringBuffer sql = new StringBuffer();
         while (m.find()) {
-          // only the relation OIDs in the oids line; others are the capturing server's system OIDs
-          String relation = captured.get(m.group(1));
-          m.appendReplacement(
-              sql, "'" + (relation == null ? m.group(1) : here.get(relation)) + "'");
+          // only the OIDs in the oids line; others are the capturing server's system OIDs
+          boolean quoted = m.group(1) != null;
+          String oid = quoted ? m.group(1) : m.group(2);
+          String name = captured.get(oid);
+          String mapped = name == null ? oid : here.get(name);
+          m.appendReplacement(sql, quoted ? "'" + mapped + "'" : mapped);
         }
         m.appendTail(sql);
         String actual = answer(statement, sql.toString());

@@ -6,6 +6,7 @@
 1398	21	SELECT abs(2::int2)
 1598	701	SELECT random()
 1705	1700	SELECT abs(1.5::numeric)
+1689	2249	SELECT aclexplode(NULL::aclitem[])
 1199	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz, '2024-02-29 12:34:56+00'::timestamptz)
 1386	1186	SELECT age('2024-02-29 12:34:56+00'::timestamptz)
 2058	1186	SELECT age('2024-02-29 12:34:56'::timestamp, '2024-02-29 12:34:56'::timestamp)
@@ -74,6 +75,8 @@
 1039	19	SELECT getdatabaseencoding()
 2253	16	SELECT has_database_privilege(10::oid, 10::oid, 'CONNECT'::text)
 2255	16	SELECT has_database_privilege(10::oid, 'CONNECT'::text)
+2271	16	SELECT has_schema_privilege(10::oid, 10::oid, 'USAGE'::text)
+2273	16	SELECT has_schema_privilege(10::oid, 'USAGE'::text)
 1924	16	SELECT has_table_privilege(10::oid, 'pg_class'::text, 'SELECT'::text)
 1925	16	SELECT has_table_privilege(10::oid, 10::oid, 'SELECT'::text)
 1926	16	SELECT has_table_privilege('pg_class'::text, 'SELECT'::text)
@@ -212,6 +215,8 @@
 1707	1700	SELECT round(1.5::numeric, 2::int4)
 1708	1700	SELECT round(1.5::numeric)
 3100	20	SELECT row_number() OVER ()
+3155	114	SELECT row_to_json((SELECT t FROM (SELECT 1 AS a, 'x' AS b) t))
+3156	114	SELECT row_to_json((SELECT t FROM (SELECT 1 AS a, 'x' AS b) t), true)
 874	25	SELECT rpad('a'::text, 2::int4, 'a'::text)
 880	25	SELECT rpad('a'::text, 2::int4)
 876	25	SELECT rtrim('a'::text, 'a'::text)
@@ -706,6 +711,9 @@ c10136	1043	SELECT 'pg_class'::character varying
 c10137	18	SELECT 'a'::text::"char"
 c10138	18	SELECT 'a'::bpchar::"char"
 c10139	18	SELECT 'a'::varchar::"char"
+c10140	19	SELECT 'a'::text::name
+c10141	19	SELECT 'a'::bpchar::name
+c10142	19	SELECT 'a'::varchar::name
 c10144	18	SELECT 2::int4::"char"
 c10145	25	SELECT NULL::pg_node_tree::text
 c10152	1114	SELECT '2024-02-29'::date::timestamp without time zone

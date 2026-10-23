@@ -41,6 +41,7 @@ final class Catalog {
   private static final long BTREE_AM = 403;
   // pg_description's and pg_depend's classid of a table, a namespace and a constraint
   private static final long PG_CLASS_OID = 1259;
+  private static final long PG_TYPE_OID = 1247;
   private static final long PG_NAMESPACE_OID = 2615;
   private static final long PG_CONSTRAINT_OID = 2606;
   private static final long DEFAULT_TABLESPACE = 1663;
@@ -48,7 +49,7 @@ final class Catalog {
 
   /**
    * The settings the frontend has, with PostgreSQL 16's vartype, context, unit and description:
-   * name, default, vartype, context, unit, short_desc. pg_settings, SHOW, SHOW ALL and
+   * name, default, vartype, context, unit, short_desc, category. pg_settings, SHOW, SHOW ALL and
    * current_setting all read them; the session's own values come from QueryProcessor.
    */
   static final String[][] SETTINGS = {
@@ -58,12 +59,35 @@ final class Catalog {
       "string",
       "user",
       null,
-      "Sets the application name to be reported in statistics and logs."
+      "Sets the application name to be reported in statistics and logs.",
+      "Reporting and Logging / What to Log"
     },
-    {"block_size", "8192", "integer", "internal", null, "Shows the size of a disk block."},
-    {"bytea_output", "hex", "enum", "user", null, "Sets the output format for bytea."},
     {
-      "client_encoding", "UTF8", "string", "user", null, "Sets the client's character set encoding."
+      "block_size",
+      "8192",
+      "integer",
+      "internal",
+      null,
+      "Shows the size of a disk block.",
+      "Preset Options"
+    },
+    {
+      "bytea_output",
+      "hex",
+      "enum",
+      "user",
+      null,
+      "Sets the output format for bytea.",
+      "Client Connection Defaults / Statement Behavior"
+    },
+    {
+      "client_encoding",
+      "UTF8",
+      "string",
+      "user",
+      null,
+      "Sets the client's character set encoding.",
+      "Client Connection Defaults / Locale and Formatting"
     },
     {
       "client_min_messages",
@@ -71,7 +95,8 @@ final class Catalog {
       "enum",
       "user",
       null,
-      "Sets the message levels that are sent to the client."
+      "Sets the message levels that are sent to the client.",
+      "Client Connection Defaults / Statement Behavior"
     },
     {
       "DateStyle",
@@ -79,7 +104,8 @@ final class Catalog {
       "string",
       "user",
       null,
-      "Sets the display format for date and time values."
+      "Sets the display format for date and time values.",
+      "Client Connection Defaults / Locale and Formatting"
     },
     // read committed: ScalarDB's SNAPSHOT reads each record's committed version with no snapshot
     // across records, which is what PostgreSQL calls READ COMMITTED; the server raises this for
@@ -90,7 +116,8 @@ final class Catalog {
       "enum",
       "user",
       null,
-      "Sets the transaction isolation level of each new transaction."
+      "Sets the transaction isolation level of each new transaction.",
+      "Client Connection Defaults / Statement Behavior"
     },
     {
       "default_transaction_read_only",
@@ -98,7 +125,8 @@ final class Catalog {
       "bool",
       "user",
       null,
-      "Sets the default read-only status of new transactions."
+      "Sets the default read-only status of new transactions.",
+      "Client Connection Defaults / Statement Behavior"
     },
     // extra_float_digits: above 0 floats are written shortest, else to 15 (6) plus it digits
     {
@@ -107,7 +135,8 @@ final class Catalog {
       "integer",
       "user",
       null,
-      "Sets the number of digits displayed for floating-point values."
+      "Sets the number of digits displayed for floating-point values.",
+      "Client Connection Defaults / Locale and Formatting"
     },
     {
       "integer_datetimes",
@@ -115,7 +144,8 @@ final class Catalog {
       "bool",
       "internal",
       null,
-      "Shows whether datetimes are integer based."
+      "Shows whether datetimes are integer based.",
+      "Preset Options"
     },
     {
       "IntervalStyle",
@@ -123,7 +153,8 @@ final class Catalog {
       "enum",
       "user",
       null,
-      "Sets the display format for interval values."
+      "Sets the display format for interval values.",
+      "Client Connection Defaults / Locale and Formatting"
     },
     // accepted with nothing to time: ScalarDB takes no locks that a statement waits for
     {
@@ -132,7 +163,8 @@ final class Catalog {
       "integer",
       "user",
       "ms",
-      "Sets the maximum allowed duration of any wait for a lock."
+      "Sets the maximum allowed duration of any wait for a lock.",
+      "Client Connection Defaults / Statement Behavior"
     },
     {
       "max_function_args",
@@ -140,7 +172,8 @@ final class Catalog {
       "integer",
       "internal",
       null,
-      "Shows the maximum number of function arguments."
+      "Shows the maximum number of function arguments.",
+      "Preset Options"
     },
     {
       "max_identifier_length",
@@ -148,10 +181,17 @@ final class Catalog {
       "integer",
       "internal",
       null,
-      "Shows the maximum identifier length."
+      "Shows the maximum identifier length.",
+      "Preset Options"
     },
     {
-      "max_index_keys", "32", "integer", "internal", null, "Shows the maximum number of index keys."
+      "max_index_keys",
+      "32",
+      "integer",
+      "internal",
+      null,
+      "Shows the maximum number of index keys.",
+      "Preset Options"
     },
     {
       QueryProcessor.MAX_ROWS_PER_WRITE,
@@ -159,7 +199,8 @@ final class Catalog {
       "integer",
       "user",
       null,
-      "Sets the most rows a read-then-write statement may write; 0 for no limit."
+      "Sets the most rows a read-then-write statement may write; 0 for no limit.",
+      "Customized Options"
     },
     {
       "search_path",
@@ -167,7 +208,8 @@ final class Catalog {
       "string",
       "user",
       null,
-      "Sets the schema search order for names that are not schema-qualified."
+      "Sets the schema search order for names that are not schema-qualified.",
+      "Client Connection Defaults / Statement Behavior"
     },
     {
       "server_encoding",
@@ -175,16 +217,26 @@ final class Catalog {
       "string",
       "internal",
       null,
-      "Shows the server (database) character set encoding."
+      "Shows the server (database) character set encoding.",
+      "Preset Options"
     },
-    {"server_version", "16.0", "string", "internal", null, "Shows the server version."},
+    {
+      "server_version",
+      "16.0",
+      "string",
+      "internal",
+      null,
+      "Shows the server version.",
+      "Preset Options"
+    },
     {
       "server_version_num",
       "160000",
       "integer",
       "internal",
       null,
-      "Shows the server version as an integer."
+      "Shows the server version as an integer.",
+      "Preset Options"
     },
     {
       "standard_conforming_strings",
@@ -192,7 +244,8 @@ final class Catalog {
       "bool",
       "user",
       null,
-      "Causes '...' strings to treat backslashes literally."
+      "Causes '...' strings to treat backslashes literally.",
+      "Version and Platform Compatibility / Previous PostgreSQL Versions"
     },
     {
       "statement_timeout",
@@ -200,7 +253,8 @@ final class Catalog {
       "integer",
       "user",
       "ms",
-      "Sets the maximum allowed duration of any statement."
+      "Sets the maximum allowed duration of any statement.",
+      "Client Connection Defaults / Statement Behavior"
     },
     {
       "TimeZone",
@@ -208,7 +262,8 @@ final class Catalog {
       "string",
       "user",
       null,
-      "Sets the time zone for displaying and interpreting time stamps."
+      "Sets the time zone for displaying and interpreting time stamps.",
+      "Client Connection Defaults / Locale and Formatting"
     },
     {
       "transaction_isolation",
@@ -216,7 +271,8 @@ final class Catalog {
       "enum",
       "user",
       null,
-      "Sets the current transaction's isolation level."
+      "Sets the current transaction's isolation level.",
+      "Client Connection Defaults / Statement Behavior"
     }
   };
 
@@ -326,7 +382,9 @@ final class Catalog {
             "attlen",
             "attndims",
             "attinhcount",
-            "attislocal"));
+            "attislocal",
+            "attoptions",
+            "attfdwoptions"));
     PG_CATALOG.put(
         "pg_type",
         cols(
@@ -359,7 +417,8 @@ final class Catalog {
             "typmodin",
             "typmodout",
             "typanalyze",
-            "typacl"));
+            "typacl",
+            "typisdefined"));
     PG_CATALOG.put(
         "pg_range",
         cols(
@@ -371,7 +430,6 @@ final class Catalog {
             "rngcanonical",
             "rngsubdiff"));
     PG_CATALOG.put("pg_enum", cols("oid", "enumtypid", "enumsortorder", "enumlabel"));
-    PG_CATALOG.put("pg_statio_all_tables", cols("relid", "schemaname", "relname"));
     INFORMATION_SCHEMA.put(
         "table_constraints",
         cols(
@@ -440,7 +498,9 @@ final class Catalog {
             "confupdtype",
             "confdeltype",
             "confmatchtype",
-            "connamespace"));
+            "connamespace",
+            "conbin",
+            "conexclop"));
     PG_CATALOG.put("pg_attrdef", cols("oid", "adrelid", "adnum", "adbin"));
     PG_CATALOG.put(
         "pg_collation",
@@ -555,6 +615,7 @@ final class Catalog {
             "name",
             "setting",
             "unit",
+            "category",
             "vartype",
             "context",
             "source",
@@ -654,11 +715,13 @@ final class Catalog {
     type(5078, "anycompatiblearray", "anycompatiblearray");
     type(2279, "trigger", "trigger"); // what psql's \\df tells trigger functions apart by
     type(3838, "event_trigger", "event_trigger");
+    type(2249, "record", "record"); // what aclexplode() and a whole-row reference are
+    type(1033, "aclitem", "aclitem"); // relacl's and nspacl's elements
   }
 
   private static final java.util.Set<Long> PSEUDO_TYPES =
       new java.util.HashSet<>(
-          Arrays.asList(2276L, 2277L, 2283L, 2776L, 5077L, 5078L, 2279L, 3838L));
+          Arrays.asList(2276L, 2277L, 2283L, 2776L, 5077L, 5078L, 2279L, 3838L, 2249L));
 
   /** pg_get_keywords(): PostgreSQL's SQL keywords, from keywords.txt, read on first use. */
   static List<Map<String, Object>> keywords() {
@@ -933,24 +996,113 @@ final class Catalog {
    * PUBLIC; null for an OID no relation has, as PostgreSQL answers.
    */
   @Nullable Boolean tablePrivilege(String role, long relation, String privileges) {
-    List<String> wanted = new ArrayList<>(); // an ACL letter, with * when grantable is asked for
+    List<String> wanted =
+        aclLetters(
+            privileges,
+            Arrays.asList(
+                "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
+            "rawdDxt");
+    Map<String, Object> table = rowOf("pg_class", relation);
+    return table == null
+        ? null
+        : holds(role, table.get("x.relowner"), table.get("x.relacl"), wanted);
+  }
+
+  /**
+   * has_schema_privilege: CREATE as has_table_privilege decides a table's privileges, through
+   * nspacl; USAGE always, as Cluster has no such grant and any schema's tables can be used with
+   * their own privileges. Null for an OID no schema has.
+   */
+  @Nullable Boolean schemaPrivilege(String role, long namespace, String privileges) {
+    List<String> wanted = aclLetters(privileges, Arrays.asList("CREATE", "USAGE"), "CU");
+    Map<String, Object> schema = rowOf("pg_namespace", namespace);
+    if (schema == null) {
+      return null;
+    }
+    return wanted.contains("U")
+        || holds(role, schema.get("x.nspowner"), schema.get("x.nspacl"), wanted);
+  }
+
+  /**
+   * aclexplode: one (grantor, grantee, privilege_type, is_grantable) record per privilege of each
+   * aclitem, in PostgreSQL's order of the privilege bits; PUBLIC is grantee 0.
+   */
+  List<Object> explodeAcl(List<?> acl) {
+    String letters = "arwdDxtXUCTcsA";
+    List<String> names =
+        Arrays.asList(
+            "INSERT",
+            "SELECT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "REFERENCES",
+            "TRIGGER",
+            "EXECUTE",
+            "USAGE",
+            "CREATE",
+            "TEMPORARY",
+            "CONNECT",
+            "SET",
+            "ALTER SYSTEM");
+    List<Object> records = new ArrayList<>();
+    for (Object item : acl) {
+      String s = String.valueOf(item); // grantee=letters/grantor, a * after a grantable letter
+      int eq = s.lastIndexOf('=', s.indexOf('/'));
+      String held = s.substring(eq + 1, s.indexOf('/', eq));
+      long grantee = eq == 0 ? 0L : roleOid(s.substring(0, eq));
+      long grantor = roleOid(s.substring(s.indexOf('/', eq) + 1));
+      for (int i = 0; i < letters.length(); i++) {
+        int at = held.indexOf(letters.charAt(i));
+        if (at >= 0) {
+          Evaluator.Record r = new Evaluator.Record();
+          r.put("grantor", grantor);
+          r.put("grantee", grantee);
+          r.put("privilege_type", names.get(i));
+          r.put("is_grantable", held.startsWith("*", at + 1));
+          records.add(r);
+        }
+      }
+    }
+    return records;
+  }
+
+  private long roleOid(String name) {
+    if (name.equals(OWNER)) {
+      return OWNER_OID;
+    }
+    for (Map<String, Object> r : rowsOf("pg_roles")) {
+      if (name.equals(r.get("x.rolname"))) {
+        return (Long) Objects.requireNonNull(r.get("x.oid"));
+      }
+    }
+    throw new PgException.Argument("42704", "role \"" + name + "\" does not exist");
+  }
+
+  /** Each privilege's ACL letter, with * when it is asked for WITH GRANT OPTION. */
+  private static List<String> aclLetters(String privileges, List<String> names, String letters) {
+    List<String> wanted = new ArrayList<>();
     for (String p : privileges.split(",")) {
       String name = p.trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
       boolean grantable = name.endsWith(" WITH GRANT OPTION");
       name = grantable ? name.substring(0, name.length() - 18).trim() : name;
-      int i =
-          Arrays.asList("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
-              .indexOf(name);
+      int i = names.indexOf(name);
       if (i < 0) {
         throw new PgException.Argument(
             "22023", "unrecognized privilege type: \"" + p.trim() + "\"");
       }
-      wanted.add("rawdDxt".charAt(i) + (grantable ? "*" : ""));
+      wanted.add(letters.charAt(i) + (grantable ? "*" : ""));
     }
-    Map<String, Object> table = rowOf("pg_class", relation);
-    if (table == null) {
-      return null;
-    }
+    return wanted;
+  }
+
+  /**
+   * Whether the role holds any of the wanted ACL letters on an object with this owner and ACL: as a
+   * superuser, as its owner, or through the ACL, directly, through a role it is a member of, or as
+   * PUBLIC.
+   */
+  private boolean holds(
+      String role, @Nullable Object owner, @Nullable Object acl, List<String> wanted) {
     if (!clusterUsers && (role.equals(user) || role.equals(OWNER))) {
       return true; // without Cluster, every session is the ScalarDB user, which may do anything
     }
@@ -963,8 +1115,7 @@ final class Catalog {
     if (self == null) {
       throw new PgException.Argument("42704", "role \"" + role + "\" does not exist");
     }
-    if (Boolean.TRUE.equals(self.get("x.rolsuper"))
-        || Objects.equals(self.get("x.oid"), table.get("x.relowner"))) {
+    if (Boolean.TRUE.equals(self.get("x.rolsuper")) || Objects.equals(self.get("x.oid"), owner)) {
       return true;
     }
     // the role and every role it is a member of, through members' members
@@ -983,7 +1134,6 @@ final class Catalog {
         names.add(String.valueOf(r.get("x.rolname")));
       }
     }
-    Object acl = table.get("x.relacl");
     for (Object item : acl instanceof List ? (List<?>) acl : Collections.emptyList()) {
       String s = String.valueOf(item);
       int eq = s.indexOf('=');
@@ -1078,8 +1228,17 @@ final class Catalog {
     empty("pg_parameter_acl", "no parameter privileges");
     empty("pg_stats", "no statistics are gathered");
     empty("pg_auth_members", "no role memberships, unless ScalarDB Cluster's roles have them");
+    empty("pg_replication_slots", "no replication slots");
+    empty("pg_locks", "no PostgreSQL locks: ScalarDB's transactions are optimistic");
+    empty("pg_seclabels", "no security labels");
+    empty("pg_shdepend", "no shared dependencies: every object is the bootstrap owner's");
+    // a row per database or table, whose counters are null: no statistics are gathered
+    declare("pg_stat_database");
+    declare("pg_stat_all_tables");
+    declare("pg_statio_all_tables");
     declare("pg_views"); // the catalog views, which catalogRelations lists
     declare("pg_stat_activity"); // this server's sessions, which activity() lists
+    declare("pg_stat_gssapi"); // the same sessions, none of them over GSSAPI
     // information_schema views with PostgreSQL 16's columns; empty where none of their objects
     // exist
     declare("information_schema.views");
@@ -1254,7 +1413,9 @@ final class Catalog {
       {2205, 2210},
       {2206, 2211},
       {4089, 4090},
-      {2202, 2207}
+      {2202, 2207},
+      {2249, 2287},
+      {1033, 1034}
     };
     for (long[] p : pairs) {
       ARRAY_OIDS.put(p[0], p[1]);
@@ -1307,6 +1468,11 @@ final class Catalog {
   }
 
   /** pg_type.typlen, which RowDescription reports too. */
+  /** pg_type.typstorage: a fixed-length type plain, numeric main, any other extended. */
+  static String typeStorage(long oid) {
+    return typeLength(oid) > 0 ? "p" : oid == 1700 ? "m" : "x";
+  }
+
   static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
@@ -1770,8 +1936,10 @@ final class Catalog {
             ? settings() // the session's, as it is now
             : table.equals("pg_catalog.pg_stat_activity")
                 ? activity() // the sessions, as they are now
-                : Objects.requireNonNull(tables, "loaded above")
-                    .getOrDefault(table, Collections.emptyList())) {
+                : table.equals("pg_catalog.pg_stat_gssapi")
+                    ? gssapi()
+                    : Objects.requireNonNull(tables, "loaded above")
+                        .getOrDefault(table, Collections.emptyList())) {
       Map<String, Object> qualified = new LinkedHashMap<>();
       for (Map.Entry<String, Object> e : row.entrySet()) {
         qualified.put(qualifier + "." + e.getKey(), e.getValue());
@@ -1919,6 +2087,15 @@ final class Catalog {
     return t.getOrDefault("pg_catalog.pg_stat_activity", Collections.emptyList());
   }
 
+  /** pg_stat_gssapi: every session, none authenticated or encrypted by GSSAPI. */
+  private static List<Map<String, Object>> gssapi() {
+    Map<String, List<Map<String, Object>>> t = new HashMap<>();
+    for (Activity a : ACTIVITY.values()) {
+      row(t, "pg_catalog.pg_stat_gssapi", (long) a.pid, false, null, false, false);
+    }
+    return t.getOrDefault("pg_catalog.pg_stat_gssapi", Collections.emptyList());
+  }
+
   /** pg_settings: each setting as the session running on this thread has it. */
   private static List<Map<String, Object>> settings() {
     Evaluator.Settings session = Evaluator.settings();
@@ -1938,6 +2115,7 @@ final class Catalog {
           s[0],
           inUnit(s, value),
           s[4],
+          s[6],
           s[2],
           s[3],
           source,
@@ -2104,6 +2282,10 @@ final class Catalog {
     for (Map.Entry<Long, String> type : INTERNAL_TYPE_NAMES.entrySet()) {
       long oid = type.getKey();
       String name = type.getValue();
+      if (oid == RECORD || oid == ACLITEM) {
+        explicitType(t, oid);
+        continue;
+      }
       long arrayOid = ARRAY_OIDS.getOrDefault(oid, 0L);
       boolean pseudo = PSEUDO_TYPES.contains(oid);
       // pg_node_tree and the pseudo-types name their I/O functions with an underscore
@@ -2133,7 +2315,7 @@ final class Catalog {
           null,
           typeLength(oid) > 0,
           anyArray ? "d" : typeAlign(typeLength(oid)),
-          typeLength(oid) > 0 ? "p" : "x",
+          typeStorage(oid),
           0L,
           false,
           io + "out",
@@ -2188,6 +2370,7 @@ final class Catalog {
           true,
           false,
           -1L);
+      statistics(t, "pg_catalog.pg_stat_database", namespaceOid, namespace);
       row(t, "information_schema.schemata", database, schema);
       boolean typed = typeStore.exists(); // asked once, not per table, while there is no table
       for (String table : new TreeSet<>(admin.getNamespaceTableNames(namespace))) {
@@ -2230,7 +2413,8 @@ final class Catalog {
         relationOids.put(namespace + "." + table, relOid);
         relationNames.put(relOid, table);
         relationOids.put(schema + "." + table, relOid);
-        row(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
+        statistics(t, "pg_catalog.pg_stat_all_tables", relOid, schema, table);
+        statistics(t, "pg_catalog.pg_statio_all_tables", relOid, schema, table);
         row(t, "pg_catalog.pg_tables", schema, table, OWNER, null, true, false, false, false);
         row(t, "information_schema.tables", database, schema, table, "BASE TABLE", "YES");
         List<String> keys = new ArrayList<>(metadata.getPartitionKeyNames());
@@ -2286,7 +2470,7 @@ final class Catalog {
                   collation,
                   "",
                   "",
-                  "p",
+                  typeStorage(typeOid), // a column is stored as its type is
                   "",
                   -1L,
                   null,
@@ -2440,8 +2624,8 @@ final class Catalog {
             " ",
             namespaceOid);
         constraintDefs.put(constraintOid, "PRIMARY KEY (" + columnList + ")");
-        // pg_depend, as PostgreSQL records them: the table on its namespace, the key on its
-        // columns, the key's index on the key, and a secondary index on its column
+        // pg_depend, as PostgreSQL records them: the table on its namespace, its row type on it,
+        // the key on its columns, the key's index on the key, and a secondary index on its column
         row(
             t,
             "pg_catalog.pg_depend",
@@ -2452,6 +2636,7 @@ final class Catalog {
             namespaceOid,
             0L,
             "n");
+        row(t, "pg_catalog.pg_depend", PG_TYPE_OID, rowTypeOid, 0L, PG_CLASS_OID, relOid, 0L, "i");
         for (Object keyNumber : keyNumbers) {
           row(
               t,
@@ -2995,6 +3180,62 @@ final class Catalog {
     }
   }
 
+  /** A statistics view's row: the object it is about, and null for every counter. */
+  private static void statistics(
+      Map<String, List<Map<String, Object>>> t, String table, Object... object) {
+    Object[] values = new Object[Objects.requireNonNull(CatalogTypes.COLUMNS.get(table)).size()];
+    System.arraycopy(object, 0, values, 0, object.length);
+    row(t, table, values);
+  }
+
+  private static final long RECORD = 2249;
+  private static final long ACLITEM = 1033;
+
+  /**
+   * record (a pseudo-type, as is its array type) and aclitem (16 bytes, with no binary I/O), and
+   * their array types, as PostgreSQL 16 has them.
+   */
+  private static void explicitType(Map<String, List<Map<String, Object>>> t, long element) {
+    boolean record = element == RECORD;
+    String name = record ? "record" : "aclitem";
+    long arrayOid = Objects.requireNonNull(ARRAY_OIDS.get(element));
+    for (long oid : new long[] {element, arrayOid}) {
+      boolean array = oid == arrayOid;
+      row(
+          t,
+          "pg_catalog.pg_type",
+          oid,
+          array ? "_" + name : name,
+          PG_CATALOG_NAMESPACE,
+          0L,
+          array ? element : 0L,
+          ",",
+          array ? "array_in" : record ? "record_in" : "aclitemin",
+          record ? "p" : "b",
+          0L,
+          array ? 0L : arrayOid,
+          array || record ? -1L : 16L,
+          record ? "P" : array ? "A" : "U",
+          0L,
+          false,
+          -1L,
+          OWNER_OID,
+          null,
+          false,
+          "d",
+          array || record ? "x" : "p",
+          0L,
+          false,
+          array ? "array_out" : record ? "record_out" : "aclitemout",
+          array ? "array_recv" : record ? "record_recv" : "-",
+          array ? "array_send" : record ? "record_send" : "-",
+          "-",
+          "-",
+          array ? "array_typanalyze" : "-",
+          null);
+    }
+  }
+
   /** The pg_type row of the array type of an element type, aligned as the element's length. */
   private static void arrayType(
       Map<String, List<Map<String, Object>>> t,
@@ -3131,6 +3372,23 @@ final class Catalog {
     arrayType(t, arrayOid, table, namespace, 0L, oid, 8L); // 8: aligned as a record, "d"
   }
 
+  // the last columns of a table, with the value each of its rows has: every type is defined; no
+  // node tree is kept for a domain's CHECK (pg_get_expr answers null, and pg_get_constraintdef
+  // shows it), and there are no exclusion constraints, column options or foreign tables
+  private static final Map<String, Map<String, Object>> SAME_IN_EVERY_ROW = new HashMap<>();
+
+  static {
+    SAME_IN_EVERY_ROW.put("pg_catalog.pg_type", Collections.singletonMap("typisdefined", true));
+    Map<String, Object> constraint = new LinkedHashMap<>();
+    constraint.put("conbin", null);
+    constraint.put("conexclop", null);
+    SAME_IN_EVERY_ROW.put("pg_catalog.pg_constraint", constraint);
+    Map<String, Object> attribute = new LinkedHashMap<>();
+    attribute.put("attoptions", null);
+    attribute.put("attfdwoptions", null);
+    SAME_IN_EVERY_ROW.put("pg_catalog.pg_attribute", attribute);
+  }
+
   private static Map<String, Object> row(
       Map<String, List<Map<String, Object>>> t, String table, @Nullable Object... values) {
     List<String> columns =
@@ -3140,13 +3398,15 @@ final class Catalog {
     if (columns == null) {
       throw new AssertionError("Unknown catalog table: " + table);
     }
-    if (columns.size() != values.length) {
-      throw new AssertionError(table + " expects " + columns.size() + " values");
+    Map<String, Object> same = SAME_IN_EVERY_ROW.getOrDefault(table, Collections.emptyMap());
+    if (columns.size() != values.length + same.size()) {
+      throw new AssertionError(table + " expects " + (columns.size() - same.size()) + " values");
     }
     Map<String, Object> row = new LinkedHashMap<>();
     for (int i = 0; i < values.length; i++) {
       row.put(columns.get(i), values[i]);
     }
+    row.putAll(same);
     t.computeIfAbsent(table, k -> new ArrayList<>()).add(row);
     return row;
   }

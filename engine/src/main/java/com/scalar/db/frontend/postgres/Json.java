@@ -148,6 +148,11 @@ final class Json {
     if (v instanceof Evaluator.Row) {
       throw unsupportedRecord(); // PostgreSQL writes an object named by the record's fields
     }
+    if (v instanceof Evaluator.Record) {
+      com.fasterxml.jackson.databind.node.ObjectNode object = NODES.objectNode();
+      ((Evaluator.Record) v).forEach((field, value) -> object.set(field, toNode(value)));
+      return object;
+    }
     if (v instanceof List) {
       ArrayNode array = NODES.arrayNode();
       for (Object item : (List<?>) v) {
@@ -627,6 +632,13 @@ final class Json {
     }
     if (v instanceof Evaluator.Row) {
       throw unsupportedRecord();
+    }
+    if (v instanceof Evaluator.Record) {
+      // a named record, as row_to_json writes it: {"a":1,"b":"x"}
+      StringJoiner fields = new StringJoiner(",", "{", "}");
+      ((Evaluator.Record) v)
+          .forEach((field, value) -> fields.add(jsonText(field) + ":" + jsonText(value)));
+      return fields.toString();
     }
     if (v instanceof List) {
       StringJoiner items = new StringJoiner(",", "[", "]");

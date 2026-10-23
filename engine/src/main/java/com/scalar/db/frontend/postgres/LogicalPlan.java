@@ -30,6 +30,10 @@ final class LogicalPlan {
     @Nullable final QueryParser.Target target; // a ScalarDB table
     @Nullable final Plan derived; // a subquery in FROM
     boolean lateral; // LATERAL: the subquery may reference the sources before it, runs per row
+    // an unnamed (a JOIN b ON ...): its columns are a.x, b.y, which the enclosing query names as
+    // a's
+    // and b's columns, qualified or not
+    boolean joined;
     @Nullable String catalogTable; // a catalog table or table function, with its rows
     @Nullable List<Map<String, Object>> catalogRows;
     // USING/NATURAL columns of this source, mapped to the qualifier of the earlier source they are
