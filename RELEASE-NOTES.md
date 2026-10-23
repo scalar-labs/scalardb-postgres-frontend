@@ -64,7 +64,7 @@ and inside `BEGIN` alike. Against ScalarDB directly a batch still reads its rows
 
 The catalog answers were checked as a ScalarDB Cluster user with `SELECT` on one table. They are the same
 as the superuser's, as in PostgreSQL, whose catalog every user can read; no user sees another's grants
-wrongly. Two changes:
+wrongly. Three changes:
 - **The table owner.** Tables are owned by `scalardb`, which `pg_roles` now lists in cluster mode too, as
   a superuser nobody can log in as. Before, the owner and the grantor in every ACL named a role that did
   not exist there. `\dp` now lists the owner's entry first, as PostgreSQL does.
@@ -187,7 +187,8 @@ Behaviour that changes:
 **Setup.** After upgrading, run `CREATE FRONTEND METADATA TABLES` through any frontend. With Cluster
 authentication on, run it as a superuser: it also creates the service user `scalardb_postgres_frontend` and
 prints its password. Add the two properties it prints, `scalar.db.postgres.metadata_user` and
-`scalar.db.postgres.metadata_password`, to every frontend's configuration and restart them. A frontend with
+`scalar.db.postgres.metadata_password`, to the configuration of every ScalarDB Cluster node that runs the
+frontend, and of every standalone server, and restart them. A frontend with
 authentication on and no password refuses to read tables once the metadata table exists (`55000`). Running the
 command again keeps the existing password; rotate it with `ALTER USER scalardb_postgres_frontend PASSWORD '...'`.
 

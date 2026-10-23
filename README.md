@@ -9,8 +9,8 @@ joins, aggregates, window functions, subqueries, CTEs (including recursive ones)
 It also emulates enough of `pg_catalog` for psql's meta-commands, and supports DDL, `RETURNING`,
 `ON CONFLICT`, `EXPLAIN [ANALYZE]` and transactions.
 
-**Status: experimental.** Authentication and TLS only in front of ScalarDB Cluster, whose users and privileges
-then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)), as do its encryption and
+**Status: experimental.** Authentication and TLS only with ScalarDB Cluster (see [Deployment](#deployment)),
+whose users and privileges then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)), as do its encryption and
 ABAC ([Encrypted columns and row-level access](getting-started/README.md#encrypted-columns-and-row-level-access));
 no `COPY`; `NUMERIC` exact but filtered in the frontend beyond 18 digits, and declared types recorded in a
 metadata table of the frontend's ([docs/type-encoding.md](docs/type-encoding.md)); text compared in ScalarDB's
@@ -20,9 +20,17 @@ refuses to start on a mismatch unless `scalar.db.postgres.backend_collation_chec
 scan of rows a transaction has itself written. [LIMITATIONS.md](LIMITATIONS.md) has the full list, including the
 results that can differ from PostgreSQL without an error.
 
-Without authentication (the default, and the only mode without ScalarDB Cluster), anyone who can reach
-the port has the configured ScalarDB user's full access: keep the frontend on a trusted network, or set
-`scalar.db.postgres.listen_address=127.0.0.1`.
+## Deployment
+
+| Where the frontend runs | Authentication and TLS | Use |
+|---|---|---|
+| In each ScalarDB Cluster node (`scalar.db.postgres.enabled=true` in the node's configuration) | Cluster's | recommended |
+| As the standalone server, in front of ScalarDB Cluster | Cluster's | works, but not for production: every ScalarDB call takes an extra network hop |
+| As the standalone server, on ScalarDB core | none | a trusted network only |
+
+Without authentication (the default for the standalone server, and the only mode on ScalarDB core), anyone
+who can reach the port has the configured ScalarDB user's full access: keep the frontend on a trusted
+network, or set `scalar.db.postgres.listen_address=127.0.0.1`.
 
 ## Quick start
 
