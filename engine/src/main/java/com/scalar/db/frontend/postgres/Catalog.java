@@ -1019,8 +1019,9 @@ final class Catalog {
     if (schema == null) {
       return null;
     }
-    return wanted.contains("U")
-        || holds(role, schema.get("x.nspowner"), schema.get("x.nspacl"), wanted);
+    // asked first, so that an unknown role fails whatever the privilege, as in PostgreSQL
+    boolean held = holds(role, schema.get("x.nspowner"), schema.get("x.nspacl"), wanted);
+    return held || wanted.contains("U");
   }
 
   /**
@@ -1047,7 +1048,8 @@ final class Catalog {
             "ALTER SYSTEM");
     List<Object> records = new ArrayList<>();
     for (Object item : acl) {
-      String s = String.valueOf(item); // grantee=letters/grantor, a * after a grantable letter
+      // grantee=letters/grantor, a * after a grantable letter
+      String s = Evaluator.aclitem(String.valueOf(item));
       int eq = s.lastIndexOf('=', s.indexOf('/'));
       String held = s.substring(eq + 1, s.indexOf('/', eq));
       long grantee = eq == 0 ? 0L : roleOid(s.substring(0, eq));
@@ -1467,12 +1469,12 @@ final class Catalog {
     return oid == 21 || oid == 23 || oid == 20 ? 0L : null;
   }
 
-  /** pg_type.typlen, which RowDescription reports too. */
   /** pg_type.typstorage: a fixed-length type plain, numeric main, any other extended. */
   static String typeStorage(long oid) {
     return typeLength(oid) > 0 ? "p" : oid == 1700 ? "m" : "x";
   }
 
+  /** pg_type.typlen, which RowDescription reports too. */
   static long typeLength(long oid) {
     switch ((int) oid) {
       case 16:
@@ -1503,7 +1505,8 @@ final class Catalog {
         return 64;
       default:
         // the pseudo-types but the array ones are four bytes wide
-        return PSEUDO_TYPES.contains(oid) && oid != 2277 && oid != 5078 ? 4 : -1;
+        // the polymorphic arrays and record are variable length, as their values are
+        return PSEUDO_TYPES.contains(oid) && oid != 2277 && oid != 5078 && oid != RECORD ? 4 : -1;
     }
   }
 

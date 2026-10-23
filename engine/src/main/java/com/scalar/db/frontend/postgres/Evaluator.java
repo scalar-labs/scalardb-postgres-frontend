@@ -2621,13 +2621,22 @@ final class Evaluator {
   @Nullable private static Object column(Column c, List<Map<String, Object>> group, Context ctx) {
     String raw = QueryParser.unquote(c.getColumnName());
     if (raw.equals(QueryParser.WHOLE_ROW) && c.getTable() != null) {
-      // t as a value: t's row, a record of its columns
+      // t as a value: t's row, a record of its columns, from this query's row or, for a
+      // correlated reference, the enclosing one's; NULL where an outer join found no row for t
       String prefix = QueryParser.unquote(c.getTable().getName()) + ".";
       Map<String, Object> row = group.isEmpty() ? Collections.emptyMap() : group.get(0);
+      if (ctx.outer != null && row.keySet().stream().noneMatch(k -> k.startsWith(prefix))) {
+        row = ctx.outer;
+      }
+      if (row.isEmpty() || row.containsKey(prefix + NULL_EXTENDED)) {
+        return null;
+      }
       Record record = new Record();
       row.forEach(
           (key, value) -> {
-            if (key.startsWith(prefix) && !key.equals(prefix + Catalog.TABLEOID)) {
+            if (key.startsWith(prefix)
+                && !key.equals(prefix + Catalog.TABLEOID)
+                && !key.equals(prefix + NULL_EXTENDED)) {
               record.put(key.substring(prefix.length()), value);
             }
           });
@@ -4116,6 +4125,29 @@ final class Evaluator {
     }
   }
 
+  /**
+   * An aclitem, grantee=privileges/grantor as relacl holds it, checked as PostgreSQL 16's aclitemin
+   * checks it; without a grantor, the bootstrap superuser is.
+   */
+  static String aclitem(String s) {
+    String text = s.trim();
+    int eq = text.indexOf('=');
+    if (eq < 0) {
+      throw new PgException.Argument(
+          "22P02", "unrecognized key word: \"" + text.split("[\\s/]", 2)[0] + "\"");
+    }
+    int slash = text.indexOf('/', eq);
+    String privileges = text.substring(eq + 1, slash < 0 ? text.length() : slash);
+    if (!privileges.matches("([arwdDxtXUCTcsA]\\*?)*")) {
+      throw new PgException.Argument(
+          "22P02", "invalid mode character: must be one of \"arwdDxtXUCTcsA\"");
+    }
+    if (slash >= 0 && text.substring(slash + 1).trim().isEmpty()) {
+      throw new PgException.Argument("22P02", "a name must follow the \"/\" sign");
+    }
+    return slash < 0 ? text + "/" + Catalog.OWNER : text;
+  }
+
   private static final Pattern PRECISION = Pattern.compile("\\s*\\((\\d+)\\)");
   private static final Pattern DIGITS = Pattern.compile("\\d+");
 
@@ -4257,7 +4289,7 @@ final class Evaluator {
         return code == 0 ? "" : String.valueOf((char) code);
       }
       if (t.equals("aclitem")) {
-        return s; // grantee=privileges/grantor, as relacl holds it
+        return aclitem(s);
       }
       if (t.equals("name")) {
         // the text in at most 63 bytes, cut at a character boundary, without a notice
@@ -4642,11 +4674,7 @@ final class Evaluator {
                 "0A000", "Unsupported: row_to_json of a " + pgTypeName(args.get(0)));
           }
           boolean pretty = args.size() > 1 && Boolean.TRUE.equals(args.get(1));
-          StringJoiner fields = new StringJoiner(pretty ? ",\n " : ",", "{", "}");
-          ((Record) args.get(0))
-              .forEach(
-                  (field, value) -> fields.add(Json.jsonText(field) + ":" + Json.jsonText(value)));
-          return Json.cast(fields.toString(), false);
+          return Json.cast(Json.recordText((Record) args.get(0), pretty ? ",\n " : ","), false);
         }
       case "JSON_TYPEOF":
       case "JSONB_TYPEOF":
@@ -5189,6 +5217,10 @@ final class Evaluator {
               "LOCALTIMESTAMP",
               "_PG_EXPANDARRAY"));
 
+  // the key an outer join adds as qualifier.NULL_EXTENDED to a row where that source found no row:
+  // a whole-row reference to it is NULL, not a record of nulls
+  static final String NULL_EXTENDED = "\u0000null-extended";
+
   /** A composite value, such as a row of _pg_expandarray(); its text is PostgreSQL's (a,b). */
   static final class Record extends LinkedHashMap<String, Object> {
     @Override
@@ -5622,8 +5654,6 @@ final class Evaluator {
           : Json.objectAggText(pairs);
     }
     // count(t.*): t's whole row, which is NULL in a row an outer join extended with NULLs for t
-    // ponytail: such a row is told by all of t's columns being NULL; exact for a ScalarDB table,
-    // whose key is never NULL, but a derived table's own all-NULL row is not counted either
     String wholeRow =
         params != null
                 && params.size() == 1
@@ -5750,18 +5780,9 @@ final class Evaluator {
     }
   }
 
-  /** Whether every column of the source with this prefix ({@code t.}) is NULL in the row. */
+  /** Whether an outer join extended the row with NULLs for the source with this prefix (t.). */
   private static boolean nullExtended(Map<String, Object> row, String prefix) {
-    boolean any = false;
-    for (Map.Entry<String, Object> e : row.entrySet()) {
-      if (e.getKey().startsWith(prefix)) {
-        any = true;
-        if (e.getValue() != null) {
-          return false;
-        }
-      }
-    }
-    return any;
+    return row.containsKey(prefix + NULL_EXTENDED);
   }
 
   /** Applies an aggregate to the non-null values collected over its rows or window frame. */

@@ -3062,6 +3062,18 @@ class QueryParser {
       throw new IllegalArgumentException("Unknown table or alias: " + qualifier);
     }
 
+    /** Whether a source of this query or an enclosing one has a column of this name. */
+    boolean hasColumn(String name) {
+      for (LogicalPlan.Source s : sources) {
+        for (String column : s.columns) {
+          if (column.equals(name) || s.joined && column.endsWith(QUALIFIED + name)) {
+            return true;
+          }
+        }
+      }
+      return outer != null && outer.hasColumn(name);
+    }
+
     boolean isLocal(LogicalPlan.Source s) {
       return sources.contains(s);
     }
@@ -3129,10 +3141,11 @@ class QueryParser {
                   + " sides");
         }
       }
-      if (found == null && c.getTable() == null) {
+      if (found == null && c.getTable() == null && (outer == null || !outer.hasColumn(name))) {
         for (LogicalPlan.Source s : sources) {
           if (s.qualifier.equals(name)) {
-            // a whole-row reference: t, as in row_to_json(t), is t's row
+            // a whole-row reference: t, as in row_to_json(t), is t's row, unless an enclosing
+            // query has a column t, which PostgreSQL looks for first
             c.setTable(new Table(quoteIfNeeded(s.qualifier)));
             c.setColumnName("\"" + WHOLE_ROW + "\"");
             s.star = true;

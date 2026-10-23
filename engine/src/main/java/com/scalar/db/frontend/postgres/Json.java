@@ -634,11 +634,7 @@ final class Json {
       throw unsupportedRecord();
     }
     if (v instanceof Evaluator.Record) {
-      // a named record, as row_to_json writes it: {"a":1,"b":"x"}
-      StringJoiner fields = new StringJoiner(",", "{", "}");
-      ((Evaluator.Record) v)
-          .forEach((field, value) -> fields.add(jsonText(field) + ":" + jsonText(value)));
-      return fields.toString();
+      return recordText((Evaluator.Record) v, ",");
     }
     if (v instanceof List) {
       StringJoiner items = new StringJoiner(",", "[", "]");
@@ -646,6 +642,16 @@ final class Json {
       return items.toString();
     }
     return text(toNode(v), false);
+  }
+
+  /**
+   * A named record as row_to_json writes it, {@code {"a":1,"b":"x"}}; pretty separates the fields
+   * with ",\n " instead of ",".
+   */
+  static String recordText(Evaluator.Record record, String separator) {
+    StringJoiner fields = new StringJoiner(separator, "{", "}");
+    record.forEach((field, value) -> fields.add(jsonText(field) + ":" + jsonText(value)));
+    return fields.toString();
   }
 
   private static PgException.Argument unsupportedRecord() {

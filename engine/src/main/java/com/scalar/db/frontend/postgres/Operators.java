@@ -1308,6 +1308,7 @@ final class Operators {
           Map<String, Object> merged = new LinkedHashMap<>();
           for (String c : leftColumns) {
             merged.put(c, null);
+            merged.put(c.substring(0, c.lastIndexOf('.') + 1) + Evaluator.NULL_EXTENDED, true);
           }
           merged.putAll(unmatchedRight.next());
           return merged;
@@ -1349,6 +1350,7 @@ final class Operators {
           for (String c : right.columns) {
             merged.put(right.qualifier + "." + c, null);
           }
+          merged.put(right.qualifier + "." + Evaluator.NULL_EXTENDED, true);
           return merged;
         }
       }

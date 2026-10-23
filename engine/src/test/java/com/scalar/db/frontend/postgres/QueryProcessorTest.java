@@ -911,6 +911,43 @@ public class QueryProcessorTest {
         .containsExactly(
             map("grantee", 0L, "privilege_type", "SELECT", "is_grantable", false),
             map("grantee", 10L, "privilege_type", "INSERT", "is_grantable", true));
+    // a whole-row reference to the enclosing query's row; NULL where an outer join found none,
+    // without the marker that says so showing as a column
+    assertThat(
+            String.valueOf(
+                processor
+                    .execute(
+                        "SELECT (SELECT row_to_json(t) FROM pg_namespace n"
+                            + " WHERE n.oid = t.relnamespace) AS j FROM pg_class t"
+                            + " WHERE t.relname = 'pg_class'")
+                    .get(0)
+                    .get("j")))
+        .contains("\"relname\":\"pg_class\"");
+    assertThat(
+            processor.execute(
+                "SELECT row_to_json(c) AS j FROM pg_class x LEFT JOIN pg_class c ON false"
+                    + " WHERE x.relname = 'pg_class'"))
+        .containsExactly(Collections.singletonMap("j", null));
+    assertThat(
+            processor
+                .execute("SELECT * FROM pg_tablespace x LEFT JOIN pg_tablespace c ON false")
+                .get(0))
+        .hasSize(10);
+    // an enclosing query's column t comes before this query's row t, as in PostgreSQL
+    assertThat(
+            processor.execute(
+                "SELECT (SELECT t FROM (SELECT 1 AS a) t) AS v FROM (SELECT 'x' AS t) o"))
+        .containsExactly(Collections.singletonMap("v", "x"));
+    assertThat(Catalog.typeLength(2249)).isEqualTo(-1); // record is variable length
+    assertThatThrownBy(() -> processor.execute("SELECT aclexplode('{foo}'::aclitem[])"))
+        .hasMessageContaining("unrecognized key word: \"foo\"");
+    assertThatThrownBy(() -> processor.execute("SELECT '=q/scalardb'::aclitem"))
+        .hasMessageContaining("invalid mode character");
+    assertThatThrownBy(
+            () ->
+                processor.execute(
+                    "SELECT has_schema_privilege('nosuchrole', 'pg_catalog', 'USAGE')"))
+        .hasMessageContaining("role \"nosuchrole\" does not exist");
   }
 
   private static Map<String, Object> map2(String k1, Object v1, String k2, Object v2) {
