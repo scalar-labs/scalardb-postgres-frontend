@@ -1360,6 +1360,35 @@ public class PostgresServerTest {
     }
   }
 
+  @Test
+  public void hasSchemaPrivilege_ShouldReadOnlySchemaGrants() throws Exception {
+    // pgAdmin asks it of every schema it lists: Cluster's grants on each schema, not on each table
+    when(admin.getNamespaceNames()).thenReturn(Collections.singleton("ns"));
+    when(admin.getNamespaceTableNames("ns")).thenReturn(Collections.singleton("t"));
+    AuthAdmin.User bob = mock(AuthAdmin.User.class);
+    when(bob.getName()).thenReturn("bob");
+    AuthAdmin.Role readers = mock(AuthAdmin.Role.class);
+    when(readers.getName()).thenReturn("readers");
+    when(admin.getUsers()).thenReturn(Collections.singletonList(bob));
+    when(admin.getRoles()).thenReturn(Collections.singletonList(readers));
+    when(admin.getPrivileges("bob", "ns")).thenReturn(EnumSet.of(AuthAdmin.Privilege.READ));
+    when(admin.getRolePrivileges("readers", "ns"))
+        .thenReturn(EnumSet.of(AuthAdmin.Privilege.CREATE));
+    try (Connection connection = connectForDcl();
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                "SELECT has_schema_privilege('readers', 'public', 'CREATE'),"
+                    + " has_schema_privilege('bob', 'public', 'CREATE'),"
+                    + " has_schema_privilege('bob', 'public', 'USAGE')")) {
+      assertThat(rs.next()).isTrue();
+      assertThat(List.of(rs.getBoolean(1), rs.getBoolean(2), rs.getBoolean(3)))
+          .containsExactly(true, false, true);
+    }
+    verify(admin, never()).getPrivileges(any(), any(), any());
+    verify(admin, never()).getRolePrivileges(any(), any(), any());
+  }
+
   // ---- TLS: the test certificate under src/test/resources/tls
 
   private static String resource(String name) {

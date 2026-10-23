@@ -715,7 +715,10 @@ class QueryParser {
    */
   public Plan parse(String sql, List<Object> parameters) throws ExecutionException {
     catalog.invalidateIfStale(DDL_GENERATION.get());
-    catalog.setAcls(ACLS.matcher(sql).find());
+    catalog.setAcls(
+        TABLE_ACLS.matcher(sql).find()
+            ? Catalog.Acls.ALL
+            : SCHEMA_ACLS.matcher(sql).find() ? Catalog.Acls.SCHEMAS : Catalog.Acls.NONE);
     ctes = Collections.emptyMap();
     int needed = parameterCount(sql);
     if (needed > parameters.size()) {
@@ -1756,8 +1759,11 @@ class QueryParser {
     catalog.invalidate();
   }
 
-  private static final Pattern ACLS =
-      Pattern.compile("(?i)\\b(relacl|nspacl|has_table_privilege|has_schema_privilege)\\b");
+  // what reads Cluster's grants on tables, and what reads only those on schemas
+  private static final Pattern TABLE_ACLS =
+      Pattern.compile("(?i)\\b(relacl|has_table_privilege)\\b");
+  private static final Pattern SCHEMA_ACLS =
+      Pattern.compile("(?i)\\b(nspacl|has_schema_privilege)\\b");
 
   private static final Pattern COORDINATOR_TABLES =
       Pattern.compile("(?is)(CREATE|DROP)\\s+COORDINATOR\\s+TABLES(\\s+IF\\s+(NOT\\s+)?EXISTS)?");

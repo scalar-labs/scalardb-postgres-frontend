@@ -1562,9 +1562,17 @@ final class Catalog {
   TypeStore typeStore = TypeStore.NONE; // the declared types of columns
   boolean
       clusterUsers; // pg_roles lists Cluster's users and roles, and OWNER as a role nobody logs in
+
   // as
-  private boolean acls; // pg_class.relacl holds Cluster's grants: one call per grantee and table
-  private boolean aclsLoaded;
+  /** How much of Cluster's grants a load reads into the catalog's ACL columns. */
+  enum Acls {
+    NONE,
+    SCHEMAS, // pg_namespace.nspacl: one call per grantee and schema
+    ALL // and pg_class.relacl: one more per grantee and table
+  }
+
+  private Acls acls = Acls.NONE;
+  private Acls aclsLoaded = Acls.NONE;
   @Nullable private Map<String, List<Map<String, Object>>> tables;
   private final Map<Long, String> indexDefs = new HashMap<>();
   private final Map<Long, String> constraintDefs = new HashMap<>();
@@ -1682,15 +1690,17 @@ final class Catalog {
   }
 
   /**
-   * Whether the next load fills pg_class.relacl and pg_namespace.nspacl (psql's {@code \dp} and
-   * {@code \dn+}). It asks Cluster for every grantee's privileges on every table, so only a
-   * statement that names one of them turns it on.
+   * What the next load fills of pg_namespace.nspacl ({@code \dn+}, has_schema_privilege) and
+   * pg_class.relacl ({@code \dp}, has_table_privilege). It asks Cluster for every grantee's
+   * privileges on every schema, and for ALL on every table too, so only a statement that names one
+   * of them asks for it.
    */
-  void setAcls(boolean wanted) {
-    if (wanted && clusterUsers && !aclsLoaded) {
+  void setAcls(Acls wanted) {
+    Acls level = clusterUsers ? wanted : Acls.NONE;
+    if (level.compareTo(aclsLoaded) > 0) {
       invalidate();
     }
-    acls = wanted && clusterUsers;
+    acls = level;
   }
 
   /** Forgets the loaded rows so the next query sees the current ScalarDB metadata. */
@@ -2334,7 +2344,7 @@ final class Catalog {
             t, arrayOid, name, PG_CATALOG_NAMESPACE, typeCollation(oid), oid, typeLength(oid));
       }
     }
-    Map<String, Boolean> grantees = acls ? grantees() : Collections.emptyMap();
+    Map<String, Boolean> grantees = acls != Acls.NONE ? grantees() : Collections.emptyMap();
     long oid = FIRST_USER_OID;
     for (String namespace : new TreeSet<>(admin.getNamespaceNames())) {
       if (namespace.equals("scalardb")
@@ -2409,7 +2419,9 @@ final class Catalog {
             "r",
             HEAP_AM,
             true,
-            grantees.isEmpty() ? null : acl(grantees, namespaceGrants, namespace, table),
+            acls != Acls.ALL || grantees.isEmpty()
+                ? null
+                : acl(grantees, namespaceGrants, namespace, table),
             encrypted.isEmpty()
                 ? null
                 : Collections.singletonList("encrypted=" + String.join(",", encrypted)));
