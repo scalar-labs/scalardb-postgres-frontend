@@ -48,6 +48,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -105,6 +107,9 @@ public final class PostgresServer implements AutoCloseable {
   @Nullable private volatile Authenticator authenticator;
   @Nullable private volatile SSLContext sslContext;
   @Nullable private Boolean sslRequire; // null: required exactly when an authenticator is set
+  // scalar.db.postgres.auth=userpass or oidc_jwt: the one kind of secret accepted; null (auto): per
+  // connection, by the client's scalardb.auth startup option or the secret's shape
+  @Nullable private volatile Authenticator.Secret forcedSecret;
 
   private static final int MAX_PASSWORD_LENGTH = 65_536; // room for an OIDC token
 
@@ -228,6 +233,25 @@ public final class PostgresServer implements AutoCloseable {
     if (require != null) {
       sslRequire = Boolean.parseBoolean(require);
     }
+    String auth =
+        properties.getProperty("scalar.db.postgres.auth", "none").trim().toLowerCase(Locale.ROOT);
+    switch (auth) {
+      case "userpass":
+        forcedSecret = Authenticator.Secret.PASSWORD;
+        break;
+      case "oidc_jwt":
+        forcedSecret = Authenticator.Secret.OIDC_TOKEN;
+        break;
+      case "none":
+      case "auto":
+        forcedSecret = null;
+        break;
+      default:
+        throw new IllegalArgumentException(
+            "scalar.db.postgres.auth must be none, auto, userpass or oidc_jwt, not \""
+                + auth
+                + "\"");
+    }
     maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
     DatabaseConfig config = new DatabaseConfig(properties);
     Evaluator.setCollation(
@@ -286,6 +310,56 @@ public final class PostgresServer implements AutoCloseable {
   private boolean sslRequired() {
     Boolean require = sslRequire;
     return require != null ? require : authenticator != null;
+  }
+
+  /** A setting in the startup message's {@code options}, {@code -c name=value}, as PGOPTIONS. */
+  static final Pattern STARTUP_OPTION = Pattern.compile("-c\\s*([\\w.]+)=(\\S+)");
+
+  /** The startup option a client states the kind of its secret with: userpass or oidc_jwt. */
+  static final String AUTH_OPTION = "scalardb.auth";
+
+  /**
+   * What the client's secret is: the kind {@code scalar.db.postgres.auth} forces, else the kind the
+   * client stated with the {@code scalardb.auth} startup option ({@code options=-c
+   * scalardb.auth=oidc_jwt}), else what the secret's shape says ({@link Authenticator.Secret#of}).
+   *
+   * @throws IllegalArgumentException if the option's value is neither kind, or asks for the kind
+   *     the configuration excludes; the connection is then refused with 28000
+   */
+  Authenticator.Secret secretKind(@Nullable String options, String secret) {
+    Authenticator.Secret requested = null;
+    if (options != null) {
+      Matcher option = STARTUP_OPTION.matcher(options);
+      while (option.find()) {
+        if (option.group(1).equalsIgnoreCase(AUTH_OPTION)) {
+          String value = option.group(2).toLowerCase(Locale.ROOT);
+          if (value.equals("userpass")) {
+            requested = Authenticator.Secret.PASSWORD;
+          } else if (value.equals("oidc_jwt")) {
+            requested = Authenticator.Secret.OIDC_TOKEN;
+          } else {
+            throw new IllegalArgumentException(
+                "invalid value for parameter \""
+                    + AUTH_OPTION
+                    + "\": \""
+                    + option.group(2)
+                    + "\" (userpass or oidc_jwt)");
+          }
+        }
+      }
+    }
+    Authenticator.Secret forced = forcedSecret;
+    if (forced == null) {
+      return requested != null ? requested : Authenticator.Secret.of(secret);
+    }
+    if (requested != null && requested != forced) {
+      throw new IllegalArgumentException(
+          "authentication with "
+              + (requested == Authenticator.Secret.PASSWORD ? "a password" : "an OIDC access token")
+              + " is not allowed here: scalar.db.postgres.auth="
+              + (forced == Authenticator.Secret.PASSWORD ? "userpass" : "oidc_jwt"));
+    }
+    return forced;
   }
 
   /**
@@ -606,8 +680,16 @@ public final class PostgresServer implements AutoCloseable {
             fatal("08P01", "expected a password response, got message type " + (char) type);
             return null;
           }
+          String secret = readString(ByteBuffer.wrap(response));
+          Authenticator.Secret kind;
           try {
-            identity = authenticator.authenticate(user, readString(ByteBuffer.wrap(response)));
+            kind = secretKind(params.get("options"), secret);
+          } catch (IllegalArgumentException e) {
+            fatal("28000", String.valueOf(e.getMessage())); // invalid_authorization_specification
+            return null;
+          }
+          try {
+            identity = authenticator.authenticate(user, secret, kind);
           } catch (Authenticator.AuthenticationException e) {
             logger.info("Login failed for user \"{}\"", user);
             sleepQuietly(loginFailureDelayMillis);
@@ -662,10 +744,11 @@ public final class PostgresServer implements AutoCloseable {
           for (Map.Entry<String, String> e : params.entrySet()) {
             if (e.getKey().equals("options")) {
               // PGOPTIONS='-c client_min_messages=warning': settings given at connection time
-              java.util.regex.Matcher option =
-                  java.util.regex.Pattern.compile("-c\\s*([\\w.]+)=(\\S+)").matcher(e.getValue());
+              Matcher option = STARTUP_OPTION.matcher(e.getValue());
               while (option.find()) {
-                processor.setClientDefault(option.group(1), option.group(2));
+                if (!option.group(1).equalsIgnoreCase(AUTH_OPTION)) { // consumed at login
+                  processor.setClientDefault(option.group(1), option.group(2));
+                }
               }
             } else if (!e.getKey().equals("user") && !e.getKey().equals("database")) {
               // application_name, DateStyle, ...: the client's, so checked as SET checks them

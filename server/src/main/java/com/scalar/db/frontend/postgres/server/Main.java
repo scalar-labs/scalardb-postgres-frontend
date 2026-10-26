@@ -21,10 +21,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Usage: {@code java -jar scalardb-postgres-frontend-<version>.jar <scalardb.properties>
  * [port]}; the port defaults to 5432. With {@code scalar.db.postgres.auth} set to {@code userpass}
- * or {@code oidc_jwt}, clients log in as ScalarDB Cluster users: the transaction manager must be
- * {@code cluster}, the Cluster client SDK and its dependencies must be on the classpath ({@code
- * java -cp frontend.jar:'sdk-classpath/lib/*' ...Main}, see difftest/cluster-auth), TLS must be
- * configured with {@code scalar.db.postgres.ssl.cert} and {@code .key} unless {@code
+ * or {@code oidc_jwt} (one kind of secret per server; {@code auto}, both per connection, is for the
+ * frontend in a Cluster node), clients log in as ScalarDB Cluster users: the transaction manager
+ * must be {@code cluster}, the Cluster client SDK and its dependencies must be on the classpath
+ * ({@code java -cp frontend.jar:'sdk-classpath/lib/*' ...Main}, see difftest/cluster-auth), TLS
+ * must be configured with {@code scalar.db.postgres.ssl.cert} and {@code .key} unless {@code
  * scalar.db.postgres.ssl.require=false} allows plaintext for local testing, and no {@code
  * scalar.db.username} may be configured, so that nothing can run as anyone but the session's user.
  */
@@ -85,8 +86,7 @@ public final class Main {
     }
     PostgresServer server = new PostgresServer(manager, admin, port, address);
     if (!auth.equals("none")) {
-      server.setAuthenticator(
-          new ClusterAuthenticator(factory.getTransactionAdmin(), auth.equals("oidc_jwt")));
+      server.setAuthenticator(new ClusterAuthenticator(factory.getTransactionAdmin()));
     }
     server.configure(properties);
     if (auth.equals("none") && (address == null || !address.isLoopbackAddress())) {
@@ -209,6 +209,12 @@ public final class Main {
         properties.getProperty("scalar.db.postgres.auth", "none").trim().toLowerCase(Locale.ROOT);
     if (auth.equals("none")) {
       return auth;
+    }
+    if (auth.equals("auto")) {
+      throw new IllegalArgumentException(
+          "scalar.db.postgres.auth=auto (a password or an OIDC token, per connection) needs the"
+              + " frontend in a ScalarDB Cluster node: the Cluster client SDK takes one auth type"
+              + " per client. Set userpass or oidc_jwt");
     }
     if (!auth.equals("userpass") && !auth.equals("oidc_jwt")) {
       throw new IllegalArgumentException(

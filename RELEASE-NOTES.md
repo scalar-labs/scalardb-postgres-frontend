@@ -78,6 +78,15 @@ wrongly. Three changes:
   row is written. Grant no privileges on `scalardb_postgres_frontend`: `WRITE` there lets a user change how
   any table's columns are read.
 
+### A password or an OIDC token per connection
+
+In a ScalarDB Cluster node, `scalar.db.postgres.auth` now defaults to `auto`: each connection is checked
+as what it sent, an OIDC access token if the password field holds a well-formed JWT and a password
+otherwise, so one node serves both kinds of client. A client can state its kind with the startup parameter
+`scalardb.auth` (`options='-c scalardb.auth=oidc_jwt'`). `userpass` or `oidc_jwt` in the configuration still
+allows one kind only, and refuses a client that asks for the other with `28000`. The standalone server keeps
+one kind per server, because the ScalarDB Cluster client SDK takes one auth type per client.
+
 ### json and jsonb columns keep their type
 
 A `json` or `jsonb` column used to become plain `text`: `\d` showed `text`, a `jsonb` value was stored as
