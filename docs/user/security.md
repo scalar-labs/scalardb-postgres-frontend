@@ -152,7 +152,8 @@ user, as PostgreSQL does; reading a table's data is what requires the privilege.
 The frontend reads and writes its metadata table, `scalardb_postgres_frontend.column_types`, under the
 node's own authority, not as the session's user, so no user needs privileges on it and there is no user or
 password to configure. `CREATE FRONTEND METADATA TABLES`, run once as a superuser, creates the namespace and
-the table. Do not grant privileges on the namespace `scalardb_postgres_frontend` to anyone: a user who can
+the table. The statement itself runs as the session's user, not under the node's authority, so that user
+needs ScalarDB Cluster's privilege to create the namespace and the table; a superuser has it. Do not grant privileges on the namespace `scalardb_postgres_frontend` to anyone: a user who can
 write to that table can change how every table's columns are read. The frontend checks the session user's
 `CREATE` or `ALTER` privilege before DDL writes to the metadata table.
 
