@@ -841,6 +841,14 @@ public class QueryParserTest {
     assertThat(QueryParser.trimStatement("\tSHOW x\n")).isEqualTo("SHOW x");
     assertThat(QueryParser.trimStatement("SELECT 1;;")).isEqualTo("SELECT 1;");
     assertThat(QueryParser.trimStatement(" ; ")).isEmpty();
+    // and comments around it, but not a -- or /* inside a quoted string or identifier
+    assertThat(QueryParser.trimStatement("-- a\n/* b /* c */ */ SET x TO s -- d\n; /* e */"))
+        .isEqualTo("SET x TO s");
+    assertThat(QueryParser.trimStatement("SHOW x /* y */")).isEqualTo("SHOW x");
+    assertThat(QueryParser.trimStatement("SET x = '-- a' -- b")).isEqualTo("SET x = '-- a'");
+    assertThat(QueryParser.trimStatement("SET x = \"/* a\" /* b */;"))
+        .isEqualTo("SET x = \"/* a\"");
+    assertThat(QueryParser.trimStatement("SET x = $$ ; -- $$ ;")).isEqualTo("SET x = $$ ; -- $$");
   }
 
   @Test

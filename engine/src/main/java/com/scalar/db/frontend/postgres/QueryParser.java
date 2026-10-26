@@ -1775,25 +1775,32 @@ class QueryParser {
       Pattern.compile("(?is)CREATE\\s+FRONTEND\\s+METADATA\\s+TABLES(\\s+IF\\s+NOT\\s+EXISTS)?");
 
   /**
-   * The statement without surrounding whitespace and one final {@code ;}, which is what the
-   * statement patterns match. Matching that tail inside a pattern instead ({@code \s*;?\s*$} after
-   * a lazy group) backtracks cubically on a long run of whitespace, so a short statement padded
-   * with a few thousand spaces could take minutes. Whitespace is what {@code \s} matches.
+   * The statement without surrounding whitespace and comments and one final {@code ;}, which is
+   * what the statement patterns match: a trailing comment would otherwise be read as part of the
+   * last value, as in {@code SET search_path TO s -- note}. One pass of skipQuoted, so a {@code --}
+   * inside a string stays. Matching the tail inside a pattern instead ({@code \s*;?\s*$} after a
+   * lazy group) backtracks cubically on a long run of whitespace, so a short statement padded with
+   * a few thousand spaces could take minutes.
    */
   static String trimStatement(String sql) {
-    int end = sql.length();
-    while (end > 0 && isSpace(sql.charAt(end - 1))) {
-      end--;
-    }
-    if (end > 0 && sql.charAt(end - 1) == ';') {
-      end--;
-      while (end > 0 && isSpace(sql.charAt(end - 1))) {
-        end--;
+    int start = skipSpace(sql, 0);
+    int end = start; // just past the last token
+    int beforeLast = start; // just past the token before it
+    int i = start;
+    while (i < sql.length()) {
+      int after = skipQuoted(sql, i);
+      boolean comment = sql.startsWith("--", i) || sql.startsWith("/*", i);
+      if (after == i) {
+        after = i + 1;
       }
+      if (!comment && !isSpace(sql.charAt(i))) {
+        beforeLast = end;
+        end = after;
+      }
+      i = after;
     }
-    int start = 0;
-    while (start < end && isSpace(sql.charAt(start))) {
-      start++;
+    if (end > start && sql.charAt(end - 1) == ';') {
+      end = beforeLast; // a quoted token ends with its quote, so this ; is a token of its own
     }
     return sql.substring(start, end);
   }

@@ -561,6 +561,11 @@ public class QueryProcessorTest {
   public void execute_ShowAndSet_ShouldReportSessionSettings() throws Exception {
     assertThat(processor.execute("SHOW search_path"))
         .containsExactly(Collections.singletonMap("search_path", "\"$user\", public"));
+    // a trailing comment is not part of the value or the name
+    processor.execute("SET search_path TO s1 -- switch");
+    assertThat(processor.execute("SHOW search_path /* x */"))
+        .containsExactly(Collections.singletonMap("search_path", "s1"));
+    processor.execute("RESET search_path -- back");
     assertThat(processor.execute("SHOW TRANSACTION ISOLATION LEVEL"))
         .containsExactly(Collections.singletonMap("transaction_isolation", "read committed"));
     processor.execute("SET application_name = 'app'");
