@@ -7,7 +7,8 @@ at the end of this section.
 
 - **Authentication only in front of ScalarDB Cluster.** With `scalar.db.postgres.auth=userpass` or
   `oidc_jwt` (the getting-started guide's [Connect as a
-  user](getting-started/README.md#connect-as-a-user)), clients log in as Cluster users over TLS, every
+  user](getting-started/README.md#connect-as-a-user); in a Cluster node also `auto`, a password or an
+  OIDC token per connection), clients log in as Cluster users over TLS, every
   call of the session runs as that user, and Cluster enforces privileges (`42501`). The password crosses
   the wire in clear text inside TLS, as PostgreSQL itself does for LDAP and RADIUS, because Cluster must
   see it; libpq's `require_auth=scram-sha-256` refuses that. Without Cluster there is no user store:

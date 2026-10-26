@@ -47,6 +47,8 @@ public class MainTest {
         .isEqualTo("oidc_jwt");
     assertThatThrownBy(() -> Main.checkedAuth(properties("scalar.db.postgres.auth", "ldap")))
         .hasMessageContaining("must be none, userpass or oidc_jwt");
+    assertThatThrownBy(() -> Main.checkedAuth(properties("scalar.db.postgres.auth", "auto")))
+        .hasMessageContaining("one auth type per client");
     assertThatThrownBy(
             () ->
                 Main.checkedAuth(

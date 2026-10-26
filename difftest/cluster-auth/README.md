@@ -160,6 +160,6 @@ Start that node instead of `node.sh`, skip `frontend.sh`, run `Setup.java` as ab
 creates no service user and prints no properties, a user with no grant on `column_types` creates and uses
 `NUMERIC(p,s)` columns, DDL on another user's table is refused before any row is written, and nobody reaches the
 table through SQL. The frontend hides that schema, so the script counts its rows in the backing database
-(`BACKEND`, by default the PostgreSQL at 15440, database `clusterdb`). On 2026-10-26, `run.sh` passed 86 of 86 and
-`typed.sh` 19 of 19 against a node built from `postgres-frontend` with Cluster's removal of the privileged mode
+(`BACKEND`, by default the PostgreSQL at 15440, database `clusterdb`). On 2026-10-26, `run.sh` passed 89 of 89 and
+`typed.sh` 21 of 21 against a node built from `postgres-frontend` with Cluster's removal of the privileged mode
 (#2091) reverted, since `main` is to bring the mode back.

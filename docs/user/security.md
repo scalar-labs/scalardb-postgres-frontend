@@ -8,12 +8,28 @@ access control (ABAC) appear through the frontend.
 ## Authentication
 
 Authentication is enabled by ScalarDB Cluster's `scalar.db.cluster.auth.enabled=true`. The frontend then
-accepts only clients that log in as a ScalarDB Cluster user, in one of two ways that
-`scalar.db.postgres.auth` selects:
+accepts only clients that log in as a ScalarDB Cluster user, with either of two secrets sent as the
+password:
 
-- **`userpass`** (the default): the client sends the user's name and password.
-- **`oidc_jwt`**: the client sends an OIDC access token as its password, and ScalarDB Cluster takes the user
-  name from the token. The `scalar.db.cluster.auth.oidc.*` properties of the node configure the token check.
+- **A password**: the ScalarDB Cluster user's name and password.
+- **An OIDC access token**: ScalarDB Cluster takes the user name from the token. The
+  `scalar.db.cluster.auth.oidc.*` properties of the node configure the token check.
+
+By default (`scalar.db.postgres.auth=auto`), each connection decides which: a well-formed JWT is checked as
+a token, anything else as a password, and a client can state what it sends with the startup parameter
+`scalardb.auth` (`options='-c scalardb.auth=oidc_jwt'` with libpq, `options` with pgjdbc and psycopg). Set
+`scalar.db.postgres.auth` to `userpass` or `oidc_jwt` to allow only one kind; a client that asks for the
+other then fails with SQLSTATE `28000` before it sends its secret.
+
+Two consequences of `auto`:
+
+- A password that happens to be shaped like a JWT, three dot-separated base64url parts whose first part is a
+  JSON object with `alg`, is checked as a token and fails. Such a client sets `-c scalardb.auth=userpass`.
+- Only signed JWTs are recognized by shape. A client whose provider issues encrypted (JWE) or opaque access
+  tokens sets `-c scalardb.auth=oidc_jwt`.
+
+With a token, the session's user is the one that the token names. The user name in the connection string is
+not checked against it, as with `scalar.db.postgres.auth=oidc_jwt`.
 
 PostgreSQL clients need nothing new. With psql or libpq, the password comes from the prompt, `PGPASSWORD` or
 `~/.pgpass`:

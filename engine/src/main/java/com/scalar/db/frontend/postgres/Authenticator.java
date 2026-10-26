@@ -1,6 +1,8 @@
 package com.scalar.db.frontend.postgres;
 
 import com.scalar.db.util.ThrowableSupplier;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import javax.annotation.Nullable;
 
 /**
@@ -16,12 +18,70 @@ public interface Authenticator {
    * Verifies the credentials the client sent.
    *
    * @param user the user name from the startup message
-   * @param secret the password message's content: a password, or a token
+   * @param secret the password message's content: a password, or an OIDC access token
+   * @param kind what {@code secret} is, as the server decided: the kind {@code
+   *     scalar.db.postgres.auth} forces, else the kind the client stated with the {@code
+   *     scalardb.auth} startup option, else the secret's shape ({@link Secret#of})
    * @return the identity the session runs as
    * @throws AuthenticationException if the credentials are not accepted; the client gets SQLSTATE
    *     28P01 and the connection closes
    */
-  Identity authenticate(String user, String secret) throws AuthenticationException;
+  Identity authenticate(String user, String secret, Secret kind) throws AuthenticationException;
+
+  /** What a client sent in the password message. */
+  enum Secret {
+    /** The ScalarDB Cluster user's password. */
+    PASSWORD,
+    /** An OIDC access token, from which Cluster takes the user. */
+    OIDC_TOKEN;
+
+    /**
+     * The kind of {@code secret} by its shape. An OIDC access token is a JWT: three base64url
+     * segments joined by dots, the first of which decodes to a JSON object with an {@code alg}
+     * member. No password a person sets looks like that, so such a secret is a token and anything
+     * else a password. The shape decides alone: a secret is checked as one kind and never retried
+     * as the other, so a wrong secret still gets one check.
+     *
+     * @param secret what the client sent
+     * @return its kind
+     */
+    public static Secret of(String secret) {
+      int first = secret.indexOf('.');
+      int second = first < 0 ? -1 : secret.indexOf('.', first + 1);
+      if (first <= 0
+          || second <= first + 1
+          || second == secret.length() - 1
+          || secret.indexOf('.', second + 1) >= 0) {
+        return PASSWORD;
+      }
+      for (int i = 0; i < secret.length(); i++) {
+        char c = secret.charAt(i);
+        boolean base64url =
+            (c >= 'A' && c <= 'Z')
+                || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9')
+                || c == '-'
+                || c == '_'
+                || c == '.';
+        if (!base64url) {
+          return PASSWORD;
+        }
+      }
+      String header;
+      try {
+        header =
+            new String(
+                    Base64.getUrlDecoder().decode(secret.substring(0, first)),
+                    StandardCharsets.UTF_8)
+                .trim();
+      } catch (IllegalArgumentException e) {
+        return PASSWORD;
+      }
+      return header.startsWith("{") && header.endsWith("}") && header.contains("\"alg\"")
+          ? OIDC_TOKEN
+          : PASSWORD;
+    }
+  }
 
   /**
    * What the frontend's own metadata table ({@code scalardb_postgres_frontend.column_types}) is

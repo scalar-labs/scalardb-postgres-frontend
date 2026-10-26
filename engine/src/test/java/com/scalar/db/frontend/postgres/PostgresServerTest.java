@@ -614,11 +614,19 @@ public class PostgresServerTest {
     server.configure(properties);
   }
 
-  private Authenticator.Identity stubAuthenticate(String user, String secret)
+  /** A JWT-shaped secret: the header {"alg":"RS256","typ":"JWT"}, a payload and a signature. */
+  private static final String JWT =
+      "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSJ9.c2ln";
+
+  private volatile Authenticator.Secret lastKind;
+
+  private Authenticator.Identity stubAuthenticate(
+      String user, String secret, Authenticator.Secret kind)
       throws Authenticator.AuthenticationException {
-    if (!user.equals("alice") || !secret.equals("secret")) {
+    if (!user.equals("alice") || !(secret.equals("secret") || secret.equals(JWT))) {
       throw new Authenticator.AuthenticationException("not alice");
     }
+    lastKind = kind;
     lastIdentity = new StubIdentity();
     return lastIdentity;
   }
@@ -666,9 +674,17 @@ public class PostgresServerTest {
   }
 
   private Connection connectAs(String user, String password) throws SQLException {
+    return connectAs(user, password, "");
+  }
+
+  /** Connects with pgjdbc's {@code options}, sent in the startup message as libpq's PGOPTIONS. */
+  private Connection connectAs(String user, String password, String options) throws SQLException {
     Properties properties = new Properties();
     properties.setProperty("user", user);
     properties.setProperty("password", password);
+    if (!options.isEmpty()) {
+      properties.setProperty("options", options);
+    }
     return DriverManager.getConnection(
         "jdbc:postgresql://localhost:" + server.getPort() + "/ns", properties);
   }
@@ -685,6 +701,84 @@ public class PostgresServerTest {
               assertThat(e.getSQLState()).isEqualTo("28P01");
               assertThat(e.getMessage()).contains("alice").doesNotContain("nope");
             });
+  }
+
+  @Test
+  public void auth_Auto_ShouldTellATokenFromAPasswordByItsShape() throws Exception {
+    allowPlaintext();
+    server.setAuthenticator(this::stubAuthenticate);
+    try (Connection ignored = connectAs("alice", "secret")) {
+      assertThat(lastKind).isEqualTo(Authenticator.Secret.PASSWORD);
+    }
+    try (Connection ignored = connectAs("alice", JWT)) {
+      assertThat(lastKind).isEqualTo(Authenticator.Secret.OIDC_TOKEN);
+    }
+  }
+
+  @Test
+  public void auth_StartupOption_ShouldStateTheKindUnlessTheConfigurationForcesOne()
+      throws Exception {
+    server.loginFailureDelayMillis = 0;
+    allowPlaintext();
+    server.setAuthenticator(this::stubAuthenticate);
+    // the client says what it sends, whatever the shape; the option is the login's, not a setting
+    try (Connection c = connectAs("alice", "secret", "-c scalardb.auth=oidc_jwt");
+        Statement statement = c.createStatement()) {
+      assertThat(lastKind).isEqualTo(Authenticator.Secret.OIDC_TOKEN);
+      assertThatThrownBy(() -> statement.executeQuery("SHOW scalardb.auth"))
+          .isInstanceOf(SQLException.class);
+    }
+    lastKind = null;
+    try (Connection ignored = connectAs("alice", JWT, "-c scalardb.auth=userpass")) {
+      assertThat(lastKind).isEqualTo(Authenticator.Secret.PASSWORD);
+    }
+    lastKind = null;
+    assertThatThrownBy(() -> connectAs("alice", "secret", "-c scalardb.auth=ldap"))
+        .isInstanceOfSatisfying(
+            SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("28000"));
+    assertThat(lastKind).isNull(); // refused before the secret was checked
+    // the configuration allows passwords only: a token-shaped secret is checked as a password, and
+    // a client asking for a token is refused
+    Properties properties = new Properties();
+    properties.setProperty("scalar.db.postgres.auth", "userpass");
+    server.configure(properties);
+    try (Connection ignored = connectAs("alice", JWT)) {
+      assertThat(lastKind).isEqualTo(Authenticator.Secret.PASSWORD);
+    }
+    lastKind = null;
+    assertThatThrownBy(() -> connectAs("alice", "secret", "-c scalardb.auth=oidc_jwt"))
+        .isInstanceOfSatisfying(
+            SQLException.class,
+            e -> {
+              assertThat(e.getSQLState()).isEqualTo("28000");
+              assertThat(e.getMessage())
+                  .contains("an OIDC access token is not allowed")
+                  .doesNotContain("scalar.db.postgres.auth");
+            });
+    assertThat(lastKind).isNull();
+  }
+
+  @Test
+  public void secretOf_ShouldTakeOnlyAWellFormedJwtAsAToken() {
+    assertThat(Authenticator.Secret.of(JWT)).isEqualTo(Authenticator.Secret.OIDC_TOKEN);
+    for (String password :
+        new String[] {
+          "secret",
+          "",
+          "a.b.c",
+          "pa.ss.word",
+          "eyJhbGciOiJSUzI1NiJ9.x",
+          JWT + ".more",
+          "e30.e30.e30",
+          "{\"alg\":\"x\"}.b.c",
+          "YWxn.YWxn.YWxn",
+          JWT + "=",
+          "x." + JWT
+        }) {
+      assertThat(Authenticator.Secret.of(password))
+          .as(password)
+          .isEqualTo(Authenticator.Secret.PASSWORD);
+    }
   }
 
   @Test

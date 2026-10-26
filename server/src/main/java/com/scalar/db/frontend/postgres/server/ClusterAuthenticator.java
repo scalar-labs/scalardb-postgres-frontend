@@ -12,20 +12,22 @@ import javax.annotation.Nullable;
  * Logs PostgreSQL clients in as ScalarDB Cluster users through the Cluster client SDK, for the
  * standalone server. The SDK takes the credentials of the current thread for the duration of one
  * call, logs in with them and caches the token per user, so an identity's {@link Identity#run} is
- * one such call and the frontend itself is configured with no credentials. A node hosting the
- * engine implements {@link Authenticator} over its own auth service instead.
+ * one such call and the frontend itself is configured with no credentials. The SDK takes one auth
+ * type per client, so a server serves one kind of secret, the one {@code scalar.db.postgres.auth}
+ * names and the engine then forces on every connection. A node hosting the engine implements {@link
+ * Authenticator} over its own auth service instead, and can take both kinds, per connection.
  */
 final class ClusterAuthenticator implements Authenticator {
   private final DistributedTransactionAdmin admin;
-  private final boolean oidc; // the secret is an OIDC access token rather than a password
 
-  ClusterAuthenticator(DistributedTransactionAdmin admin, boolean oidc) {
+  ClusterAuthenticator(DistributedTransactionAdmin admin) {
     this.admin = admin;
-    this.oidc = oidc;
   }
 
   @Override
-  public Identity authenticate(String user, String secret) throws AuthenticationException {
+  public Identity authenticate(String user, String secret, Secret kind)
+      throws AuthenticationException {
+    boolean oidc = kind == Secret.OIDC_TOKEN; // the SDK's holder of that kind
     AuthAdmin.User me;
     try {
       // one round trip, which makes the SDK log in: the answer is who Cluster says we are

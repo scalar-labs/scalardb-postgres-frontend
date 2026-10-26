@@ -87,6 +87,17 @@ For what changes in each release, see [RELEASE-NOTES.md](../../RELEASE-NOTES.md)
 The user name or password is wrong, or the user does not exist in ScalarDB Cluster. The frontend waits one
 second before it answers. Check the user with `\du` as a superuser.
 
+### The node warns that clients log in without a password
+
+`scalar.db.postgres.auth` asks for `userpass` or `oidc_jwt`, but `scalar.db.cluster.auth.enabled` is not
+`true`, so the frontend trusts every connection. Enable ScalarDB Cluster's authentication, or remove the
+property.
+
+### A connection fails with 28000 before the password is asked for
+
+The client stated with `scalardb.auth` a kind of secret that `scalar.db.postgres.auth` does not allow, or
+an unknown kind. Remove the option or correct it.
+
 ### A connection fails because TLS is required
 
 With authentication enabled, the frontend refuses connections without TLS. Connect with `sslmode=require` or

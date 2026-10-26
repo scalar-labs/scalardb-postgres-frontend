@@ -28,7 +28,7 @@ it. The node needs transactions enabled; otherwise, the node fails to start when
 | `scalar.db.postgres.enabled` | `false` | Whether the node accepts PostgreSQL clients. |
 | `scalar.db.postgres.port` | `5432` | The port that the frontend listens on. |
 | `scalar.db.postgres.listen_address` | All interfaces | The one address to listen on, such as `127.0.0.1`. |
-| `scalar.db.postgres.auth` | `userpass` | How clients log in when `scalar.db.cluster.auth.enabled` is `true`. With `userpass`, a client logs in with a ScalarDB Cluster user's name and password. With `oidc_jwt`, a client sends an OIDC access token as its password, and the node takes the user name from the token as configured by the `scalar.db.cluster.auth.oidc.*` properties. When `scalar.db.cluster.auth.enabled` is `false`, clients log in without a password and this property has no effect. |
+| `scalar.db.postgres.auth` | `auto` | What clients send as their password when `scalar.db.cluster.auth.enabled` is `true`. With `auto`, each connection decides: a well-formed JWT is checked as an OIDC access token, anything else as the ScalarDB Cluster user's password, and a client can state which with the startup parameter `scalardb.auth` (see below). `userpass` or `oidc_jwt` allows only that kind. With a token, the node takes the user name from the token as configured by the `scalar.db.cluster.auth.oidc.*` properties. `none` is accepted and means the same as leaving Cluster authentication off. When `scalar.db.cluster.auth.enabled` is `false`, clients log in without a password whatever this property says, and the node logs a warning if it is set to `userpass` or `oidc_jwt`. |
 | `scalar.db.postgres.ssl.cert` | The node's certificate chain | The PEM file holding the certificate chain that the frontend presents to clients. When this property and `scalar.db.postgres.ssl.key` are not set and `scalar.db.cluster.tls.enabled` is `true`, the frontend uses the node's `scalar.db.cluster.node.tls.cert_chain_path`. |
 | `scalar.db.postgres.ssl.key` | The node's private key | The PEM file holding the private key, as unencrypted PKCS#8. When this property and `scalar.db.postgres.ssl.cert` are not set and `scalar.db.cluster.tls.enabled` is `true`, the frontend uses the node's `scalar.db.cluster.node.tls.private_key_path`. |
 
@@ -38,6 +38,12 @@ A private key in another format can be converted with
 `openssl pkcs8 -topk8 -nocrypt -in <KEY_FILE> -out <PKCS8_KEY_FILE>`.
 
 :::
+
+A client can state what it sends with the startup parameter `scalardb.auth`, set to `userpass` or
+`oidc_jwt`: `options='-c scalardb.auth=oidc_jwt'` or `PGOPTIONS` with libpq, the `options` property of pgjdbc
+and psycopg, `Options` with Npgsql. Only this `-c` form inside `options` is read. Under `auto` it overrides the
+shape rule. Under `userpass` or `oidc_jwt`, asking for the other kind fails with SQLSTATE `28000`, before the
+client sends its secret. For when to set it, see [Security](security.md#authentication).
 
 ## Properties of the frontend
 
@@ -79,7 +85,7 @@ port to listen on as its second command-line argument (`5432` by default), not a
 | Property | Default | Description |
 |----------|---------|-------------|
 | `scalar.db.postgres.listen_address` | All interfaces | The one address to listen on, such as `127.0.0.1`. |
-| `scalar.db.postgres.auth` | `none` | `none` lets any client connect without a password, with the full access of the configured ScalarDB user. `userpass` or `oidc_jwt` makes clients log in as ScalarDB Cluster users, as in a node; this needs `scalar.db.transaction_manager=cluster`, TLS and no `scalar.db.username` or `scalar.db.password`. |
+| `scalar.db.postgres.auth` | `none` | `none` lets any client connect without a password, with the full access of the configured ScalarDB user. `userpass` or `oidc_jwt` makes clients log in as ScalarDB Cluster users, as in a node; this needs `scalar.db.transaction_manager=cluster`, TLS and no `scalar.db.username` or `scalar.db.password`. `auto` is not available here: the ScalarDB Cluster client SDK takes one kind of secret per client. |
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | None | The PEM certificate chain and unencrypted PKCS#8 private key that make the server accept TLS. |
 | `scalar.db.postgres.metadata_user` | `scalardb_postgres_frontend` | With `scalar.db.postgres.auth` set to `userpass` or `oidc_jwt`, the service user that reads and writes the frontend's metadata table, because the server runs through the ScalarDB Cluster client SDK and has no authority of its own. `CREATE FRONTEND METADATA TABLES`, run once as a superuser through the server, creates this user and prints this property. A node ignores it. |
 | `scalar.db.postgres.metadata_password` | None | The service user's password, which `CREATE FRONTEND METADATA TABLES` prints. With authentication and no password set, statements on tables fail with SQLSTATE `55000` once the metadata table exists. A node ignores it. |
