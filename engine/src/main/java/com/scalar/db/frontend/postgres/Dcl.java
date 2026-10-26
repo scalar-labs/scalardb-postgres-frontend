@@ -27,10 +27,15 @@ final class Dcl {
   /**
    * Whether this class plans the trimmed statement. Leading comments are skipped, nested ones too:
    * a statement that slipped past here would reach JSQLParser, whose errors quote the statement,
-   * password included.
+   * password included. So any Unicode whitespace is skipped as well, more than PostgreSQL's six
+   * characters: the lexer here then refuses it without quoting anything.
    */
   static boolean matches(String sql) {
-    return STATEMENT.matcher(sql.substring(QueryParser.skipSpace(sql, 0))).matches();
+    int i = QueryParser.skipSpace(sql, 0);
+    while (i < sql.length() && Character.isWhitespace(sql.charAt(i))) {
+      i = QueryParser.skipSpace(sql, i + 1);
+    }
+    return STATEMENT.matcher(sql.substring(i)).matches();
   }
 
   /** The privileges as ScalarDB SQL names them; GRANT is the grant option. */

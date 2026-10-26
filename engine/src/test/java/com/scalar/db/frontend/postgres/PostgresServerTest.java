@@ -930,6 +930,11 @@ public class PostgresServerTest {
           "/* a /* nested */ comment */ -- and a line\n CREATE USER x PASSWORD 'topsecret' 'other'",
           "42601",
           "topsecret");
+      // nor whitespace that PostgreSQL does not skip (line and paragraph separators): Dcl refuses
+      // it, without quoting it
+      String separators = (char) 0x2028 + " -- a\r" + (char) 0x2029;
+      assertRefused(
+          statement, separators + "CREATE USER x PASSWORD 'topsecret'", "42601", "topsecret");
       statement.execute("/* setup */ CREATE USER h PASSWORD 'pw2'");
       verify(admin).createUser("h", "pw2");
 
