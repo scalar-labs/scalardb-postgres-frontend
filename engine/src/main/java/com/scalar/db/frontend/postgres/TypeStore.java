@@ -71,6 +71,7 @@ class TypeStore {
   @Nullable private final DistributedTransactionManager manager;
   @Nullable private final DistributedTransactionAdmin admin;
   private final boolean auth; // Cluster authentication: rows are the frontend's, not the session's
+  private final boolean serviceUser; // auth through the client SDK: rows are the service user's
   private final String user;
   @Nullable private final Map<String, String> attributes; // null: auth on, no password configured
   // what rows are read and written as, when the host has an identity of its own (a Cluster node)
@@ -81,6 +82,7 @@ class TypeStore {
     this.manager = null;
     this.admin = null;
     this.auth = false;
+    this.serviceUser = false;
     this.user = DEFAULT_USER;
     this.attributes = Collections.emptyMap();
     this.frontend = null;
@@ -115,9 +117,10 @@ class TypeStore {
             .trim()
             .toLowerCase(Locale.ROOT)
             .equals("none");
+    this.serviceUser = auth && frontend == null;
     this.user = properties.getProperty("scalar.db.postgres.metadata_user", DEFAULT_USER).trim();
     String password = properties.getProperty("scalar.db.postgres.metadata_password");
-    if (!auth || frontend != null) {
+    if (!serviceUser) {
       this.attributes = Collections.emptyMap();
     } else if (password == null) {
       this.attributes = null;
@@ -135,7 +138,7 @@ class TypeStore {
    * prints: authentication through the client SDK, with no host identity of the frontend's own.
    */
   boolean needsServiceUser() {
-    return auth && frontend == null;
+    return serviceUser;
   }
 
   /** True once {@code CREATE FRONTEND METADATA TABLES} has run. */

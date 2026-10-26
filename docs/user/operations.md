@@ -99,7 +99,9 @@ nodes, or raise the limit.
 
 ### A statement fails with 55000
 
-The frontend's metadata table is missing. Run `CREATE FRONTEND METADATA TABLES` as a superuser.
+The frontend's metadata table is missing. Run `CREATE FRONTEND METADATA TABLES` as a superuser. On a
+standalone server with authentication, the cause can also be a missing `scalar.db.postgres.metadata_password`;
+see [Security](security.md#the-frontends-metadata-table).
 
 ### A statement fails with 42501
 

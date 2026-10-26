@@ -8,7 +8,10 @@ set -u
 export LC_ALL=C
 PORT=${PORT:-15445}
 AUTH=$(cd "$(dirname "$0")" && pwd)
-export JAVA17_HOME=${JAVA17_HOME:-/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home}
+# users.sh defaults to a JDK 17 path; on a machine without it, point it at the JDK 21 when that exists
+if [ -z "${JAVA17_HOME:-}" ] && [ -x /Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home/bin/java ]; then
+  export JAVA17_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
+fi
 PSQL="psql -X -A -t -h localhost -p $PORT -v VERBOSITY=verbose -v ON_ERROR_STOP=0"
 pass=0
 fail=0
@@ -26,9 +29,10 @@ su() { as admin admin authdemo "$1"; }
 # The frontend hides its metadata schema from SQL and the catalog, so its rows are read in the backing database
 BACKEND=${BACKEND:-"-h localhost -p 15440 -U postgres -d clusterdb"}
 rows() { psql -X -A -t $BACKEND -c "SELECT count(*) FROM scalardb_postgres_frontend.column_types WHERE full_table_name IN ($1)" 2>&1; }
-# leftovers of an earlier run
+# leftovers of an earlier run that failed before its cleanup
 su 'DROP TABLE IF EXISTS tessdb.inv' >/dev/null 2>&1
 su 'DROP USER IF EXISTS tess' >/dev/null 2>&1
+su 'DROP SCHEMA IF EXISTS tessdb' >/dev/null 2>&1
 
 check "CREATE FRONTEND METADATA TABLES prints no properties" '^CREATE FRONTEND METADATA TABLES$' "$(su 'CREATE FRONTEND METADATA TABLES')"
 check "the metadata table exists in the backing database" '^1$' "$(psql -X -A -t $BACKEND -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'scalardb_postgres_frontend' AND table_name = 'column_types'" 2>&1)"
@@ -37,7 +41,7 @@ check "running it again changes nothing" '^CREATE FRONTEND METADATA TABLES$' "$(
 
 su 'CREATE SCHEMA IF NOT EXISTS tessdb' >/dev/null 2>&1
 check "CREATE USER tess" 'CREATE ROLE' "$(su "CREATE USER tess WITH PASSWORD 'tesspw'")"
-check "tess gets her own namespace (Cluster API)" 'granted|ok|READ' "$("$AUTH/users.sh" grant tess tessdb READ,WRITE,DELETE,CREATE,DROP,ALTER 2>&1 | tail -1)"
+check "tess gets her own namespace (Cluster API)" '^granted ' "$("$AUTH/users.sh" grant tess tessdb READ,WRITE,DELETE,CREATE,DROP,ALTER 2>&1 | tail -1)"
 check "a typed CREATE TABLE with no grant on column_types" '^CREATE TABLE$' "$(as tess tesspw tessdb 'CREATE TABLE inv (id INT PRIMARY KEY, amount NUMERIC(10,2), memo VARCHAR(5))')"
 check "the value reads back exact" '^19\.90\|first$' "$(as tess tesspw tessdb "INSERT INTO inv VALUES (1, 19.90, 'first'); SELECT amount, memo FROM inv" | tail -1)"
 check "\\d shows the declared types" 'numeric\(10,2\)' "$(as tess tesspw tessdb '\d inv')"
@@ -51,5 +55,8 @@ check "a user cannot write column_types" '42501' "$(as tess tesspw tessdb "UPDAT
 check "the superuser cannot reach column_types through SQL either" '42501' "$(su 'SELECT count(*) FROM scalardb_postgres_frontend.column_types')"
 check "the backing database holds the three rows" '^3$' "$(rows "'tessdb.inv'")"
 check "DROP TABLE removes them" '^0$' "$(as tess tesspw tessdb 'DROP TABLE inv' >/dev/null; rows "'tessdb.inv'")"
+# leave the node as it was: the user (with her grant) and the schema
+check "DROP USER tess" '^DROP ROLE$' "$(su 'DROP USER tess')"
+check "DROP SCHEMA tessdb" '^DROP SCHEMA$' "$(su 'DROP SCHEMA tessdb')"
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

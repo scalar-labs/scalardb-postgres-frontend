@@ -184,14 +184,15 @@ Behaviour that changes:
 
 ### Upgrading
 
-**Setup.** After upgrading, run `CREATE FRONTEND METADATA TABLES` once through any frontend, as a superuser
-when Cluster authentication is on. In a ScalarDB Cluster node the frontend reads and writes the table under
-the node's own authority (Cluster's privileged mode): nothing is configured and no node restarts. The
-standalone server with authentication runs through the Cluster client SDK and has no such authority: there
-the statement also creates the service user `scalardb_postgres_frontend` and prints its password, to add as
-`scalar.db.postgres.metadata_user` and `scalar.db.postgres.metadata_password` to the server's properties
-before it restarts. Such a server with no password refuses to read tables once the metadata table exists
-(`55000`). Running the command again keeps the existing password; rotate it with
+**Setup.** After upgrading, run `CREATE FRONTEND METADATA TABLES` once, as a superuser when Cluster
+authentication is on. In a ScalarDB Cluster node the frontend reads and writes the table under the node's own
+authority (Cluster's privileged mode): nothing is configured and no node restarts. The standalone server with
+authentication runs through the Cluster client SDK and has no such authority: it needs the service user
+`scalardb_postgres_frontend`, which only the statement run through such a server creates, printing its
+password to add as `scalar.db.postgres.metadata_user` and `scalar.db.postgres.metadata_password` to the
+server's properties before it restarts. A deployment with both nodes and such a server therefore runs the
+statement through the server. A server with no password refuses to read tables once the metadata table
+exists (`55000`). Running the command again keeps the existing password; rotate it with
 `ALTER USER scalardb_postgres_frontend PASSWORD '...'`.
 
 **Mixed versions.** A frontend older than this release does not read the metadata table: it shows a
