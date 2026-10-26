@@ -319,14 +319,17 @@ public final class PostgresServer implements AutoCloseable {
   static final String AUTH_OPTION = "scalardb.auth";
 
   /**
-   * What the client's secret is: the kind {@code scalar.db.postgres.auth} forces, else the kind the
-   * client stated with the {@code scalardb.auth} startup option ({@code options=-c
-   * scalardb.auth=oidc_jwt}), else what the secret's shape says ({@link Authenticator.Secret#of}).
+   * The kind of secret the connection may send, from the startup message alone, so that a refusal
+   * comes before the client sends its secret: the kind {@code scalar.db.postgres.auth} forces, else
+   * the kind the client stated with the {@code scalardb.auth} startup option ({@code options=-c
+   * scalardb.auth=oidc_jwt}), else null, for the secret's shape to decide ({@link
+   * Authenticator.Secret#of}).
    *
    * @throws IllegalArgumentException if the option's value is neither kind, or asks for the kind
-   *     the configuration excludes; the connection is then refused with 28000
+   *     the configuration excludes; the connection is then refused with 28000. The message names
+   *     only what the client sent, never the configuration
    */
-  Authenticator.Secret secretKind(@Nullable String options, String secret) {
+  @Nullable Authenticator.Secret statedKind(@Nullable String options) {
     Authenticator.Secret requested = null;
     if (options != null) {
       Matcher option = STARTUP_OPTION.matcher(options);
@@ -350,14 +353,13 @@ public final class PostgresServer implements AutoCloseable {
     }
     Authenticator.Secret forced = forcedSecret;
     if (forced == null) {
-      return requested != null ? requested : Authenticator.Secret.of(secret);
+      return requested;
     }
     if (requested != null && requested != forced) {
       throw new IllegalArgumentException(
           "authentication with "
               + (requested == Authenticator.Secret.PASSWORD ? "a password" : "an OIDC access token")
-              + " is not allowed here: scalar.db.postgres.auth="
-              + (forced == Authenticator.Secret.PASSWORD ? "userpass" : "oidc_jwt"));
+              + " is not allowed");
     }
     return forced;
   }
@@ -664,6 +666,17 @@ public final class PostgresServer implements AutoCloseable {
         Authenticator authenticator = PostgresServer.this.authenticator;
         boolean superuser = false;
         if (authenticator != null) {
+          Authenticator.Secret stated;
+          try {
+            stated = statedKind(params.get("options"));
+          } catch (IllegalArgumentException e) {
+            // refused before the password is asked for, so the client never sends its secret;
+            // logged and delayed as a failed login is, since it is one
+            logger.info("Login refused for user \"{}\": {}", user, e.getMessage());
+            sleepQuietly(loginFailureDelayMillis);
+            fatal("28000", String.valueOf(e.getMessage())); // invalid_authorization_specification
+            return null;
+          }
           // Cleartext is the point: the secret is checked by Cluster, which SCRAM would never let
           // the server see. TLS keeps it off the wire (docs/auth-design.md).
           send('R', new Msg().i32(3)); // AuthenticationCleartextPassword
@@ -681,13 +694,7 @@ public final class PostgresServer implements AutoCloseable {
             return null;
           }
           String secret = readString(ByteBuffer.wrap(response));
-          Authenticator.Secret kind;
-          try {
-            kind = secretKind(params.get("options"), secret);
-          } catch (IllegalArgumentException e) {
-            fatal("28000", String.valueOf(e.getMessage())); // invalid_authorization_specification
-            return null;
-          }
+          Authenticator.Secret kind = stated != null ? stated : Authenticator.Secret.of(secret);
           try {
             identity = authenticator.authenticate(user, secret, kind);
           } catch (Authenticator.AuthenticationException e) {

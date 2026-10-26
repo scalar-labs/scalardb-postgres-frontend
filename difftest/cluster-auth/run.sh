@@ -41,7 +41,7 @@ check "plaintext is refused" 'accepts only SSL connections' "$(PGPASSWORD=alicep
 check "TLS is in use" 'TLSv1' "$(PGPASSWORD=alicepw psql -X -h localhost -p $PORT "sslmode=require user=alice dbname=authdemo" -c '\conninfo' 2>&1)"
 # The kind of secret, which a client may state with the scalardb.auth startup option: a node (auth=auto)
 # then checks alice's password as a token and refuses it; a standalone frontend forces one kind (28000)
-check "a client may state its secret is a token" 'password authentication failed|is not allowed here' "$(PGPASSWORD=alicepw PGOPTIONS='-c scalardb.auth=oidc_jwt' $PSQL "sslmode=require user=alice dbname=authdemo" -c 'SELECT 1' 2>&1)"
+check "a client may state its secret is a token" 'password authentication failed|is not allowed' "$(PGPASSWORD=alicepw PGOPTIONS='-c scalardb.auth=oidc_jwt' $PSQL "sslmode=require user=alice dbname=authdemo" -c 'SELECT 1' 2>&1)"
 check "a client may state its secret is a password" '^1$' "$(PGPASSWORD=alicepw PGOPTIONS='-c scalardb.auth=userpass' $PSQL "sslmode=require user=alice dbname=authdemo" -c 'SELECT 1' 2>&1)"
 check "an unknown kind is refused" 'invalid value for parameter "scalardb.auth"' "$(PGPASSWORD=alicepw PGOPTIONS='-c scalardb.auth=ldap' $PSQL "sslmode=require user=alice dbname=authdemo" -c 'SELECT 1' 2>&1)"
 # Users, roles and privileges in SQL, as the node's superuser (admin), onto Cluster's AuthAdmin

@@ -718,18 +718,25 @@ public class PostgresServerTest {
   @Test
   public void auth_StartupOption_ShouldStateTheKindUnlessTheConfigurationForcesOne()
       throws Exception {
+    server.loginFailureDelayMillis = 0;
     allowPlaintext();
     server.setAuthenticator(this::stubAuthenticate);
-    // the client says what it sends, whatever the shape
-    try (Connection ignored = connectAs("alice", "secret", "-c scalardb.auth=oidc_jwt")) {
+    // the client says what it sends, whatever the shape; the option is the login's, not a setting
+    try (Connection c = connectAs("alice", "secret", "-c scalardb.auth=oidc_jwt");
+        Statement statement = c.createStatement()) {
       assertThat(lastKind).isEqualTo(Authenticator.Secret.OIDC_TOKEN);
+      assertThatThrownBy(() -> statement.executeQuery("SHOW scalardb.auth"))
+          .isInstanceOf(SQLException.class);
     }
+    lastKind = null;
     try (Connection ignored = connectAs("alice", JWT, "-c scalardb.auth=userpass")) {
       assertThat(lastKind).isEqualTo(Authenticator.Secret.PASSWORD);
     }
+    lastKind = null;
     assertThatThrownBy(() -> connectAs("alice", "secret", "-c scalardb.auth=ldap"))
         .isInstanceOfSatisfying(
             SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("28000"));
+    assertThat(lastKind).isNull(); // refused before the secret was checked
     // the configuration allows passwords only: a token-shaped secret is checked as a password, and
     // a client asking for a token is refused
     Properties properties = new Properties();
@@ -738,13 +745,17 @@ public class PostgresServerTest {
     try (Connection ignored = connectAs("alice", JWT)) {
       assertThat(lastKind).isEqualTo(Authenticator.Secret.PASSWORD);
     }
+    lastKind = null;
     assertThatThrownBy(() -> connectAs("alice", "secret", "-c scalardb.auth=oidc_jwt"))
         .isInstanceOfSatisfying(
             SQLException.class,
             e -> {
               assertThat(e.getSQLState()).isEqualTo("28000");
-              assertThat(e.getMessage()).contains("scalar.db.postgres.auth=userpass");
+              assertThat(e.getMessage())
+                  .contains("an OIDC access token is not allowed")
+                  .doesNotContain("scalar.db.postgres.auth");
             });
+    assertThat(lastKind).isNull();
   }
 
   @Test
