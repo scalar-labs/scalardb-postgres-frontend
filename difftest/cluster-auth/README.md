@@ -142,3 +142,24 @@ this branch, both on the difftest PostgreSQL. The design's **(verify)** items ar
 
 Not exercised: a token expiring mid-session (`28000`), since tokens live a day, and OIDC, for want of an
 identity provider.
+
+## The in-node frontend
+
+The same scenario runs against a node that serves the PostgreSQL protocol itself (Cluster branch
+`postgres-frontend`, scalar-labs/scalardb-cluster#2114). Add to `node.properties`:
+
+```properties
+scalar.db.postgres.enabled=true
+scalar.db.postgres.port=15445
+scalar.db.postgres.ssl.cert=<this repository>/engine/src/test/resources/tls/server.crt
+scalar.db.postgres.ssl.key=<this repository>/engine/src/test/resources/tls/server.key
+```
+
+Start that node instead of `node.sh`, skip `frontend.sh`, run `Setup.java` as above, then `PORT=15445 ./run.sh`.
+`./typed.sh` then checks the declared-types table in Cluster's privileged mode: `CREATE FRONTEND METADATA TABLES`
+creates no service user and prints no properties, a user with no grant on `column_types` creates and uses
+`NUMERIC(p,s)` columns, DDL on another user's table is refused before any row is written, and nobody reaches the
+table through SQL. The frontend hides that schema, so the script counts its rows in the backing database
+(`BACKEND`, by default the PostgreSQL at 15440, database `clusterdb`). On 2026-10-26, `run.sh` passed 86 of 86 and
+`typed.sh` 19 of 19 against a node built from `postgres-frontend` with Cluster's removal of the privileged mode
+(#2091) reverted, since `main` is to bring the mode back.
