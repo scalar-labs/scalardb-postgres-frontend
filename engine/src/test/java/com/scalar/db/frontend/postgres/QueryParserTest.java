@@ -429,6 +429,25 @@ public class QueryParserTest {
   }
 
   @Test
+  public void parse_ColumnOnlyInSqlStandardFunctionForms_ShouldBeRead() throws Exception {
+    // substring(... FROM ... FOR ...), position(... IN ...), overlay(... PLACING ...) and
+    // trim(... FROM ...) keep their operands where JSQLParser's own walk does not look
+    Plan plan =
+        parser.parse(
+            "SELECT substring(name FROM 1 FOR 2) AS s, position('b' IN name) AS p,"
+                + " overlay(name PLACING 'X' FROM 1) AS o, trim(BOTH 'a' FROM name) AS t"
+                + " FROM t WHERE substring(name FROM 1 FOR 1) = 'a'");
+
+    assertThat(plan.getOperations())
+        .containsExactly(
+            Scan.newBuilder().namespace(NS).table("t").all().projections("name").build());
+    when(transaction.scan(any()))
+        .thenReturn(Arrays.asList(map(1, 1, "abca", 1.5, true), map(1, 2, "bc", 2.5, true)));
+    assertThat(plan.execute(transaction))
+        .containsExactly(map("s", "ab", "p", 2L, "o", "Xbca", "t", "bc"));
+  }
+
+  @Test
   public void parse_SelectWithExpressionsDistinctAndOffset_ShouldSortAndSliceInMemory()
       throws Exception {
     Plan plan =

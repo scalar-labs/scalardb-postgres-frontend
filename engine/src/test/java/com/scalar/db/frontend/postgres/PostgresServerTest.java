@@ -1815,6 +1815,38 @@ public class PostgresServerTest {
   }
 
   @Test
+  public void simpleQuery_CommentBeforeAStatement_ShouldNotHideIt() throws Exception {
+    // pgAdmin sends a script as one Query, comments included: "...; -- note\nROLLBACK;"
+    try (Connection connection = connect("?preferQueryMode=simple");
+        Statement statement = connection.createStatement()) {
+      statement.execute(
+          "BEGIN; -- note\nINSERT INTO t VALUES (5, 'x'); /* a /* nested */ note */ ROLLBACK;");
+      try (ResultSet rs = statement.executeQuery("-- note\nSHOW search_path")) {
+        assertThat(rs.next()).isTrue();
+      }
+      // the writes still run in one implicit transaction
+      assertThatThrownBy(
+              () ->
+                  statement.execute(
+                      "-- note\nINSERT INTO t VALUES (5, 'x'); -- note\nINSERT INTO nosuch VALUES (1)"))
+          .isInstanceOf(SQLException.class);
+    }
+    verify(transaction, org.mockito.Mockito.times(2)).rollback();
+    verify(transaction, org.mockito.Mockito.never()).commit();
+  }
+
+  @Test
+  public void extendedQuery_CommentBeforeAStatement_ShouldNotHideIt() throws Exception {
+    try (Connection connection = connect("");
+        Statement statement = connection.createStatement()) {
+      statement.execute("-- note\nBEGIN");
+      statement.execute("INSERT INTO t VALUES (5, 'x')");
+      statement.execute("/* note */ -- and a line ended by a carriage return\rCOMMIT");
+    }
+    verify(transaction).commit();
+  }
+
+  @Test
   public void extendedBatch_ShouldRunInOneTransaction() throws Exception {
     // pgjdbc sends a batch as Parse/Bind/Execute messages and one Sync: one implicit transaction
     try (Connection connection = connect("");
@@ -2016,7 +2048,12 @@ public class PostgresServerTest {
   @Test
   public void split_ShouldKnowCommentsQuotesAndDollarQuotes() {
     assertThat(PostgresServer.split("SELECT 1; -- don't\nSELECT 2;"))
-        .containsExactly("SELECT 1", "-- don't\nSELECT 2");
+        .containsExactly("SELECT 1", "SELECT 2");
+    assertThat(PostgresServer.split("/* a /* b */ c */ COMMIT; -- x\n-- y\n ROLLBACK"))
+        .containsExactly("COMMIT", "ROLLBACK");
+    // a -- comment ends at a carriage return too, as in PostgreSQL
+    assertThat(PostgresServer.split("SELECT 1; -- x\rSELECT 2 -- y; z\r; SELECT 3"))
+        .containsExactly("SELECT 1", "SELECT 2 -- y; z", "SELECT 3");
     assertThat(PostgresServer.split("SELECT 1 -- a; b")).containsExactly("SELECT 1 -- a; b");
     assertThat(PostgresServer.split("SELECT 1 /* a; /* nested; */ b; */ ; SELECT 2"))
         .containsExactly("SELECT 1 /* a; /* nested; */ b; */", "SELECT 2");

@@ -465,4 +465,64 @@ public class HelpersTest {
     assertThat(Evaluator.compare(Long.MAX_VALUE, Integer.MAX_VALUE)).isPositive();
     assertThat(Evaluator.compare(-1L, 0)).isNegative();
   }
+
+  @ParameterizedTest
+  @CsvSource(
+      delimiter = '|',
+      value = {
+        // the SQL-standard forms JSQLParser keeps as named parameters or a TRIM's FROM operand
+        "substring(c FROM 1 FOR 3)",
+        "substring(c FROM 2)",
+        "substring('abc' FROM c)",
+        "position('a' IN c)",
+        "position(c IN 'abc')",
+        "overlay(c PLACING 'x' FROM 2 FOR 1)",
+        "overlay('abc' PLACING c FROM 2)",
+        "trim(BOTH 'a' FROM c)",
+        "trim(LEADING FROM c)",
+        "trim(c FROM 'abc')",
+        "trim(c)",
+        // and the rest of what the frontend accepts
+        "extract(year FROM c)",
+        "CAST(c AS text)",
+        "c::text",
+        "CASE c WHEN 1 THEN 2 END",
+        "CASE WHEN true THEN c END",
+        "c IS DISTINCT FROM 1",
+        "c BETWEEN 1 AND 2",
+        "1 BETWEEN c AND 2",
+        "c IN (1, 2)",
+        "1 IN (c, 2)",
+        "c LIKE 'a%'",
+        "'a' LIKE c",
+        "c COLLATE \"C\"",
+        "c AT TIME ZONE 'UTC'",
+        "ARRAY[c, 1]",
+        "c[1]",
+        "coalesce(1, c)",
+        "count(c) FILTER (WHERE c > 1)",
+        "count(*) FILTER (WHERE c > 1)",
+        "string_agg(c, ',' ORDER BY c)",
+        "row_number() OVER (PARTITION BY c)",
+        "row_number() OVER (ORDER BY c)",
+        "lag(c, 1) OVER ()",
+        "sum(c) OVER ()",
+        "ROW(c, 1)",
+        "(c, 1) = (1, 2)",
+        "c IS NULL",
+        "NOT c",
+        "-c",
+        "c ~ 'a'",
+        "c ->> 'a'",
+        "INTERVAL '1 day' * c",
+      })
+  public void columnRefs_ShouldFindTheColumnInEveryOperand(String expression) throws Exception {
+    assertThat(
+            QueryParser.columnRefs(
+                    net.sf.jsqlparser.parser.CCJSqlParserUtil.parseExpression(expression))
+                .stream()
+                .map(c -> c.getColumnName()))
+        .as(expression)
+        .contains("c");
+  }
 }

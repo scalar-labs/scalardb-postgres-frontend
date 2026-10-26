@@ -765,7 +765,7 @@ public final class PostgresServer implements AutoCloseable {
           }
           String text = readString(msg);
           reserve(statementBytes, name, text.length());
-          statements.put(name, text);
+          statements.put(name, withoutLeadingComments(text));
           int[] oids = new int[count(msg, 4)];
           for (int i = 0; i < oids.length; i++) {
             oids[i] = msg.getInt();
@@ -1596,7 +1596,7 @@ public final class PostgresServer implements AutoCloseable {
       char c = sql.charAt(i++);
       if (c == ';') {
         if (content) {
-          out.add(current.toString().trim());
+          out.add(withoutLeadingComments(current.toString()).trim());
         }
         current.setLength(0);
         content = false;
@@ -1606,9 +1606,18 @@ public final class PostgresServer implements AutoCloseable {
       }
     }
     if (content) {
-      out.add(current.toString().trim());
+      out.add(withoutLeadingComments(current.toString()).trim());
     }
     return out; // a Query of comments alone is empty, as in PostgreSQL
+  }
+
+  /**
+   * The statement from its first token on. Statements are told apart by their first word (BEGIN,
+   * COMMIT, SET, EXPLAIN, ...), so a comment before it, as in {@code SELECT 1; -- note\nCOMMIT},
+   * would hide the statement.
+   */
+  static String withoutLeadingComments(String sql) {
+    return sql.substring(QueryParser.skipSpace(sql, 0));
   }
 
   /** A bound statement: its SQL with {@code $n} placeholders, their values, and result formats. */

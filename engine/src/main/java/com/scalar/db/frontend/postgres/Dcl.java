@@ -30,37 +30,7 @@ final class Dcl {
    * password included.
    */
   static boolean matches(String sql) {
-    return STATEMENT.matcher(sql.substring(skipSpace(sql, 0))).matches();
-  }
-
-  /** Where the next token starts: past whitespace and comments, nested ones as in PostgreSQL. */
-  static int skipSpace(String sql, int from) {
-    int i = from;
-    int n = sql.length();
-    while (i < n) {
-      if (Character.isWhitespace(sql.charAt(i))) {
-        i++;
-      } else if (sql.startsWith("--", i)) {
-        int eol = sql.indexOf('\n', i);
-        i = eol < 0 ? n : eol + 1;
-      } else if (sql.startsWith("/*", i)) {
-        int depth = 0;
-        do {
-          if (sql.startsWith("/*", i)) {
-            depth++;
-            i += 2;
-          } else if (sql.startsWith("*/", i)) {
-            depth--;
-            i += 2;
-          } else {
-            i++;
-          }
-        } while (depth > 0 && i < n);
-      } else {
-        break;
-      }
-    }
-    return i;
+    return STATEMENT.matcher(sql.substring(QueryParser.skipSpace(sql, 0))).matches();
   }
 
   /** The privileges as ScalarDB SQL names them; GRANT is the grant option. */
@@ -699,7 +669,7 @@ final class Dcl {
     Lexer(String sql) {
       int i = 0;
       int n = sql.length();
-      while ((i = skipSpace(sql, i)) < n) {
+      while ((i = QueryParser.skipSpace(sql, i)) < n) {
         char c = sql.charAt(i);
         if (c == '\'' || c == '"') {
           StringBuilder value = new StringBuilder();

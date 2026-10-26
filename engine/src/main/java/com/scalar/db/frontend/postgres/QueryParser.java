@@ -762,7 +762,7 @@ class QueryParser {
       return;
     }
     e.accept(
-        new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(CastExpression cast, S context) {
             note(cast.getLeftExpression(), cast);
@@ -918,8 +918,9 @@ class QueryParser {
    * If a string literal, quoted identifier, comment or dollar-quoted string starts at {@code i},
    * the index just past it (or the end of the text when it is not closed); else {@code i}. The one
    * lexer behind statement splitting and placeholder counting (todo 020): '' and "" double their
-   * quote, E'' strings escape with a backslash, -- runs to the end of the line, comments nest, and
-   * $tag$ ... $tag$ quotes anything ($1 is a placeholder, not a tag).
+   * quote, E'' strings escape with a backslash, -- runs to the end of the line (a \n or a \r, as in
+   * PostgreSQL), comments nest, and $tag$ ... $tag$ quotes anything ($1 is a placeholder, not a
+   * tag).
    */
   static int skipQuoted(String sql, int i) {
     int n = sql.length();
@@ -950,8 +951,11 @@ class QueryParser {
       return n;
     }
     if (c == '-' && i + 1 < n && sql.charAt(i + 1) == '-') {
-      int end = sql.indexOf('\n', i);
-      return end < 0 ? n : end + 1;
+      int end = i + 2;
+      while (end < n && sql.charAt(end) != '\n' && sql.charAt(end) != '\r') {
+        end++;
+      }
+      return end < n ? end + 1 : n;
     }
     if (c == '/' && i + 1 < n && sql.charAt(i + 1) == '*') {
       int depth = 1;
@@ -1178,7 +1182,7 @@ class QueryParser {
   static boolean containsParameter(Expression e) {
     boolean[] found = new boolean[1];
     e.accept(
-        new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(JdbcParameter parameter, S context) {
             found[0] = true;
@@ -1794,7 +1798,26 @@ class QueryParser {
     return sql.substring(start, end);
   }
 
-  private static boolean isSpace(char c) {
+  /**
+   * Where the next token starts at or after {@code from}: past whitespace and comments, as
+   * skipQuoted reads them.
+   */
+  static int skipSpace(String sql, int from) {
+    int i = from;
+    while (i < sql.length()) {
+      if (isSpace(sql.charAt(i))) {
+        i++;
+      } else if (sql.startsWith("--", i) || sql.startsWith("/*", i)) {
+        i = skipQuoted(sql, i);
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
+  /** PostgreSQL's whitespace: what its lexer and {@code \s} skip, nothing else. */
+  static boolean isSpace(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
   }
 
@@ -3974,7 +3997,7 @@ class QueryParser {
     }
     Expression top = isSetReturning(e) ? call : null;
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(Function function, S context) {
             found[0] |= function != top && isSetReturning(function);
@@ -5288,7 +5311,7 @@ class QueryParser {
    */
   private static void charSemantics(Expression e, Scope scope) {
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(LikeExpression like, S context) {
             Expression left = unwrap(like.getLeftExpression());
@@ -5385,7 +5408,7 @@ class QueryParser {
       java.util.function.Function<net.sf.jsqlparser.schema.Column, DataType> typeOf,
       java.util.function.Predicate<net.sf.jsqlparser.schema.Column> numeric) {
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(LikeExpression like, S context) {
             Expression left = unwrap(like.getLeftExpression());
@@ -7021,10 +7044,40 @@ class QueryParser {
     return item instanceof Table ? unquote(((Table) item).getName()).toLowerCase(Locale.ROOT) : "";
   }
 
+  /**
+   * JSQLParser's walk, plus the operands it skips: the named parameters of substring(s FROM n FOR
+   * m), position(a IN b) and overlay(s PLACING r FROM n), and the string of trim(... FROM s), whose
+   * characters JSQLParser's walk also dereferences when trim(LEADING FROM s) has none. A column
+   * read only there would not be resolved or projected, and would read as NULL. Every visitor here
+   * extends this.
+   */
+  static class Walker extends ExpressionVisitorAdapter<Void> {
+    @Override
+    public <S> Void visit(Function function, S context) {
+      super.visit(function, context);
+      if (function.getNamedParameters() != null) {
+        function.getNamedParameters().accept(this, context);
+      }
+      return null;
+    }
+
+    @Override
+    public <S> Void visit(net.sf.jsqlparser.expression.TrimFunction trim, S context) {
+      // not super.visit: it dereferences the characters, which trim(LEADING FROM s) has none of
+      if (trim.getExpression() != null) {
+        trim.getExpression().accept(this, context);
+      }
+      if (trim.getFromExpression() != null) {
+        trim.getFromExpression().accept(this, context);
+      }
+      return null;
+    }
+  }
+
   static List<net.sf.jsqlparser.schema.Column> columnRefs(Expression e) {
     List<net.sf.jsqlparser.schema.Column> out = new ArrayList<>();
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
             String name = unquote(column.getColumnName());
@@ -7059,7 +7112,7 @@ class QueryParser {
   private static void refuseOuterAggregates(Expression e, Scope scope) {
     List<List<Expression>> arguments = new ArrayList<>(); // per aggregate: arguments and FILTER
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(Function f, S context) {
             if ((Evaluator.isAggregate(f) || isGrouping(f)) && f.getParameters() != null) {
@@ -7114,7 +7167,7 @@ class QueryParser {
   static List<Select> subselects(Expression e) {
     List<Select> out = new ArrayList<>();
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(ParenthesedSelect select, S context) {
             out.add(select);
@@ -7334,7 +7387,7 @@ class QueryParser {
   private static List<net.sf.jsqlparser.expression.AnalyticExpression> windowCalls(Expression e) {
     List<net.sf.jsqlparser.expression.AnalyticExpression> out = new ArrayList<>();
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(
               net.sf.jsqlparser.expression.AnalyticExpression analytic, S context) {
@@ -7417,7 +7470,7 @@ class QueryParser {
   private static List<Function> groupingCalls(Expression e) {
     List<Function> out = new ArrayList<>();
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(Function f, S context) {
             if (isGrouping(f) && f.getParameters() != null) {
@@ -7501,7 +7554,7 @@ class QueryParser {
   private static List<net.sf.jsqlparser.schema.Column> columnsOutsideAggregates(Expression e) {
     List<net.sf.jsqlparser.schema.Column> out = new ArrayList<>();
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
             String name = unquote(column.getColumnName());
@@ -7542,7 +7595,7 @@ class QueryParser {
 
   private static void noNestedAggregate(Expression e) {
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(Function function, S context) {
             if (Evaluator.isAggregate(function) && function.getParameters() != null) {
@@ -7596,7 +7649,7 @@ class QueryParser {
   private static boolean hasAggregate(Expression e) {
     boolean[] found = {false};
     e.accept(
-        new ExpressionVisitorAdapter<Void>() {
+        new Walker() {
           @Override
           public <S> Void visit(Function function, S context) {
             if (Evaluator.isAggregate(function)) {
