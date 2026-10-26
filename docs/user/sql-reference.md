@@ -129,4 +129,4 @@ The codes that are specific to how the frontend works are the following:
 | `42501` | The user lacks a privilege, or a limit that only an operator may raise was exceeded. |
 | `54000` | A query needed more rows in memory than `scalar.db.postgres.max_rows_in_memory`. |
 | `54001` | A statement was nested too deeply or took too long to parse. |
-| `55000` | The frontend's metadata table is missing, or the service user's password is not configured. |
+| `55000` | The frontend's metadata table is missing, or, for the standalone server with authentication, its service user's password is not configured. |

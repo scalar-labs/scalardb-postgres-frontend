@@ -71,12 +71,12 @@ wrongly. Three changes:
 - **`has_table_privilege`.** It now answers from the same grants: directly, through roles, or to
   PUBLIC. Before, it failed as unsupported.
 - **DDL that records declared types checks the user's privilege first.** The rows of
-  `scalardb_postgres_frontend.column_types` are written as the service user before the table changes, so
+  `scalardb_postgres_frontend.column_types` are written under the frontend's own authority before the table changes, so
   `ALTER TABLE ... ADD COLUMN` or `RENAME COLUMN` by a user without `ALTER` on the table used to retype it
   for every session until ScalarDB refused the change and the rows were taken back. `CREATE TABLE` (`CREATE`
   on the schema), `ADD COLUMN` and `RENAME COLUMN` (`ALTER` on the table) now fail with `42501` before any
-  row is written. Grant privileges on `scalardb_postgres_frontend` to the service user only: `WRITE` there
-  lets a user change how any table's columns are read.
+  row is written. Grant no privileges on `scalardb_postgres_frontend`: `WRITE` there lets a user change how
+  any table's columns are read.
 
 ### json and jsonb columns keep their type
 
@@ -184,13 +184,15 @@ Behaviour that changes:
 
 ### Upgrading
 
-**Setup.** After upgrading, run `CREATE FRONTEND METADATA TABLES` through any frontend. With Cluster
-authentication on, run it as a superuser: it also creates the service user `scalardb_postgres_frontend` and
-prints its password. Add the two properties it prints, `scalar.db.postgres.metadata_user` and
-`scalar.db.postgres.metadata_password`, to the configuration of every ScalarDB Cluster node that runs the
-frontend, and of every standalone server, and restart them. A frontend with
-authentication on and no password refuses to read tables once the metadata table exists (`55000`). Running the
-command again keeps the existing password; rotate it with `ALTER USER scalardb_postgres_frontend PASSWORD '...'`.
+**Setup.** After upgrading, run `CREATE FRONTEND METADATA TABLES` once through any frontend, as a superuser
+when Cluster authentication is on. In a ScalarDB Cluster node the frontend reads and writes the table under
+the node's own authority (Cluster's privileged mode): nothing is configured and no node restarts. The
+standalone server with authentication runs through the Cluster client SDK and has no such authority: there
+the statement also creates the service user `scalardb_postgres_frontend` and prints its password, to add as
+`scalar.db.postgres.metadata_user` and `scalar.db.postgres.metadata_password` to the server's properties
+before it restarts. Such a server with no password refuses to read tables once the metadata table exists
+(`55000`). Running the command again keeps the existing password; rotate it with
+`ALTER USER scalardb_postgres_frontend PASSWORD '...'`.
 
 **Mixed versions.** A frontend older than this release does not read the metadata table: it shows a
 `NUMERIC(10,2)` column as a `bigint` holding 1990 and writes 19.90 into it as 19 or 20. During a rolling

@@ -32,9 +32,11 @@ import javax.annotation.Nullable;
  * The declared types of columns, one row per column in {@code
  * scalardb_postgres_frontend.column_types} for the whole deployment (docs/type-encoding.md is the
  * format). The table is created by {@code CREATE FRONTEND METADATA TABLES} only. With Cluster
- * authentication on, it is read and written as the service user named in the properties, whose
- * credentials go on each operation, so they work whatever auth type the sessions use; otherwise as
- * the configured ScalarDB user, like every other call.
+ * authentication on, the rows are the frontend's, not any session user's: a host with an identity
+ * of its own (a Cluster node, see {@link Authenticator#frontend}) reads and writes them under it,
+ * and the standalone server, through the client SDK, as the service user named in the properties,
+ * whose credentials go on each operation, so they work whatever auth type the sessions use. Without
+ * authentication they are read and written as the configured ScalarDB user, like every other call.
  *
  * <p>A row is used only while its column exists with the ScalarDB type the row names: a row left by
  * a dropped table, or by a DDL that failed half way, is inert. DDL writes rows before it changes
@@ -68,7 +70,7 @@ class TypeStore {
 
   @Nullable private final DistributedTransactionManager manager;
   @Nullable private final DistributedTransactionAdmin admin;
-  private final boolean auth; // Cluster authentication: rows are the service user's
+  private final boolean auth; // Cluster authentication: rows are the frontend's, not the session's
   private final String user;
   @Nullable private final Map<String, String> attributes; // null: auth on, no password configured
   // what rows are read and written as, when the host has an identity of its own (a Cluster node)
@@ -92,10 +94,12 @@ class TypeStore {
   }
 
   /**
-   * The store of a deployment: {@code scalar.db.postgres.auth} says whether rows are the service
-   * user's, {@code scalar.db.postgres.metadata_user} and {@code metadata_password} who that is.
-   * With {@code frontend} (see {@link Authenticator#frontend}) rows are read and written as that
-   * identity, which logs in as the service user itself, so no credentials go on the operations.
+   * The store of a deployment: {@code scalar.db.postgres.auth} says whether rows are the frontend's
+   * own rather than the session user's. With {@code frontend} (see {@link Authenticator#frontend})
+   * they are read and written under that identity, the host's own authority, and no service user is
+   * involved; without it, through the client SDK, as the service user {@code
+   * scalar.db.postgres.metadata_user} and {@code metadata_password} name, whose credentials go on
+   * each operation.
    */
   TypeStore(
       DistributedTransactionManager manager,
@@ -126,9 +130,12 @@ class TypeStore {
     }
   }
 
-  /** True when rows are the service user's, whose properties the setup command prints. */
-  boolean authenticated() {
-    return auth;
+  /**
+   * True when the rows are read and written as a service user, whose properties the setup command
+   * prints: authentication through the client SDK, with no host identity of the frontend's own.
+   */
+  boolean needsServiceUser() {
+    return auth && frontend == null;
   }
 
   /** True once {@code CREATE FRONTEND METADATA TABLES} has run. */
@@ -309,9 +316,10 @@ class TypeStore {
   }
 
   /**
-   * {@code CREATE FRONTEND METADATA TABLES}: the namespace and the table and, with authentication,
-   * the service user with a random password and a grant on this table only. Creates only what is
-   * missing: an existing user keeps its password. Returns the properties to add, when there are.
+   * {@code CREATE FRONTEND METADATA TABLES}: the namespace and the table and, when the rows need a
+   * service user (see {@link #needsServiceUser}), that user with a random password and a grant on
+   * this table only. Creates only what is missing: an existing user keeps its password. Returns the
+   * properties to add, when there are.
    */
   List<Map<String, Object>> create() throws ExecutionException {
     if (admin == null) {
@@ -321,8 +329,8 @@ class TypeStore {
     admin.createTable(NAMESPACE, TABLE, METADATA, true);
     exists = true;
     List<Map<String, Object>> rows = new ArrayList<>();
-    if (!auth) {
-      return rows;
+    if (!needsServiceUser()) {
+      return rows; // a host with its own identity needs no user, password or property
     }
     String password = null;
     if (!admin.getUser(user).isPresent()) {

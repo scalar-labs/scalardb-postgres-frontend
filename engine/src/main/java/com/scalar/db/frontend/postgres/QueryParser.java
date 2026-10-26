@@ -1834,9 +1834,10 @@ class QueryParser {
       return Plan.ddl(() -> {}, "VACUUM"); // nothing to vacuum; tools run it after bulk loads
     }
     if (FRONTEND_TABLES.matcher(trimmed).matches()) {
-      // creates only what is missing, so IF NOT EXISTS changes nothing; with authentication the
-      // rows hold the service user's new password, filled in when the statement runs
-      if (!typeStore.authenticated()) {
+      // creates only what is missing, so IF NOT EXISTS changes nothing; where the rows need a
+      // service user (the standalone server with authentication) the result holds its new
+      // password, filled in when the statement runs
+      if (!typeStore.needsServiceUser()) {
         return Plan.ddl(typeStore::create, "CREATE FRONTEND METADATA TABLES");
       }
       List<Map<String, Object>> rows = new ArrayList<>();

@@ -131,17 +131,22 @@ ScalarDB's privileges differ from PostgreSQL's in the following ways:
 psql's `\dp` lists the grants that have a PostgreSQL privilege letter. The catalog lists every table to every
 user, as PostgreSQL does; reading a table's data is what requires the privilege.
 
-### The frontend's service user
+### The frontend's metadata table
 
-The frontend reads and writes its metadata table, `scalardb_postgres_frontend.column_types`, as a service
-user named `scalardb_postgres_frontend`, not as the session's user. `CREATE FRONTEND METADATA TABLES` creates
-this user with a random password and grants it privileges on that table only. Do not grant privileges on the
-namespace `scalardb_postgres_frontend` to anyone else: a user who can write to that table can change how
-every table's columns are read. The frontend checks the session user's `CREATE` or `ALTER` privilege before
-DDL writes to the metadata table.
+The frontend reads and writes its metadata table, `scalardb_postgres_frontend.column_types`, under the
+node's own authority, not as the session's user, so no user needs privileges on it and there is no user or
+password to configure. `CREATE FRONTEND METADATA TABLES`, run once as a superuser, creates the namespace and
+the table. Do not grant privileges on the namespace `scalardb_postgres_frontend` to anyone: a user who can
+write to that table can change how every table's columns are read. The frontend checks the session user's
+`CREATE` or `ALTER` privilege before DDL writes to the metadata table.
 
-To change the service user's password, run `ALTER USER scalardb_postgres_frontend PASSWORD '<NEW_PASSWORD>'`
-as a superuser, then update `scalar.db.postgres.metadata_password` on every node and restart the nodes.
+The standalone server with `scalar.db.postgres.auth` set to `userpass` or `oidc_jwt` runs through the
+ScalarDB Cluster client SDK and has no such authority. There, `CREATE FRONTEND METADATA TABLES` also creates
+a service user named `scalardb_postgres_frontend` with a random password and a grant on that table only, and
+prints the two properties to add to the server's properties file, `scalar.db.postgres.metadata_user` and
+`scalar.db.postgres.metadata_password`. To change that password, run
+`ALTER USER scalardb_postgres_frontend PASSWORD '<NEW_PASSWORD>'` as a superuser, then update the property
+and restart the server.
 
 ## Encrypted columns
 

@@ -167,8 +167,9 @@ at the end of this section.
   (`amount NUMERIC(10,2)` is a ScalarDB `BIGINT` column `amount` holding cents, and a row in
   `scalardb_postgres_frontend.column_types` saying so). The table is created once with `CREATE FRONTEND
   METADATA TABLES`; until then such a declaration is refused (`55000`). With Cluster authentication the
-  frontend reads and writes it as a service user, whose password is the `scalar.db.postgres.metadata_password`
-  property. Other ScalarDB clients see the stored values (1990, not 19.90) unless they read that table. A
+  frontend reads and writes it under its own authority: a node's, or in the standalone server as a service
+  user whose password is the `scalar.db.postgres.metadata_password` property. Other ScalarDB clients see the
+  stored values (1990, not 19.90) unless they read that table. A
   column's type cannot be changed afterwards
   (`ALTER COLUMN ... TYPE` is refused with `0A000`; RENAME COLUMN keeps the type). Columns created by an
   earlier release keep their plain ScalarDB types. A modifier PostgreSQL itself rejects

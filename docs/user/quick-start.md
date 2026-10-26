@@ -169,7 +169,7 @@ following statement:
 ALTER USER admin PASSWORD '<NEW_PASSWORD>';
 ```
 
-### Create the metadata table and the service user
+### Create the metadata table
 
 To create the metadata table, run the following statement:
 
@@ -177,39 +177,15 @@ To create the metadata table, run the following statement:
 CREATE FRONTEND METADATA TABLES;
 ```
 
-The statement also creates a service user named `scalardb_postgres_frontend`, which the frontend uses to
-read and write the metadata table, and prints the two properties that tell the frontend its password:
-
-```console
-               property               |                    value
---------------------------------------+---------------------------------------------
- scalar.db.postgres.metadata_user     | scalardb_postgres_frontend
- scalar.db.postgres.metadata_password | <GENERATED_PASSWORD>
-```
-
-Running the statement again creates only what is missing and keeps the existing password.
+The frontend reads and writes this table under the node's own authority, so there is no user or password to
+configure, and the node needs no restart. Running the statement again creates only what is missing.
 
 Exit psql with `\q`.
 
-### Give the node the service user's password
-
-Add the two printed properties to `scalardb-cluster-node.properties`:
-
-```properties
-scalar.db.postgres.metadata_user=scalardb_postgres_frontend
-scalar.db.postgres.metadata_password=<GENERATED_PASSWORD>
-```
-
-Then, restart the node so that it reads them:
-
-```console
-$ docker restart scalardb-node
-```
-
 :::warning
 
-Do not grant privileges on the namespace `scalardb_postgres_frontend` to any other user. A user who can
-write to the metadata table can change how every table's columns are read.
+Do not grant privileges on the namespace `scalardb_postgres_frontend` to any user. A user who can write to
+the metadata table can change how every table's columns are read.
 
 :::
 

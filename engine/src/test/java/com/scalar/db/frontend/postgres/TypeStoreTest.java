@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.scalar.db.api.AuthAdmin;
@@ -53,6 +54,7 @@ public class TypeStoreTest {
   public void create_WithAuth_ShouldMakeTheServiceUserOnceAndGrantTheTableOnly() throws Exception {
     DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
     TypeStore store = new TypeStore(mock(DistributedTransactionManager.class), admin, auth());
+    assertThat(store.needsServiceUser()).isTrue();
     when(admin.getUser(TypeStore.DEFAULT_USER)).thenReturn(Optional.empty());
     List<Map<String, Object>> rows = store.create();
     org.mockito.ArgumentCaptor<String> password = org.mockito.ArgumentCaptor.forClass(String.class);
@@ -74,6 +76,21 @@ public class TypeStoreTest {
     when(admin.getUser(TypeStore.DEFAULT_USER)).thenReturn(Optional.of(mock(AuthAdmin.User.class)));
     assertThat(store.create().get(1).get("value").toString()).startsWith("(unchanged");
     verify(admin).createUser(anyString(), any());
+  }
+
+  @Test
+  public void create_WithAFrontendIdentity_ShouldCreateTheTableOnly() throws Exception {
+    // a Cluster node: the rows are written under its own authority, so no user, password or
+    // property
+    DistributedTransactionAdmin admin = mock(DistributedTransactionAdmin.class);
+    TypeStore store =
+        new TypeStore(mock(DistributedTransactionManager.class), admin, auth(), new Frontend());
+    assertThat(store.needsServiceUser()).isFalse();
+    assertThat(store.create()).isEmpty();
+    verify(admin).createNamespace(TypeStore.NAMESPACE, true);
+    verify(admin).createTable(TypeStore.NAMESPACE, TypeStore.TABLE, TypeStore.METADATA, true);
+    verifyNoMoreInteractions(admin);
+    assertThat(store.exists()).isTrue();
   }
 
   @Test
@@ -180,7 +197,7 @@ public class TypeStoreTest {
     verify(manager).begin(org.mockito.ArgumentMatchers.<Map<String, String>>any());
     verify(tx).commit();
     assertThat(frontend.calls).isEqualTo(2);
-    // the identity logs in as the service user, which the setup command still creates
-    assertThat(store.authenticated()).isTrue();
+    // and the setup command creates no service user for it
+    assertThat(store.needsServiceUser()).isFalse();
   }
 }

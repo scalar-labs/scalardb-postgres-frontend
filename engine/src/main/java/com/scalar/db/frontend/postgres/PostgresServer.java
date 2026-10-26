@@ -184,7 +184,7 @@ public final class PostgresServer implements AutoCloseable {
   // numeric(p,s) up to this many digits is stored as a scaled bigint
   // (ColumnType.maxScaledPrecision)
   private volatile int maxScaledPrecision = ColumnType.MAX_SCALED_PRECISION;
-  // the declared types of columns, read and written as the service user with authentication
+  // the declared types of columns, read and written as the frontend itself with authentication
   private volatile TypeStore typeStore;
 
   /**

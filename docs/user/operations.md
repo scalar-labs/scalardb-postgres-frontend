@@ -70,12 +70,8 @@ metadata from the backing database more often: about three reads per table in us
 ## Upgrading
 
 The first time that you enable the frontend, or when you upgrade from a release without the metadata table,
-do the following once:
-
-1. Connect as a superuser and run `CREATE FRONTEND METADATA TABLES`.
-2. Add the two properties that it prints, `scalar.db.postgres.metadata_user` and
-   `scalar.db.postgres.metadata_password`, to the configuration of every node that runs the frontend.
-3. Restart the nodes.
+connect as a superuser once and run `CREATE FRONTEND METADATA TABLES`. The nodes need no new configuration
+and no restart: the frontend reads and writes the table under the node's own authority.
 
 During a rolling upgrade from a release that does not read the metadata table, finish upgrading every node
 before the first `CREATE TABLE` or `ALTER TABLE ADD COLUMN` that declares `NUMERIC`, `VARCHAR(n)`, `CHAR(n)`,
@@ -103,9 +99,7 @@ nodes, or raise the limit.
 
 ### A statement fails with 55000
 
-The frontend's metadata table is missing, or the node has no `scalar.db.postgres.metadata_password`. Run
-`CREATE FRONTEND METADATA TABLES` as a superuser, add the properties that it prints to every node, and
-restart the nodes.
+The frontend's metadata table is missing. Run `CREATE FRONTEND METADATA TABLES` as a superuser.
 
 ### A statement fails with 42501
 

@@ -50,13 +50,12 @@ The following properties apply wherever the frontend runs.
 | `scalar.db.postgres.max_rows_per_write_ceiling` | None | The largest value that a session may set `scalardb.max_rows_per_write` to (see [Session settings](#session-settings)). When set, `0` (no limit) and larger values are refused with SQLSTATE `42501`. |
 | `scalar.db.postgres.allow_drop_coordinator_tables` | `false` | Whether any session may run `DROP COORDINATOR TABLES`. When `false`, only a ScalarDB Cluster superuser may run it. |
 | `scalar.db.postgres.ssl.require` | `true` with authentication, `false` without | Whether to refuse clients that do not use TLS. With authentication enabled, clients send passwords or tokens, so set this to `false` only for local testing. |
-| `scalar.db.postgres.metadata_user` | `scalardb_postgres_frontend` | The service user that reads and writes the frontend's metadata table, with authentication enabled. `CREATE FRONTEND METADATA TABLES`, run once as a superuser, creates this user and prints this property. |
-| `scalar.db.postgres.metadata_password` | None | The service user's password, which `CREATE FRONTEND METADATA TABLES` prints. With authentication enabled and no password set, statements on tables fail with SQLSTATE `55000` once the metadata table exists. |
 
 :::warning
 
-Grant privileges on the namespace `scalardb_postgres_frontend` to the service user only. A user who can
-write to the metadata table can change how every table's columns are read.
+Grant no privileges on the namespace `scalardb_postgres_frontend`. A user who can write to the frontend's
+metadata table can change how every table's columns are read. In a node, the frontend reads and writes that
+table under the node's own authority; see [Security](security.md#the-frontends-metadata-table).
 
 :::
 
@@ -70,8 +69,6 @@ scalar.db.postgres.enabled=true
 scalar.db.postgres.port=5432
 scalar.db.postgres.ssl.cert=/scalardb-cluster/node/tls/server.crt
 scalar.db.postgres.ssl.key=/scalardb-cluster/node/tls/server.key
-scalar.db.postgres.metadata_user=scalardb_postgres_frontend
-scalar.db.postgres.metadata_password=<GENERATED_PASSWORD>
 ```
 
 ## Properties of the standalone server only
@@ -84,6 +81,8 @@ port to listen on as its second command-line argument (`5432` by default), not a
 | `scalar.db.postgres.listen_address` | All interfaces | The one address to listen on, such as `127.0.0.1`. |
 | `scalar.db.postgres.auth` | `none` | `none` lets any client connect without a password, with the full access of the configured ScalarDB user. `userpass` or `oidc_jwt` makes clients log in as ScalarDB Cluster users, as in a node; this needs `scalar.db.transaction_manager=cluster`, TLS and no `scalar.db.username` or `scalar.db.password`. |
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | None | The PEM certificate chain and unencrypted PKCS#8 private key that make the server accept TLS. |
+| `scalar.db.postgres.metadata_user` | `scalardb_postgres_frontend` | With `scalar.db.postgres.auth` set to `userpass` or `oidc_jwt`, the service user that reads and writes the frontend's metadata table, because the server runs through the ScalarDB Cluster client SDK and has no authority of its own. `CREATE FRONTEND METADATA TABLES`, run once as a superuser through the server, creates this user and prints this property. A node ignores it. |
+| `scalar.db.postgres.metadata_password` | None | The service user's password, which `CREATE FRONTEND METADATA TABLES` prints. With authentication and no password set, statements on tables fail with SQLSTATE `55000` once the metadata table exists. A node ignores it. |
 | `scalar.db.postgres.backend_collation_check` | `true` | At startup, under `scalar.db.collation=BINARY`, check that a backing PostgreSQL or MySQL database compares text in byte order, and refuse to start if it does not. |
 | `scalar.db.postgres.timing_log_interval` | `0` (off) | For benchmarks: every this many seconds, log how much of the sessions' time went to waiting for ScalarDB and how much to the frontend's own work. |
 
