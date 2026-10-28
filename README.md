@@ -77,3 +77,11 @@ ScalarDB Cluster nodes, whose baseline is Java 17.
 ./gradlew check        # unit tests, javadoc, Spotless, SpotBugs with FindSecBugs, Error Prone, NullAway
 ./gradlew spotlessApply
 ```
+
+The engine is published as `com.scalar-labs:scalardb-postgres-frontend-engine`: snapshots to the Maven
+Central snapshot repository from every commit on `main` and the version branches, and releases to Maven
+Central from 3.20.0. [RELEASING.md](RELEASING.md) describes the branches and how to cut a release.
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).

@@ -1,6 +1,9 @@
 [versions]
 # From ScalarDB's snapshot repository, or a checkout's ./gradlew :core:publishToMavenLocal
 scalardb = "3.20.0-SNAPSHOT"
+# The Cluster client SDK, for the standalone server only: Cluster releases after the engine it embeds,
+# so this stays a snapshot until then while the engine moves to a released ScalarDB
+scalardb-cluster = "3.20.0-SNAPSHOT"
 jsqlparser = "5.4"
 # Runtime libraries ScalarDB itself also uses; kept at ScalarDB's versions
 jackson = "2.22.3"
@@ -30,11 +33,12 @@ nullaway-plugin = "3.1.0"
 jspecify = "1.0.1"
 jcip = "1.0-1"
 shadow = "9.6.1"
+maven-publish-plugin = "0.37.0"
 
 [libraries]
 scalardb = { module = "com.scalar-labs:scalardb", version.ref = "scalardb" }
 # The Cluster client SDK, for logging clients in as Cluster users; compiled against, not bundled
-scalardb-cluster-client = { module = "com.scalar-labs:scalardb-cluster-java-client-sdk", version.ref = "scalardb" }
+scalardb-cluster-client = { module = "com.scalar-labs:scalardb-cluster-java-client-sdk", version.ref = "scalardb-cluster" }
 jsqlparser = { module = "com.github.jsqlparser:jsqlparser", version.ref = "jsqlparser" }
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
@@ -68,3 +72,4 @@ spotbugs-gradle-plugin = { module = "com.github.spotbugs.snom:spotbugs-gradle-pl
 errorprone-gradle-plugin = { module = "net.ltgt.gradle:gradle-errorprone-plugin", version.ref = "errorprone-plugin" }
 nullaway-gradle-plugin = { module = "net.ltgt.gradle:gradle-nullaway-plugin", version.ref = "nullaway-plugin" }
 shadow-gradle-plugin = { module = "com.gradleup.shadow:shadow-gradle-plugin", version.ref = "shadow" }
+maven-publish-gradle-plugin = { module = "com.vanniktech:gradle-maven-publish-plugin", version.ref = "maven-publish-plugin" }

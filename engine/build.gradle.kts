@@ -1,6 +1,7 @@
 plugins {
     id("scalardb-postgres-frontend.java-conventions")
-    `maven-publish`
+    // scalardb-postgres-frontend-engine on Maven Central, which a ScalarDB Cluster node embeds
+    id("scalardb-postgres-frontend.publishing-conventions")
 }
 
 description =
@@ -21,20 +22,8 @@ dependencies {
     testRuntimeOnly(libs.slf4j.simple)
 }
 
-// The artifact a ScalarDB Cluster node depends on to embed the engine
-java {
-    withSourcesJar()
-}
-
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            artifactId = "scalardb-postgres-frontend-engine"
-            from(components["java"])
-            pom {
-                name = "ScalarDB PostgreSQL Frontend Engine"
-                description = project.description
-            }
-        }
+mavenPublishing {
+    pom {
+        name = "ScalarDB PostgreSQL Frontend Engine"
     }
 }

@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # main and the version branches, unprefixed as in ScalarDB: `3` and `3.20` (see RELEASING.md)
+    branches: [main, '[0-9]+', '[0-9]+.[0-9]+']
   pull_request:
   workflow_dispatch:
   # Weekly, so that a vulnerability published against an unchanged dependency still shows up
