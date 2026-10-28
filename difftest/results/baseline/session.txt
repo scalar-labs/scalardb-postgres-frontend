@@ -19,13 +19,13 @@ accept_collate_c OK
 refuse_distinct_order_by BOTH_ERR
 refuse_select_into FE_ERR
 refuse_temp_table FE_ERR
-refuse_modifying_cte FE_ERR
+refuse_modifying_cte OK
 refuse_expression_index FE_ERR
 refuse_serializable_on_snapshot FE_ERR
 refuse_aggregate_in_where BOTH_ERR
 refuse_ungrouped_column BOTH_ERR
 refuse_union_type_mismatch BOTH_ERR
-refuse_update_pk FE_ERR
+refuse_update_pk OK
 refuse_limit_negative BOTH_ERR
 refuse_offset_negative BOTH_ERR
 refuse_nul_in_string BOTH_ERR

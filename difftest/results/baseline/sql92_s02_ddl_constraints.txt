@@ -26,5 +26,5 @@ s02_11_19_view FE_ERR
 s02_11_19_view_with_columns FE_ERR
 s02_11_19_view_with_check_option FE_ERR
 s02_11_36_grant FE_ERR
-s02_11_1_create_schema_authorization CODE
+s02_11_1_create_schema_authorization FE_ERR
 s02_drop_table_restrict OK

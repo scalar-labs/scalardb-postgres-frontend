@@ -25,7 +25,7 @@ s08_13_10_update_no_rows OK
 s08_13_10_update_statement_atomic_on_error BOTH_ERR
 s08_13_10_update_overflow_atomic BOTH_ERR
 s08_13_10_update_unknown_column BOTH_ERR
-s08_13_10_update_pk_column FE_ERR
+s08_13_10_update_pk_column OK
 s08_13_7_delete_by_pk OK
 s08_13_7_delete_by_non_key OK
 s08_13_7_delete_all OK

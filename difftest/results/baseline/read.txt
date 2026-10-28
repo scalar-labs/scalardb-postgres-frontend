@@ -70,10 +70,10 @@ case_searched OK
 case_simple OK
 case_null_simple OK
 greatest_least OK
-string_funcs DIFF
+string_funcs OK
 string_funcs2 OK
 concat_null OK
-abs_round PG_ERR
+abs_round BOTH_ERR
 mod_sign OK
 cast_text_int OK
 cast_double_int OK
@@ -106,7 +106,7 @@ join_three OK
 join_four_left OK
 join_left_then_inner OK
 join_using OK
-join_using_full OK
+join_using_full FE_ERR
 natural_join OK
 join_group OK
 join_group_having OK

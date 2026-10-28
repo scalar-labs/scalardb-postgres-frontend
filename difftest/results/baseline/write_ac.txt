@@ -13,7 +13,7 @@ ac_update_pk_extra_cond_false OK
 ac_update_pk_extra_cond_null OK
 ac_update_pk_cond_true OK
 ac_update_clustering_range OK
-ac_update_pk_column FE_ERR
+ac_update_pk_column OK
 ac_delete_scan_returning OK
 ac_delete_not_exists OK
 ac_delete_pk_twice OK

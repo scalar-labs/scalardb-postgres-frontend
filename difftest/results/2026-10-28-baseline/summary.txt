@@ -1,0 +1,42 @@
+Differential run of 2026-10-28 on main at 0589ea0 (text compared by code point as ScalarDB 3.20 does, ICU
+collation removed), against ScalarDB 3.20.0-SNAPSHOT of 2026-10-28.
+
+Setup as in difftest/README.md, plus numeric_setup.sql, character_setup.sql and sql92-entry/setup.sql, on a
+fresh PostgreSQL 18 cluster (C locale) for both sides; frontend on 15444. Sets run one at a time, with both
+sides reloaded (trunc.sql, data.sql) before write, write_ac and bind.
+
+Results, every set against its baseline:
+  read                       OK 259, NUM_FMT 1, BOTH_ERR 16, FE_ERR 1
+  types                      OK 16, BOTH_ERR 5, FE_ERR 1
+  numeric                    OK 52, BOTH_ERR 7
+  character                  OK 38, BOTH_ERR 16
+  session                    OK 20, BOTH_ERR 18, FE_ERR 9, CODE 1
+  sql92_s01_types            OK 18, BOTH_ERR 8
+  sql92_s02_ddl_constraints  PG_ERR 12, BOTH_ERR 4, OK 5, FE_ERR 9
+  sql92_s03_query            OK 38, BOTH_ERR 7
+  sql92_s04_predicates       OK 54, BOTH_ERR 2
+  sql92_s05_subquery         OK 16, BOTH_ERR 2
+  sql92_s06_valexpr_agg      OK 30, FE_ERR 1, BOTH_ERR 6
+  sql92_s07_null3vl          OK 22
+  sql92_s08_dml              OK 31, BOTH_ERR 8
+  sql92_s09_tx               OK 8, FE_ERR 7, BOTH_ERR 5, DIFF 1
+  sql92_s10_lexical          OK 13, BOTH_ERR 2, FE_ERR 2
+  sql92_s11_cursor           FE_ERR 5, OK 1
+  write                      OK 19, FE_ERR 12, BOTH_ERR 13
+  write_ac                   OK 50, BOTH_ERR 3
+  bind                       OK 18, BOTH_ERR 1, FE_ERR 1, CODE 1
+
+No case changed from the code-point comparison. Nine statuses moved since the baselines of 2026-10-10, each
+from a change made in between, and are recorded as the new baseline:
+  refuse_modifying_cte (session)                   FE_ERR -> OK      writes in WITH run
+  refuse_update_pk (session)                       FE_ERR -> OK      UPDATE of a primary key runs
+  ac_update_pk_column (write_ac)                   FE_ERR -> OK      same
+  s08_13_10_update_pk_column (sql92_s08_dml)       FE_ERR -> OK      same
+  string_funcs (read)                              DIFF -> OK        upper()/lower() map only ASCII under C (todo 131)
+  abs_round (read)                                 PG_ERR -> BOTH_ERR round(double precision, integer) refused as in PostgreSQL
+  join_using_full (read)                           OK -> FE_ERR      a RIGHT/FULL JOIN USING column read one-sidedly is
+                                                                     refused (todo 072)
+  types_timestamptz_millis_round_half_up (types)   OK -> FE_ERR      sub-millisecond timestamps refused, not rounded
+                                                                     (todo 124)
+  s02_11_1_create_schema_authorization (sql92_s02) CODE -> FE_ERR    CREATE SCHEMA ... AUTHORIZATION is unsupported;
+                                                                     PostgreSQL now runs the case, which failed there before
