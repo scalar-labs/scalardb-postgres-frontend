@@ -102,12 +102,9 @@ a time zone argument.
 
 ## Text comparison
 
-Text compares in ScalarDB's collation, which is set by `scalar.db.collation`: byte order (`BINARY`, the
-default, like PostgreSQL's `C` collation) or an ICU locale (`ICU`), for example case-insensitive. Under
-`ICU`, pattern matching on table text (`LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions, `position`,
-`strpos`, `replace` and `starts_with`) is refused, as PostgreSQL refuses it on a nondeterministic collation.
-The backing database must be set up to compare text the same way. For details, see
-[LIMITATIONS.md](../../LIMITATIONS.md).
+Text compares in ScalarDB's byte order (by code point), like PostgreSQL's `C` collation. `COLLATE` can name
+only `"C"`, `POSIX`, `ucs_basic` or `"default"`. The backing database must be set up to compare text the
+same way. For details, see [LIMITATIONS.md](../../LIMITATIONS.md).
 
 ## Catalog
 

@@ -8,8 +8,8 @@ frontend from a single client.
 
 When the frontend runs in a ScalarDB Cluster node, all of its properties go in the node's configuration
 file, next to the node's own properties. The node passes its whole configuration to the frontend, so the
-frontend also reads ScalarDB properties such as `scalar.db.collation` from the same file. Set the same
-values on every node.
+frontend also reads ScalarDB properties such as `scalar.db.consensus_commit.isolation_level` from the
+same file. Set the same values on every node.
 
 When the frontend runs as the standalone server, its properties go in the ScalarDB properties file that you
 give the server when you start it. For details, see
@@ -89,7 +89,7 @@ port to listen on as its second command-line argument (`5432` by default), not a
 | `scalar.db.postgres.ssl.cert`, `scalar.db.postgres.ssl.key` | None | The PEM certificate chain and unencrypted PKCS#8 private key that make the server accept TLS. |
 | `scalar.db.postgres.metadata_user` | `scalardb_postgres_frontend` | With `scalar.db.postgres.auth` set to `userpass` or `oidc_jwt`, the service user that reads and writes the frontend's metadata table, because the server runs through the ScalarDB Cluster client SDK and has no authority of its own. `CREATE FRONTEND METADATA TABLES`, run once as a superuser through the server, creates this user and prints this property. A node ignores it. |
 | `scalar.db.postgres.metadata_password` | None | The service user's password, which `CREATE FRONTEND METADATA TABLES` prints. With authentication and no password set, statements on tables fail with SQLSTATE `55000` once the metadata table exists. A node ignores it. |
-| `scalar.db.postgres.backend_collation_check` | `true` | At startup, under `scalar.db.collation=BINARY`, check that a backing PostgreSQL or MySQL database compares text in byte order, and refuse to start if it does not. |
+| `scalar.db.postgres.backend_collation_check` | `true` | At startup, check that a backing PostgreSQL or MySQL database compares text in byte order, and refuse to start if it does not. |
 | `scalar.db.postgres.timing_log_interval` | `0` (off) | For benchmarks: every this many seconds, log how much of the sessions' time went to waiting for ScalarDB and how much to the frontend's own work. |
 
 The standalone server also sets `scalar.db.scan_fetch_size` to `1000` unless the file sets it, so that a
@@ -107,7 +107,6 @@ node, set them in the node's configuration; for the standalone server, in its pr
 | `scalar.db.cross_partition_scan.enabled`, `scalar.db.cross_partition_scan.filtering.enabled`, `scalar.db.cross_partition_scan.ordering.enabled` | `true` | Without them, a query that does not specify a table's partition key fails, such as `SELECT * FROM items WHERE price > 100`. |
 | `scalar.db.metadata.cache_expiration_time_secs` | `1` to `5` for applications that change tables, such as migration tools and ORMs | ScalarDB caches table metadata (60 seconds by default) and does not refresh it after DDL. With 5 seconds or less, `ALTER TABLE`, `DROP TABLE` and index DDL return only once the change is visible, which takes that long per statement. With a longer cache, they return at once with a `NOTICE` saying when the change takes effect. A short cache costs database load in every node. |
 | `scalar.db.consensus_commit.isolation_level` | As your application needs | `READ_COMMITTED` and `SNAPSHOT` (the default) appear to clients as `read committed`, and `SERIALIZABLE` as `serializable`. For details, see [Transactions](transactions.md). |
-| `scalar.db.collation`, `scalar.db.collation.icu.locale` | As your application needs | How text compares: `BINARY` (byte order, the default) or an ICU locale. The backing database must be set up to compare text the same way. For details, see [LIMITATIONS.md](../../LIMITATIONS.md). |
 | `scalar.db.cluster.auth.auth_token_expiration_time_minutes` | Longer than your connection pool's maximum connection lifetime | A session's login token expires after this time (one day by default), and the session then ends with SQLSTATE `28000`. Connection pools reconnect. |
 
 ## Session settings

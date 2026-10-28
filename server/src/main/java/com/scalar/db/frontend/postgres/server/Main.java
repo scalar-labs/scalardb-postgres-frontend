@@ -106,10 +106,10 @@ public final class Main {
 
   /**
    * Refuses to start on a backing database whose text collation is not bytewise, as ScalarDB's
-   * default BINARY collation is: what is pushed down would compare text one way and what the
-   * frontend evaluates another, so one query could answer differently depending on its plan.
-   * Checked for the JDBC storage on PostgreSQL and MySQL; {@code
-   * scalar.db.postgres.backend_collation_check=false} skips it.
+   * order is: what is pushed down would compare text one way and what the frontend evaluates
+   * another, so one query could answer differently depending on its plan. Checked for the JDBC
+   * storage on PostgreSQL and MySQL; {@code scalar.db.postgres.backend_collation_check=false} skips
+   * it.
    */
   static void checkBackendCollation(Properties properties) {
     String url = properties.getProperty("scalar.db.contact_points", "").trim();
@@ -117,10 +117,6 @@ public final class Main {
             .equalsIgnoreCase(
                 properties.getProperty("scalar.db.postgres.backend_collation_check", "true").trim())
         || !"jdbc".equalsIgnoreCase(properties.getProperty("scalar.db.storage", "").trim())
-        || !properties
-            .getProperty("scalar.db.collation", "BINARY")
-            .trim()
-            .equalsIgnoreCase("BINARY")
         || !(url.startsWith("jdbc:postgresql:") || url.startsWith("jdbc:mysql:"))) {
       logger.info("Backend collation not checked (only JDBC storage on PostgreSQL or MySQL)");
       return;
@@ -175,7 +171,7 @@ public final class Main {
     }
     return "The backing database's collation is "
         + (c.isEmpty() ? "unknown" : c)
-        + ", but ScalarDB compares text bytewise (scalar.db.collation=BINARY): text compared by the"
+        + ", but ScalarDB compares text bytewise: text compared by the"
         + " database and by the frontend would disagree, and a query could answer differently"
         + " depending on its plan. Create the database with "
         + (postgres ? "LC_COLLATE 'C' (TEMPLATE template0)" : "COLLATE utf8mb4_0900_bin")

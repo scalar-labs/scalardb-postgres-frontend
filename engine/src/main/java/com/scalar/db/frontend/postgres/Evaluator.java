@@ -1,6 +1,6 @@
 package com.scalar.db.frontend.postgres;
 
-import com.scalar.db.common.CollationComparator;
+import com.scalar.db.util.ScalarDbUtils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -110,38 +110,13 @@ final class Evaluator {
           "VAR_SAMP",
           "VAR_POP");
 
-  // ScalarDB's text order (scalar.db.collation), so text compared here agrees with what is pushed
-  // down
-  private static volatile CollationComparator collation = CollationComparator.binary();
-  // its name in pg_collation under ICU, as PostgreSQL names ICU collations: und-x-icu for root
-  private static volatile String icuCollationName = "";
-
   private Evaluator() {}
 
   /**
-   * Sets ScalarDB's collation.
-   *
-   * @param c the comparator
-   * @param icuLocale the ICU locale, or null under BINARY
-   */
-  static void setCollation(CollationComparator c, @Nullable String icuLocale) {
-    collation = c;
-    icuCollationName = icuLocale == null ? "" : icuLocale + "-x-icu";
-  }
-
-  /** The ICU collation's name in pg_collation, or empty under BINARY. */
-  static String icuCollationName() {
-    return icuCollationName;
-  }
-
-  /**
-   * upper() or lower() as PostgreSQL maps case: under the C collation the frontend reports with
-   * BINARY, only ASCII letters change; under ICU, every letter, by Unicode's rules.
+   * upper() or lower() as PostgreSQL maps case under the C collation the frontend reports: only
+   * ASCII letters change.
    */
   private static String caseMapped(String s, boolean upper) {
-    if (!icuCollationName.isEmpty()) {
-      return upper ? s.toUpperCase(Locale.ROOT) : s.toLowerCase(Locale.ROOT);
-    }
     StringBuilder sb = new StringBuilder(s.length());
     for (int i = 0; i < s.length(); i++) {
       char c = s.charAt(i);
@@ -151,26 +126,6 @@ final class Evaluator {
               : !upper && c >= 'A' && c <= 'Z' ? (char) (c + 32) : c);
     }
     return sb.toString();
-  }
-
-  static CollationComparator collation() {
-    return collation;
-  }
-
-  /**
-   * Refuses pattern matching on table text under ICU, whose equality is many-to-one, as PostgreSQL
-   * before 18 refuses it on a nondeterministic collation.
-   */
-  private static void checkDeterministic(String what, Context ctx, List<?> operands) {
-    if (!collation.hasCanonicalTextForm()) {
-      return;
-    }
-    for (Object o : operands) {
-      if (QueryParser.collatedText((Expression) o, ctx.sources)) {
-        throw new PgException.Argument(
-            "0A000", "nondeterministic collations are not supported for " + what);
-      }
-    }
   }
 
   /** The outer row of a correlated subquery and the plans of the subqueries in the expression. */
@@ -503,10 +458,6 @@ final class Evaluator {
   }
 
   // String functions whose first argument (every argument for the concat family) is text
-  // what PostgreSQL refuses on a nondeterministic collation as "substring searches"
-  private static final Set<String> SUBSTRING_SEARCHES =
-      new java.util.HashSet<>(Arrays.asList("REPLACE", "STARTS_WITH", "POSITION", "STRPOS"));
-
   static final Set<String> TEXT_FUNCTIONS =
       new java.util.HashSet<>(
           Arrays.asList(
@@ -1084,19 +1035,6 @@ final class Evaluator {
    */
   static void checkCollation(String name) {
     String collation = collationName(name);
-    if (!icuCollationName.isEmpty()) {
-      // under ICU, byte order would sort and compare differently from the stored text
-      if (!collation.equals("default") && !collation.equalsIgnoreCase(icuCollationName)) {
-        throw new PgException.Argument(
-            "0A000",
-            "collation \""
-                + name.replace("\"", "")
-                + "\" is not supported: only \""
-                + icuCollationName
-                + "\" is available");
-      }
-      return;
-    }
     if (!collation.equals("c")
         && !collation.equals("posix")
         && !collation.equals("ucs_basic")
@@ -1110,8 +1048,8 @@ final class Evaluator {
   }
 
   /**
-   * A column has the one collation ScalarDB is configured with, so a column definition can name
-   * only that, as {@code "default"}.
+   * A column has ScalarDB's one collation, byte order, so a column definition can name only that,
+   * as {@code "default"}.
    */
   static void checkColumnCollation(String name) {
     if (!collationName(name).equals("default")) {
@@ -1342,10 +1280,6 @@ final class Evaluator {
     }
     if (e instanceof RegExpMatchOperator) {
       RegExpMatchOperator re = (RegExpMatchOperator) e;
-      checkDeterministic(
-          "regular expressions",
-          ctx,
-          Arrays.asList(re.getLeftExpression(), re.getRightExpression()));
       Object v = eval(re.getLeftExpression(), group, ctx);
       Object p = eval(re.getRightExpression(), group, ctx);
       if (v == null || p == null) {
@@ -1430,12 +1364,6 @@ final class Evaluator {
     }
     if (e instanceof LikeExpression) {
       LikeExpression like = (LikeExpression) e;
-      checkDeterministic(
-          like.getLikeKeyWord() == LikeExpression.KeyWord.SIMILAR_TO
-              ? "regular expressions"
-              : like.getLikeKeyWord().toString(),
-          ctx,
-          Arrays.asList(like.getLeftExpression(), like.getRightExpression()));
       Object v = evalText(like.getLeftExpression(), group, ctx);
       Object p = evalText(like.getRightExpression(), group, ctx);
       if (v == null || p == null) {
@@ -2414,7 +2342,8 @@ final class Evaluator {
       return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString()));
     }
     if (a instanceof String && b instanceof String) {
-      return collation.textComparator().compare((String) a, (String) b);
+      // ScalarDB's text order, so text compared here agrees with what is pushed down
+      return ScalarDbUtils.compareTextByCodePoint((String) a, (String) b);
     }
     if (a instanceof Comparable && a.getClass().equals(b.getClass())) {
       @SuppressWarnings("unchecked")
@@ -4460,16 +4389,6 @@ final class Evaluator {
         }
       }
       return null;
-    }
-    if (SUBSTRING_SEARCHES.contains(name)) {
-      checkDeterministic(
-          "substring searches",
-          ctx,
-          f.getParameters() != null
-              ? f.getParameters()
-              : f.getNamedParameters() != null
-                  ? f.getNamedParameters().getExpressions()
-                  : Collections.emptyList());
     }
     List<Object> args = new ArrayList<>();
     boolean textual = TEXT_FUNCTIONS.contains(name);

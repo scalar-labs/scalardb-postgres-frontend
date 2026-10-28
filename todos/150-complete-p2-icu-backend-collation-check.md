@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "150"
 tags: [collation, icu, backend, truth-or-error]
@@ -78,3 +78,9 @@ mismatch).
 - [ ] MySQL and SQL Server under ICU refuse to start without the opt-out, and start with it.
 - [ ] LIMITATIONS.md and getting-started/README.md describe the check, the opt-out, and that Cluster is
       unchecked.
+
+## Resolution (2026-10-28)
+
+Obsolete: ScalarDB 3.20 ships without collation support (no `scalar.db.collation`, no ICU), so the
+frontend compares text only by code point, as ScalarDB does, and the ICU support this todo checked is
+removed. The BINARY startup check stays.

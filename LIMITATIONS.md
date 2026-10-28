@@ -219,14 +219,9 @@ at the end of this section.
   `read committed`; `scalar.db.consensus_commit.isolation_level=SERIALIZABLE` reports `serializable`. A request for a
   stronger level than the engine runs at (`BEGIN ISOLATION LEVEL SERIALIZABLE`,
   `SET TRANSACTION ...`) is refused with `0A000` rather than ignored.
-- **One collation for all text: ScalarDB's.** Text compares in `scalar.db.collation`: byte order
-  (`BINARY`, the default) or an ICU locale (`ICU`), and the backing database must be set up to
-  compare the same way, since keys and pushed-down conditions are compared there. With Cluster, set the same
-  `scalar.db.collation` in the frontend's properties as on the nodes.
-- **Under `ICU`, pattern matching on table text is refused** with `0A000`, as PostgreSQL 16 refuses it
-  on a nondeterministic collation: `LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions, and `position`,
-  `strpos`, `replace` and `starts_with`. Literals, parameters and catalog names are not affected, so
-  psql's and drivers' catalog queries work.
+- **One collation for all text: ScalarDB's byte order**, PostgreSQL's `C` collation (by code point, which
+  is UTF-8 byte order). The backing database must be set up to compare the same way, since keys and
+  pushed-down conditions are compared there.
 - **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
   fail with a clear error.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
@@ -250,7 +245,7 @@ at the end of this section.
   subexpressions PostgreSQL's planner evaluates (`1/0` in a `CASE` arm no row reaches) do fail here
   while planning, as there.
 - **Refused rather than approximated:** `TABLESAMPLE`, a `COLLATE` naming a collation other than
-  ScalarDB's (`"C"`/`POSIX` under `BINARY`, the ICU one that `pg_collation` lists under `ICU`), a
+  ScalarDB's (`"C"`, `POSIX`, `ucs_basic` or `"default"`), a
   `COLLATE` other than `"default"` in a column definition,
   `CREATE TEMP TABLE` (a table created here would be permanent), `SELECT ... INTO table`, a
   data-modifying statement inside `WITH` that is nested, under `WITH RECURSIVE`, or whose table the
@@ -295,18 +290,17 @@ the result is not what PostgreSQL would return.
   and writes to the table can fail. Repair it outside the frontend by renaming that before-image column
   to `before_<new ScalarDB name>` in the backing database (todo 054).
 - **Text when the backing database's collation is not ScalarDB's.** On MySQL (default
-  `utf8mb4_0900_ai_ci`), or on PostgreSQL databases created with a locale other than `C`, under the
-  default `BINARY`, whatever is pushed down follows the database's collation while the same expression
-  evaluated in the frontend follows ScalarDB's, so one query can answer differently depending on the
-  path it takes. With the JDBC storage on PostgreSQL or MySQL under `BINARY`, the frontend checks the
+  `utf8mb4_0900_ai_ci`), or on PostgreSQL databases created with a locale other than `C`, whatever is
+  pushed down follows the database's collation while the same expression evaluated in the frontend
+  follows ScalarDB's, so one query can answer differently depending on the
+  path it takes. With the JDBC storage on PostgreSQL or MySQL, the frontend checks the
   database's collation at startup and refuses to start on a mismatch, unless
-  `scalar.db.postgres.backend_collation_check=false`; ScalarDB Cluster and `ICU` are not checked.
+  `scalar.db.postgres.backend_collation_check=false`; ScalarDB Cluster is not checked.
   Affected shapes: a range predicate on text (`WHERE name < 'a'`), `ORDER BY`
   on a clustering key, a lookup by text key or secondary index (`WHERE k = 'a'` matches the row `'A'`
   on MySQL), and a `JOIN` whose inner side is such a lookup (`JOIN t ON t.k = s.k` pairs `'a'` with
   `'A'`, while the same join with the sides swapped pairs nothing). Set the backing database up to
-  match `scalar.db.collation`. Under `ICU`, a comparison of two literals (`SELECT 'alice' < 'BOB'`)
-  also follows ScalarDB's collation, where PostgreSQL uses the database's.
+  compare in byte order.
 - **Reads are per record, not per statement, under `SNAPSHOT`.** A multi-row read next to a
   concurrent writer can see some rows from before that writer's commit and some from after:
   `SELECT sum(balance) FROM accounts` during a transfer can report a total that never existed.

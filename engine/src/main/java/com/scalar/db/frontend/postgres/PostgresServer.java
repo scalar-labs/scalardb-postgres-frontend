@@ -2,8 +2,6 @@ package com.scalar.db.frontend.postgres;
 
 import com.scalar.db.api.DistributedTransactionAdmin;
 import com.scalar.db.api.DistributedTransactionManager;
-import com.scalar.db.common.CollationComparator;
-import com.scalar.db.config.Collation;
 import com.scalar.db.config.DatabaseConfig;
 import com.scalar.db.exception.transaction.CommitConflictException;
 import com.scalar.db.exception.transaction.CrudConflictException;
@@ -253,12 +251,6 @@ public final class PostgresServer implements AutoCloseable {
                 + "\"");
     }
     maxScaledPrecision = ColumnType.maxScaledPrecision(properties);
-    DatabaseConfig config = new DatabaseConfig(properties);
-    Evaluator.setCollation(
-        CollationComparator.from(config),
-        config.getCollation() == Collation.ICU
-            ? config.getCollationIcuLocale().orElse("und")
-            : null);
     Properties copy = new Properties();
     copy.putAll(properties);
     configured = copy;
@@ -1603,11 +1595,10 @@ public final class PostgresServer implements AutoCloseable {
       return "42501"; // insufficient_privilege
     }
     // Cluster's encryption refusing an encrypted key, index, rename or type change, core refusing
-    // an encrypted column, or ABAC, when Cluster does not provide them, and LIKE under ICU
+    // an encrypted column, or ABAC, when Cluster does not provide them
     if (m.contains("DB-ENCRYPTION-1")
         || m.contains("DB-CORE-10143")
-        || m.contains("DB-CORE-10152")
-        || m.contains("DB-CORE-10309")) {
+        || m.contains("DB-CORE-10152")) {
       return "0A000"; // feature_not_supported
     }
     if (m.contains("DB-CORE-10026")) {

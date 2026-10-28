@@ -158,23 +158,18 @@ Behaviour that changes:
   transaction, as in PostgreSQL. `SET`, `RESET` and `SET ... TO DEFAULT` of a setting PostgreSQL fixes, such
   as `server_version`, fail with `55P02`.
 
-### Text in ScalarDB's collation
+### Text in ScalarDB's order
 
 Text compared in the frontend (residual filters, `ORDER BY`, `GROUP BY`, `DISTINCT`, joins, set operations,
-`min`/`max`) now follows ScalarDB's `scalar.db.collation`, as what is pushed down to ScalarDB does, so a query
-answers the same whichever path it takes. Under the default `BINARY`, text orders by code point, which differs
-from before only for characters outside the Basic Multilingual Plane, such as emoji. Under `ICU`
-(`scalar.db.collation.icu.locale`), texts the locale calls equal are one value, as in a PostgreSQL column with a
-nondeterministic ICU collation, which `pg_collation` and psql's `\d` show (see [Case-insensitive
-text](getting-started/README.md#case-insensitive-text)).
+`min`/`max`) now orders by code point, as ScalarDB does (`ScalarDbUtils.compareTextByCodePoint`) and as UTF-8
+bytes and PostgreSQL's `C` collation order it, so a query answers the same whichever path it takes. This
+differs from before only for characters outside the Basic Multilingual Plane, such as emoji, which sorted
+before U+E000 to U+FFFF.
 
 Behaviour that changes:
 
 - A column definition can name only `COLLATE "default"`; `COLLATE "C"` on a column, accepted before, is
   refused with `0A000`.
-- Under `ICU`, `LIKE`, `ILIKE`, `SIMILAR TO`, regular expressions, `position`, `strpos`, `replace` and
-  `starts_with` on table text fail with `0A000`, as in PostgreSQL 16, and `COLLATE` can name only the ICU
-  collation.
 
 ### Declared types kept, `NUMERIC` exact
 

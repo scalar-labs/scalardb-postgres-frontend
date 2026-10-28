@@ -36,7 +36,6 @@ final class Catalog {
   // information_schema's namespace in PostgreSQL 16, which its domains are in (catalog-types.txt)
   private static final long INFORMATION_SCHEMA_OID = 13276;
   private static final long FIRST_USER_OID = 16384; // the first of the tables', as PostgreSQL's
-  private static final long ICU_COLLATION_OID = 16383; // ScalarDB's ICU collation, below table oids
   private static final long HEAP_AM = 2;
   private static final long BTREE_AM = 403;
   // pg_description's and pg_depend's classid of a table, a namespace and a constraint
@@ -2156,10 +2155,8 @@ final class Catalog {
     for (String name : INFORMATION_SCHEMA.keySet()) {
       t.put("information_schema." + name, new ArrayList<>());
     }
-    String icu = Evaluator.icuCollationName();
     // the collations COLLATE accepts (Evaluator.checkCollation), with PostgreSQL 16's rows:
-    // default, which is ScalarDB's, and byte order's three names; under ICU, default and the ICU
-    // collation
+    // default, which is ScalarDB's, and byte order's three names
     row(
         t,
         "pg_catalog.pg_collation",
@@ -2167,47 +2164,29 @@ final class Catalog {
         "default",
         11L,
         "d",
-        icu.isEmpty(),
+        true,
         -1L,
         null,
         null,
         null,
         null,
         null);
-    if (icu.isEmpty()) {
-      for (Object[] c :
-          new Object[][] {{950L, "C", -1L}, {951L, "POSIX", -1L}, {962L, "ucs_basic", 6L}}) {
-        String locale = c[1].equals("POSIX") ? "POSIX" : "C";
-        row(
-            t,
-            "pg_catalog.pg_collation",
-            c[0],
-            c[1],
-            11L,
-            "c",
-            true,
-            c[2],
-            locale,
-            locale,
-            null,
-            null,
-            null);
-      }
-    } else {
-      String locale = icu.substring(0, icu.length() - "-x-icu".length());
+    for (Object[] c :
+        new Object[][] {{950L, "C", -1L}, {951L, "POSIX", -1L}, {962L, "ucs_basic", 6L}}) {
+      String locale = c[1].equals("POSIX") ? "POSIX" : "C";
       row(
           t,
           "pg_catalog.pg_collation",
-          ICU_COLLATION_OID,
-          icu,
-          11L, // pg_catalog
-          "i",
-          false, // ICU equality is many-to-one
-          -1L,
-          null,
-          null,
+          c[0],
+          c[1],
+          11L,
+          "c",
+          true,
+          c[2],
           locale,
           locale,
+          null,
+          null,
           null);
     }
     row(t, "pg_catalog.pg_am", HEAP_AM, "heap", "t", "heap_tableam_handler");
@@ -2372,11 +2351,11 @@ final class Catalog {
           namespace,
           OWNER_OID,
           6L,
-          icu.isEmpty() ? "c" : "i",
+          "c",
           "C",
           "C",
-          icu.isEmpty() ? null : icu.substring(0, icu.length() - "-x-icu".length()),
-          icu.isEmpty() ? null : icu.substring(0, icu.length() - "-x-icu".length()),
+          null,
+          null,
           null,
           null,
           DEFAULT_TABLESPACE,
@@ -2462,11 +2441,7 @@ final class Catalog {
           long typeOid = declared.encoded() ? declared.oid() : typeOid(type);
           long typmod = declared.encoded() ? declared.typmod() : -1L;
           boolean key = keys.contains(column);
-          // the type's, or ScalarDB's ICU collation, which psql's \d shows as the column's
-          long collation =
-              typeCollation(typeOid) != 0 && !Evaluator.icuCollationName().isEmpty()
-                  ? ICU_COLLATION_OID
-                  : typeCollation(typeOid);
+          long collation = typeCollation(typeOid);
           columnCollations.put(column, collation);
           columnOpclasses.put(column, defaultOpclass(typeOid));
           attributes.put(

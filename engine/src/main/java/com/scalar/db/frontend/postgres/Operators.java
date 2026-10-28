@@ -1025,19 +1025,13 @@ final class Operators {
     }
   }
 
-  /**
-   * A value normalized for set comparisons, so INT 1 and BIGINT 1 are the same member, and so are
-   * two texts the collation calls equal (ICU's sort key; under BINARY the text itself).
-   */
+  /** A value normalized for set comparisons, so INT 1 and BIGINT 1 are the same member. */
   @Nullable static Object normalize(@Nullable Object v) {
     v = v instanceof Catalog.Reg ? (Object) ((Catalog.Reg) v).oid : v;
     if (v instanceof Json.Value && !((Json.Value) v).binary) {
       // as PostgreSQL: json has no equality, so no DISTINCT, GROUP BY, UNION or IN on it
       throw new PgException.Argument(
           "42883", "could not identify an equality operator for type json");
-    }
-    if (v instanceof String && Evaluator.collation().hasCanonicalTextForm()) {
-      return java.nio.ByteBuffer.wrap(Evaluator.collation().canonicalTextFormOf((String) v));
     }
     if (v instanceof Float) {
       // real meets other numbers as float8, as in PostgreSQL: 0.1::real is not 0.1::float8,

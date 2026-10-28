@@ -1302,7 +1302,7 @@ final class Plan {
     for (int i : group) {
       List<Object> key = new ArrayList<>();
       for (Column<?> column : ((Get) operations.get(i)).getClusteringKey().get().getColumns()) {
-        key.add(Operators.normalize(column.getValueAsObject())); // ICU: 'a' finds 'A'
+        key.add(Operators.normalize(column.getValueAsObject()));
       }
       results[i] =
           rowsOf(

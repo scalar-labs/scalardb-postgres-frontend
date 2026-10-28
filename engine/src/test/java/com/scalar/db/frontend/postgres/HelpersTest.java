@@ -94,7 +94,6 @@ public class HelpersTest {
         Arguments.of(new RuntimeException("DB-ENCRYPTION-30008: decrypting failed"), "XX000"),
         Arguments.of(new UnsupportedOperationException("DB-CORE-10143: no encryption"), "0A000"),
         Arguments.of(new UnsupportedOperationException("DB-CORE-10152: no ABAC"), "0A000"),
-        Arguments.of(new IllegalArgumentException("DB-CORE-10309: LIKE under ICU"), "0A000"),
         Arguments.of(new RuntimeException("DB-CORE-10026: bad escape"), "22025"),
         Arguments.of(new RuntimeException("DB-CORE-10211: read only"), "25006"),
         Arguments.of(new RuntimeException("DB-CORE-10020: bad key"), "22023"),

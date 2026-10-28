@@ -1033,84 +1033,23 @@ public class QueryParserTest {
   }
 
   @Test
-  public void parse_UnderIcuCollation_ShouldCompareGroupAndRefuseAsPostgresNondeterministic()
-      throws Exception {
-    java.util.Properties props = new java.util.Properties();
-    props.setProperty("scalar.db.collation", "ICU");
-    props.setProperty("scalar.db.collation.icu.locale", "und-u-ks-level2"); // case-insensitive
-    Evaluator.setCollation(
-        com.scalar.db.common.CollationComparator.from(
-            new com.scalar.db.config.DatabaseConfig(props)),
-        "und-u-ks-level2");
-    try {
-      stubTable(
-          Arrays.asList(
-              map(1, 1, "abc", 1.0, true), map(2, 1, "ABC", 1.0, true), map(3, 1, "b", 1.0, true)));
-      assertThat(Evaluator.compare("abc", "ABC")).isZero();
-      // byte order would put ABC first; ICU ties them, and the sort is stable
-      assertThat(parser.parse("SELECT name FROM t ORDER BY name").execute(transaction))
-          .containsExactly(map("name", "abc"), map("name", "ABC"), map("name", "b"));
-      assertThat(parser.parse("SELECT DISTINCT name FROM t ORDER BY name").execute(transaction))
-          .containsExactly(map("name", "abc"), map("name", "b"));
-      assertThat(
-              parser
-                  .parse("SELECT name, count(*) AS c FROM t GROUP BY name ORDER BY name")
-                  .execute(transaction))
-          .containsExactly(map("name", "abc", "c", 2L), map("name", "b", "c", 1L));
-      assertThat(
-              parser
-                  .parse("SELECT id FROM t WHERE name IN (SELECT 'ABC') ORDER BY id")
-                  .execute(transaction))
-          .containsExactly(map("id", 1), map("id", 2));
-      assertThat(
-              parser
-                  .parse("SELECT name FROM t UNION SELECT 'B' ORDER BY name")
-                  .execute(transaction))
-          .hasSize(2);
-      // pattern matching on table text is refused, as PostgreSQL 16 refuses it
-      assertThatThrownBy(
-              () -> parser.parse("SELECT id FROM t WHERE name LIKE 'a%'").execute(transaction))
-          .hasMessage("nondeterministic collations are not supported for LIKE");
-      assertThatThrownBy(
-              () -> parser.parse("SELECT id FROM t WHERE upper(name) ~ 'A'").execute(transaction))
-          .hasMessage("nondeterministic collations are not supported for regular expressions");
-      assertThatThrownBy(
-              () -> parser.parse("SELECT strpos(name, 'b') AS p FROM t").execute(transaction))
-          .hasMessage("nondeterministic collations are not supported for substring searches");
-      assertThat(parser.parse("SELECT 'abc' LIKE 'a%' AS m").execute(transaction))
-          .containsExactly(map("m", true));
-      assertThat(parser.parse("SELECT id FROM t WHERE id::text LIKE '1%'").execute(transaction))
-          .containsExactly(map("id", 1));
-      // only the configured collation can be named
-      assertThatThrownBy(
-              () ->
-                  parser
-                      .parse("SELECT name FROM t ORDER BY name COLLATE \"C\"")
-                      .execute(transaction))
-          .hasMessageContaining("only \"und-u-ks-level2-x-icu\"");
-      assertThat(
-              parser
-                  .parse("SELECT name FROM t ORDER BY name COLLATE \"und-u-ks-level2-x-icu\"")
-                  .execute(transaction))
-          .hasSize(3);
-      // catalog names are byte-ordered, so psql's own regexes still work
-      assertThat(
-              parser
-                  .parse(
-                      "SELECT c.relname FROM pg_catalog.pg_class c "
-                          + "WHERE c.relname OPERATOR(pg_catalog.~) '^(t)$' COLLATE pg_catalog.default")
-                  .execute(transaction))
-          .containsExactly(map("relname", "t"));
-      assertThat(
-              parser
-                  .parse(
-                      "SELECT collname, collisdeterministic FROM pg_catalog.pg_collation "
-                          + "WHERE collprovider = 'i'")
-                  .execute(transaction))
-          .containsExactly(map("collname", "und-u-ks-level2-x-icu", "collisdeterministic", false));
-    } finally {
-      Evaluator.setCollation(com.scalar.db.common.CollationComparator.binary(), null);
-    }
+  public void parse_TextOrder_ShouldBeScalarDbsCodePointOrder() throws Exception {
+    // U+FFFD sorts before U+1F600 by code point and UTF-8 byte, as ScalarDB and PostgreSQL's C
+    // collation order them; by UTF-16 code unit (String.compareTo) it would sort after
+    stubTable(
+        Arrays.asList(
+            map(1, 1, "\uD83D\uDE00", 1.0, true),
+            map(2, 1, "\uFFFD", 1.0, true),
+            map(3, 1, "a", 1.0, true)));
+    assertThat(Evaluator.compare("\uFFFD", "\uD83D\uDE00")).isNegative();
+    assertThat(parser.parse("SELECT id FROM t ORDER BY name").execute(transaction))
+        .containsExactly(map("id", 3), map("id", 2), map("id", 1));
+    // an expression, so compared in memory rather than pushed down
+    assertThat(
+            parser
+                .parse("SELECT id FROM t WHERE name || '' > '\uFFFD' ORDER BY id")
+                .execute(transaction))
+        .containsExactly(map("id", 1));
   }
 
   @Test
