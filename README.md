@@ -36,8 +36,8 @@ network, or set `scalar.db.postgres.listen_address=127.0.0.1`.
 
 ## Quick start
 
-Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `3.20.0`, from
-Maven Central. A core of the same version that you install from a ScalarDB checkout with
+Requires JDK 25 to build (Java 17 or later to run). The frontend builds against ScalarDB `4.0.0-SNAPSHOT`,
+from ScalarDB's snapshot repository. A core of the same version that you install from a ScalarDB checkout with
 `./gradlew :core:publishToMavenLocal` takes precedence.
 
 ```sh
