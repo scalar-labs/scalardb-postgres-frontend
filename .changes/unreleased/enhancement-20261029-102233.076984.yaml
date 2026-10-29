@@ -1,0 +1,3 @@
+kind: enhancement
+body: First release of the ScalarDB PostgreSQL frontend. PostgreSQL clients connect over the PostgreSQL wire protocol and run SQL as ScalarDB transactions, inside ScalarDB Cluster nodes (the recommended deployment) or through a standalone server on ScalarDB core. The engine is published to Maven Central as `com.scalar-labs:scalardb-postgres-frontend-engine`, which ScalarDB Cluster embeds. See `docs/user/README.md`, and `LIMITATIONS.md` for what the frontend refuses or does differently from PostgreSQL.
+time: 2026-10-29T10:22:33.076984+09:00

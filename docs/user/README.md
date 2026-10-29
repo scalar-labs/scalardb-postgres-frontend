@@ -29,4 +29,4 @@ standalone server on ScalarDB core.
 
 - [Limitations](../../LIMITATIONS.md): what the frontend refuses, announces with a `NOTICE`, or does
   differently from PostgreSQL.
-- [Release notes](../../RELEASE-NOTES.md): changes per release, and what to do when upgrading.
+- [Changelog](../../CHANGELOG.md): changes per release; those that need you to act are marked `[BREAKING]`.

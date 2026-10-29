@@ -69,16 +69,12 @@ metadata from the backing database more often: about three reads per table in us
 
 ## Upgrading
 
-The first time that you enable the frontend, or when you upgrade from a release without the metadata table,
-connect as a superuser once and run `CREATE FRONTEND METADATA TABLES`. The nodes need no new configuration
-and no restart: the frontend reads and writes the table under the node's own authority.
+The first time that you enable the frontend, connect as a superuser once and run `CREATE FRONTEND METADATA
+TABLES`. The nodes need no new configuration and no restart: the frontend reads and writes the table under
+the node's own authority.
 
-During a rolling upgrade from a release that does not read the metadata table, finish upgrading every node
-before the first `CREATE TABLE` or `ALTER TABLE ADD COLUMN` that declares `NUMERIC`, `VARCHAR(n)`, `CHAR(n)`,
-`SMALLINT`, `JSON` or `JSONB`. An older node would read such a column by its stored form, such as a
-`NUMERIC(10,2)` value of `19.90` as the integer `1990`.
-
-For what changes in each release, see [RELEASE-NOTES.md](../../RELEASE-NOTES.md).
+Before upgrading, read the release's entry in [CHANGELOG.md](../../CHANGELOG.md): a change that needs you to
+act is marked `[BREAKING]`.
 
 ## Troubleshooting
 

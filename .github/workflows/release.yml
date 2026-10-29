@@ -32,6 +32,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
       # a dispatch on a branch would fail below with a confusing tag mismatch
       - name: Reject a ref that is not a tag
@@ -114,6 +115,64 @@ jobs:
               ;;
           esac
 
+      - uses: ./.github/actions/setup-changie
+
+      # The release notes are the version's changie file, written by `changie batch` before the tag
+      # (see "Changelog" in RELEASING.md). Read here, before publish-maven, because a release without
+      # them is a mistake to stop while nothing is out yet: by the time github-release runs, the
+      # Central deployment has already gone. A pre-release previews what its release will collect,
+      # so it takes the version file if the batch already ran and the pending entries otherwise, and
+      # never fails for having none.
+      #
+      # A release tag with entries still pending fails too. They are in the tagged tree, so they ship
+      # in this release, and leaving them would credit them to the next one. That happens when a fix
+      # reaches the release branch after its minor was batched, or when a patch forgot to
+      # batch a late backport; RELEASING.md says how to fold them in.
+      - name: Read the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          core="${tag%%-*}"
+          file=".changes/${core}.md"
+          # The file's first line is its `## [<version>] - <date>` heading, which the release title
+          # already says.
+          if [ -f "${file}" ]; then
+            notes=$(tail -n +2 "${file}" | sed '/./,$!d')
+            # A pre-release tagged after the batch still ships any fix that arrived since, so it lists
+            # those too. A release tag with such entries fails below instead.
+            if [ "${tag}" != "${core}" ] && compgen -G ".changes/unreleased/*.yaml" > /dev/null; then
+              pending=$(changie batch "${core}" --dry-run | tail -n +2 | sed '/./,$!d')
+              notes=$(printf '%s\n\n%s\n\n%s' "${notes}" \
+                "Also in this build, and not yet in ${file}:" "${pending}")
+            fi
+          elif [ "${tag}" != "${core}" ]; then
+            notes=$(changie batch "${core}" --dry-run | tail -n +2 | sed '/./,$!d')
+          else
+            echo "::error::${file} does not exist. Run \`changie batch ${tag}\` and \`changie merge\`" \
+              "before tagging; see \"Changelog\" in RELEASING.md."
+            exit 1
+          fi
+          if ! grep -q '^- ' <<< "${notes}"; then
+            if [ "${tag}" = "${core}" ]; then
+              echo "::error::${file} lists no changes"
+              exit 1
+            fi
+            notes="No changes are recorded for this pre-release."
+          fi
+          if [ "${tag}" = "${core}" ] && compgen -G ".changes/unreleased/*.yaml" > /dev/null; then
+            echo "::error::.changes/unreleased/ still holds entries, which ship in ${tag} but are not in" \
+              "${file}. Fold them in as \"When releasing\" in RELEASING.md describes, then tag again."
+            exit 1
+          fi
+          delimiter="NOTES_$(openssl rand -hex 16)"
+          {
+            echo "notes<<${delimiter}"
+            echo "${notes}"
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+          echo "${notes}"
+
   # Uploads the engine as a USER_MANAGED deployment: the Portal validates it and waits for someone to
   # release it (RELEASING.md). The job ends at the upload, so a deployment the Portal rejects still
   # leaves it green
@@ -159,3 +218,46 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_CENTRAL_GPG_SECRET_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
         run: ./gradlew publishToMavenCentral --no-configuration-cache
+
+  # The GitHub release, with the notes verify-version read. After the upload, so that a failed upload
+  # leaves no release page pointing at artifacts that are not there. A pre-release version is marked as
+  # one, and only the highest release takes the Latest badge, so a patch to an older line does not. On
+  # a re-run the release is left as it is, since its notes may have been edited since
+  github-release:
+    needs: [verify-version, publish-maven]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # every tag, to find the highest release; no token left in the workspace, gh reads GH_TOKEN
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ needs.verify-version.outputs.notes }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "GitHub release ${tag} exists; left as it is"
+            exit 0
+          fi
+          printf '%s\n' "${NOTES}" > "${RUNNER_TEMP}/notes.md"
+          args=(--verify-tag --title "${tag}" --notes-file "${RUNNER_TEMP}/notes.md")
+          case "${tag}" in
+            *-*) args+=(--prerelease --latest=false) ;;
+            *)
+              highest=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+              if [ "${tag}" = "${highest}" ]; then
+                args+=(--latest)
+              else
+                args+=(--latest=false)
+              fi
+              ;;
+          esac
+          gh release create "${tag}" "${args[@]}"
