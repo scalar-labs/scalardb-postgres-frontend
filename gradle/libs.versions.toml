@@ -14,7 +14,7 @@ slf4j = "1.7.36"
 caffeine = "3.3.0"
 # Newer than ScalarDB's, for the shipped jar and image only: fixes for HIGH and CRITICAL CVEs in jars
 # ScalarDB's storage drivers and the Cluster SDK bring in (drop each once ScalarDB catches up)
-bouncycastle = "1.85"
+bouncycastle = "1.86"
 micrometer = "1.15.12"
 mssql-jdbc = "12.8.2.jre11"
 postgresql = "42.7.13"
