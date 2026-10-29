@@ -23,7 +23,7 @@ assertj = "3.27.7"
 mockito = "5.23.0"
 # Build tools, at ScalarDB Saga's versions
 spotless = "8.9.0"
-google-java-format = "1.35.0"
+google-java-format = "1.37.0"
 spotbugs-plugin = "6.5.10"
 spotbugs-annotations = "4.10.3"
 findsecbugs = "1.14.0"
