@@ -1,7 +1,10 @@
 # ScalarDB PostgreSQL Frontend
 
-A server that speaks the PostgreSQL wire protocol and runs SQL as [ScalarDB](https://github.com/scalar-labs/scalardb)
-transactions, so psql, the PostgreSQL JDBC driver and other PostgreSQL clients can use ScalarDB.
+A PostgreSQL-compatible SQL interface for [ScalarDB](https://github.com/scalar-labs/scalardb). PostgreSQL
+clients and tools, such as psql, the PostgreSQL JDBC driver and ORMs, connect over the PostgreSQL wire
+protocol, and their SQL runs on the databases ScalarDB manages, as ScalarDB transactions: each statement
+outside `BEGIN` is one transaction, and `BEGIN ... COMMIT` is one transaction. It runs inside ScalarDB
+Cluster nodes or as a standalone server.
 
 SQL is parsed with JSQLParser and planned into ScalarDB Get, Scan and mutation operations, pushing
 keys, conditions, ordering and limits down to ScalarDB. The rest runs in an in-memory operator tree:
@@ -9,7 +12,7 @@ joins, aggregates, window functions, subqueries, CTEs (including recursive ones)
 It also emulates enough of `pg_catalog` for psql's meta-commands, and supports DDL, `RETURNING`,
 `ON CONFLICT`, `EXPLAIN [ANALYZE]` and transactions.
 
-**Status: experimental.** Authentication and TLS only with ScalarDB Cluster (see [Deployment](#deployment)),
+**What to know first.** Authentication and TLS only with ScalarDB Cluster (see [Deployment](#deployment)),
 whose users and privileges then apply (see [Connect as a user](getting-started/README.md#connect-as-a-user)), as do its encryption and
 ABAC ([Encrypted columns and row-level access](getting-started/README.md#encrypted-columns-and-row-level-access));
 no `COPY`; `NUMERIC` exact but filtered in the frontend beyond 18 digits, and declared types recorded in a

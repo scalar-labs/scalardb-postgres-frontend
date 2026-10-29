@@ -230,7 +230,11 @@ at the end of this section.
   (`a.x`, `b.x`) or as `COALESCE(a.x, b.x)`; an unqualified reference to it, and a further `USING` join
   on it, are refused with `0A000`. After INNER and LEFT joins it works as in PostgreSQL.
 - **Outer joins nested without parentheses** (`a LEFT JOIN b LEFT JOIN c ON x ON y`) are refused with
-  `0A000`, as are parenthesized joins in `FROM`; the same nesting of inner joins works.
+  `0A000`; the same nesting of inner joins works, and so does a parenthesized join in `FROM`
+  (`x LEFT JOIN (a JOIN b ON ...) ON ...`). Without an alias on the parentheses, `a.x` and a bare `x`
+  reach the inner tables' columns, but three references PostgreSQL accepts fail with `42703`: `a.id`
+  for a column the inner join merged with `USING (id)` (a bare `id` works), a column of a join nested
+  inside the parentheses, and `a.*` (todo 152).
 - **Ordered-set aggregates are refused** (`percentile_cont`, `percentile_disc`, `mode` and the hypothetical
   `rank`/`percent_rank`/`cume_dist` with `WITHIN GROUP`), with `0A000`.
 - **Array column types are refused** (`int[]`, `text[][]` in CREATE TABLE and ADD COLUMN), with `0A000`:
@@ -289,6 +293,11 @@ the result is not what PostgreSQL would return.
   the new column and the old before-image: clients see an extra column named `before_<old name>`,
   and writes to the table can fail. Repair it outside the frontend by renaming that before-image column
   to `before_<new ScalarDB name>` in the backing database (todo 054).
+- **Two sessions creating the same table at once.** When `CREATE TABLE` with declared types loses a race
+  to another session's `CREATE TABLE` of the same name, it fails, but for a few milliseconds before it
+  does, the winner's table is read with the loser's declared types; the winner's are restored when the
+  loser's statement fails, or never, if the frontend stops in between. The fix needs ScalarDB to create
+  a table and record its declared types in one step (todo 151).
 - **Text when the backing database's collation is not ScalarDB's.** On MySQL (default
   `utf8mb4_0900_ai_ci`), or on PostgreSQL databases created with a locale other than `C`, whatever is
   pushed down follows the database's collation while the same expression evaluated in the frontend
