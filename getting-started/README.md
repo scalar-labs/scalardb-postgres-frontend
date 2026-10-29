@@ -110,7 +110,7 @@ The image holds the frontend and the Cluster client SDK, on a Java 25 runtime, s
 serves every mode, authentication included. Build it from the root of this repository:
 
 ```sh
-./gradlew :server:dockerBuild    # scalardb-postgres-frontend:3.20.0-SNAPSHOT, in the local Docker
+./gradlew :server:dockerBuild    # scalardb-postgres-frontend:3.20.0, in the local Docker
 ```
 
 `./gradlew :server:dockerContext` alone assembles the build context in `server/build/docker`, for
@@ -128,7 +128,7 @@ scalar.db.password=${env:PG_PASSWORD}
 ```sh
 docker run -d -p 127.0.0.1:15432:5432 -e PG_HOST=host.docker.internal -e PG_PASSWORD=postgres \
   -v "$PWD/scalardb.properties:/scalardb-postgres-frontend/scalardb.properties:ro" \
-  scalardb-postgres-frontend:3.20.0-SNAPSHOT
+  scalardb-postgres-frontend:3.20.0
 ```
 
 `localhost` inside the container is the container itself: `host.docker.internal` reaches a database
