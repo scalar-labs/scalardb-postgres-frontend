@@ -1,6 +1,7 @@
 [versions]
-# From ScalarDB's snapshot repository, or a checkout's ./gradlew :core:publishToMavenLocal
-scalardb = "3.20.0-SNAPSHOT"
+# A released ScalarDB from Maven Central; a version branch that tracks an unreleased line takes
+# ScalarDB's snapshot, or a checkout's ./gradlew :core:publishToMavenLocal
+scalardb = "3.20.0"
 # The Cluster client SDK, for the standalone server only: Cluster releases after the engine it embeds,
 # so this stays a snapshot until then while the engine moves to a released ScalarDB
 scalardb-cluster = "3.20.0-SNAPSHOT"

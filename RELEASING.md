@@ -199,9 +199,9 @@ For `3.20.0`, on `3.20`:
    `.changes/unreleased/` (see [When releasing](#when-releasing)). Cherry-pick that commit to `3`,
    which holds the same file, so that the two agree. For a patch, run `changie batch v3.20.1`, edit
    `.changes/v3.20.1.md` and run `changie merge` here instead; the file exists only on `3.20`.
-3. Make the release commit: `version=3.20.0` in `gradle.properties` and `scalardb = "3.20.0"` in
-   `gradle/libs.versions.toml` (`scalardb-cluster` stays a snapshot until Cluster releases). Push it and wait
-   for CI.
+3. Make the release commit: `version=3.20.0` in `gradle.properties`, with `scalardb` in
+   `gradle/libs.versions.toml` already at `3.20.0` (`scalardb-cluster` stays a snapshot until Cluster
+   releases). Push it and wait for CI.
 4. Tag that commit and push the tag:
 
    ```sh
