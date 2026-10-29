@@ -55,6 +55,17 @@ A branch and its parent must never carry the same version: both would publish th
 `release-snapshot.yml` cannot tell which one is right. So the parent is bumped first, and the branch is
 cut from the commit just before the bump.
 
+`scalardb` and `scalardb-cluster` in `gradle/libs.versions.toml` each move to a version that is
+published, which the two projects do on their own schedules: ScalarDB core to the
+[snapshot repository](https://central.sonatype.com/repository/maven-snapshots/com/scalar-labs/scalardb/maven-metadata.xml),
+the Cluster client SDK to the
+[same repository](https://central.sonatype.com/repository/maven-snapshots/com/scalar-labs/scalardb-cluster-java-client-sdk/maven-metadata.xml).
+Check both before a bump. One not published yet keeps its previous version until it is: a version that
+does not exist fails CI on every commit. Only `:server` builds against the SDK, a client that talks
+to Cluster over gRPC, so for a while it can trail the core version the engine builds against. On
+2026-10-29, both projects published `4.0.0-SNAPSHOT`, while `3.21.0-SNAPSHOT` existed only for
+ScalarDB core.
+
 To cut `3` from `main`, the first time:
 
 1. On `main`, at `3.20.0-SNAPSHOT`: note the head commit, `C`.
@@ -74,8 +85,9 @@ To cut `3.20` from `3`, when ScalarDB cuts its 3.20 line:
    changie merge
    ```
 
-2. On `3`: bump `version` to `3.21.0-SNAPSHOT`, and the ScalarDB versions to what ScalarDB's `3`
-   branch publishes. Push.
+2. On `3`: bump `version` to `3.21.0-SNAPSHOT`, `scalardb` to `3.21.0-SNAPSHOT`, and
+   `scalardb-cluster` to `3.21.0-SNAPSHOT` once Cluster publishes it (it stays at `3.20.0-SNAPSHOT`
+   until then, as above). Push.
 3. Create `3.20` from `C` and push it. It publishes `3.20.0-SNAPSHOT`.
 
 ## Changelog
