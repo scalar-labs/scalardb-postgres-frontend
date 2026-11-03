@@ -2141,6 +2141,13 @@ public class PostgresServerTest {
       }
       assertThat(pg.getParameterStatus("application_name")).isEqualTo("cfg");
       assertSqlState(statement, "SELECT current_setting('no_such')", "42704");
+      // a SET that ROLLBACK undoes is reported back as well
+      connection.setAutoCommit(false);
+      statement.execute("SET application_name = 'undone'");
+      assertThat(pg.getParameterStatus("application_name")).isEqualTo("undone");
+      connection.rollback();
+      assertThat(pg.getParameterStatus("application_name")).isEqualTo("cfg");
+      connection.setAutoCommit(true);
     }
   }
 
