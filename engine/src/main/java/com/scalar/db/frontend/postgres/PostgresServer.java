@@ -519,6 +519,8 @@ public final class PostgresServer implements AutoCloseable {
     @Nullable private Catalog.Activity activity; // this session's entry in Catalog.ACTIVITY
     // The ParameterStatus values the client was last told, by name
     private final Map<String, String> reported = new java.util.LinkedHashMap<>();
+    // The processor's settingsVersion() when they were last compared; none yet
+    private int reportedVersion = -1;
 
     Connection(Socket socket) throws IOException {
       // Replies are flushed whole at ReadyForQuery; Nagle would hold the next one back for the
@@ -1424,12 +1426,17 @@ public final class PostgresServer implements AutoCloseable {
      * PostgreSQL does before ReadyForQuery: at startup, and after SET, RESET or a transaction end.
      */
     private void reportSettings(QueryProcessor processor) throws IOException {
+      int version = processor.settingsVersion();
+      if (version == reportedVersion) {
+        return; // nothing SET, RESET or undone since the last report: most statements
+      }
       for (String name : REPORTED) {
         String value = processor.currentSetting(name);
         if (!value.equals(reported.put(name, value))) {
           send('S', new Msg().str(name).str(value));
         }
       }
+      reportedVersion = version;
     }
 
     /**
