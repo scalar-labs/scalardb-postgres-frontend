@@ -137,8 +137,46 @@ public class QueryProcessor {
       Pattern.compile(
           "(?is)(?:SAVEPOINT\\s+|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");
   // Session settings: what SET stored, over the server's defaults; SHOW reads them
-  private final Map<String, String> settings = new LinkedHashMap<>();
-  private final Map<String, String> defaults = new LinkedHashMap<>();
+  private final Counted settings = new Counted();
+  private final Counted defaults = new Counted();
+
+  /** A map that counts its changes, so that a reader can tell cheaply whether anything changed. */
+  private static final class Counted extends LinkedHashMap<String, String> {
+    private static final long serialVersionUID = 1L;
+    int changes;
+
+    @Override
+    @Nullable public String put(String key, String value) {
+      changes++;
+      return super.put(key, value);
+    }
+
+    @Override
+    public void putAll(Map<? extends String, ? extends String> m) {
+      changes++;
+      super.putAll(m);
+    }
+
+    @Override
+    @Nullable public String remove(Object key) {
+      changes++;
+      return super.remove(key);
+    }
+
+    @Override
+    public void clear() {
+      changes++;
+      super.clear();
+    }
+  }
+
+  /**
+   * Changes whenever a setting or a default does, so that the server can skip comparing the
+   * reported settings before each ReadyForQuery when the value is the same as last time.
+   */
+  int settingsVersion() {
+    return settings.changes + defaults.changes;
+  }
 
   private static final Pattern READ_ONLY = Pattern.compile("(?i)\\bREAD\\s+ONLY\\b");
   private static final Pattern READ_WRITE = Pattern.compile("(?i)\\bREAD\\s+WRITE\\b");
