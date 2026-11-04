@@ -58,6 +58,12 @@ public class HelpersTest {
     assertThat(Evaluator.integerInput("0o_17")).isEqualTo(15);
     assertThat(Evaluator.integerInput("+0B101")).isEqualTo(5);
     assertThat(Evaluator.integerInput("1_000")).isEqualTo(1000);
+    // plain decimals, read without the pattern up to 18 digits
+    assertThat(Evaluator.integerInput("-123")).isEqualTo(-123);
+    assertThat(Evaluator.integerInput("+007")).isEqualTo(7);
+    assertThat(Evaluator.integerInput("999999999999999999")).isEqualTo(999_999_999_999_999_999L);
+    assertThat(Evaluator.integerInput("-9223372036854775809"))
+        .isEqualTo(new java.math.BigInteger("-9223372036854775809"));
     for (String bad : Arrays.asList("1__0", "_1", "1_", "0x", "0x_", "1.0", "1e3", "00x1", "")) {
       assertThat(Evaluator.integerInput(bad)).as(bad).isNull();
     }
