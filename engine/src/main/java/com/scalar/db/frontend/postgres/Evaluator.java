@@ -3975,6 +3975,9 @@ final class Evaluator {
 
   /** {@code s} read as int2in, int4in and int8in read it, before the range check; null if not. */
   @Nullable static BigInteger integerInput(String s) {
+    if (isPlainLong(s)) {
+      return BigInteger.valueOf(Long.parseLong(s)); // what drivers send: no regex for most values
+    }
     java.util.regex.Matcher m = INTEGER_INPUT.matcher(s);
     if (!m.matches()) {
       return null;
@@ -3983,6 +3986,22 @@ final class Evaluator {
     int radix = group == 2 ? 16 : group == 3 ? 8 : group == 4 ? 2 : 10;
     BigInteger v = new BigInteger(m.group(group).replace("_", ""), radix);
     return m.group(1).equals("-") ? v.negate() : v;
+  }
+
+  /** An optional sign and 1 to 18 decimal digits, which Long.parseLong reads exactly. */
+  private static boolean isPlainLong(String s) {
+    int start = !s.isEmpty() && (s.charAt(0) == '-' || s.charAt(0) == '+') ? 1 : 0;
+    int digits = s.length() - start;
+    if (digits < 1 || digits > 18) {
+      return false;
+    }
+    for (int i = start; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (c < '0' || c > '9') {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static final Pattern TYPE_LENGTH = Pattern.compile("\\((\\d+)\\)");

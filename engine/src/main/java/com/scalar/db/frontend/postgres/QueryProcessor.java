@@ -262,10 +262,14 @@ public class QueryProcessor {
   private static final Pattern RESET_NAME =
       Pattern.compile("(?is)RESET\\s+([\\w.]+|TIME\\s+ZONE|ALL)");
   private static final Pattern SHOW_NAME = Pattern.compile("(?is)SHOW\\s+(.+)");
+  private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
   /** The stored key of a setting named as in SHOW, matched without regard to case; null if none. */
   @Nullable private String settingKey(String name) {
-    String n = name.trim().replaceAll("\\s+", " ");
+    String n = name.trim();
+    if (n.chars().anyMatch(c -> QueryParser.isSpace((char) c))) {
+      n = WHITESPACE.matcher(n).replaceAll(" "); // SHOW time   zone reads as time zone
+    }
     if (n.equalsIgnoreCase("transaction isolation level")) {
       n = "transaction_isolation";
     } else if (n.equalsIgnoreCase("time zone")) {
@@ -1723,7 +1727,6 @@ public class QueryProcessor {
   }
 
   private static String firstWord(String sql) {
-    String[] words = sql.trim().replaceAll(";\\s*$", "").trim().split("\\s+", 2);
-    return words[0].toUpperCase(Locale.ROOT);
+    return QueryParser.firstWord(sql);
   }
 }
