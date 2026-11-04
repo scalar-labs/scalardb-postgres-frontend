@@ -567,7 +567,7 @@ class QueryParser {
     if (conditions.length() > 0) {
       t.append(" conditions=[").append(conditions).append(']');
     }
-    t.append(" projections=").append(b.star ? "[all]" : new ArrayList<>(b.projections).toString());
+    t.append(" projections=").append(readColumns(b));
     if (!b.pushedLate.isEmpty()) {
       t.append(" conditions=").append(conjunctionText(b.pushedLate));
     }
@@ -5619,6 +5619,22 @@ class QueryParser {
     return null;
   }
 
+  /** The columns a read of the table names. */
+  static List<String> readColumns(LogicalPlan.Source s) {
+    Target t = s.table();
+    if (!s.star && s.projections.isEmpty()) {
+      // count(*), EXISTS, SELECT 1: no column is read, but an empty projection list means every
+      // column to ScalarDB, so ask for the partition key alone (todo 033)
+      return new ArrayList<>(t.metadata.getPartitionKeyNames());
+    }
+    // Every column, whichever the statement uses: Consensus Commit reuses a record the transaction
+    // already read only for an equal Get or Scan, so a SELECT and the UPDATE of the same row must
+    // ask for the same columns, or it reads the row from storage again (the storage read fetches
+    // every column either way). By name: Cluster's ABAC leaves its data tag column out of a read
+    // that names none
+    return new ArrayList<>(t.metadata.getColumnNames());
+  }
+
   /** Builds the Get or Scan for a table with what was pushed down to it. */
   static Operation operation(
       LogicalPlan.Source s,
@@ -5626,14 +5642,7 @@ class QueryParser {
       List<OrderByElement> orderBy,
       int limit) {
     Target t = s.table();
-    // Every column by name: Cluster's ABAC leaves its data tag column out of a read that names none
-    List<String> projections =
-        new ArrayList<>(s.star ? t.metadata.getColumnNames() : s.projections);
-    if (!s.star && projections.isEmpty()) {
-      // count(*), EXISTS, SELECT 1: no column is read, but an empty projection list means every
-      // column to ScalarDB, so ask for the partition key alone (todo 033)
-      projections.addAll(t.metadata.getPartitionKeyNames());
-    }
+    List<String> projections = readColumns(s);
     Key partitionKey = equalsKey(pushed, t.metadata.getPartitionKeyNames());
     Scan base;
     if (partitionKey != null) {
