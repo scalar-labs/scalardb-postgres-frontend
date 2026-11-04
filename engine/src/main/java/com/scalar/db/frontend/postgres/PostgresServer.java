@@ -960,8 +960,7 @@ public final class PostgresServer implements AutoCloseable {
         new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE"));
 
     private String firstWord(String sql) {
-      String[] words = QueryParser.trimStatement(sql).split("\\s+", 2);
-      return words[0].toUpperCase(Locale.ROOT);
+      return QueryParser.firstWord(sql);
     }
 
     /** Runs one statement, streaming its rows (with a RowDescription if asked) and command tag. */

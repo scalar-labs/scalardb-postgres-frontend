@@ -862,6 +862,29 @@ public class QueryParserTest {
   }
 
   @Test
+  public void firstWord_ShouldReadTheKeywordAsTheTrimmedStatementStarts() {
+    for (String sql :
+        Arrays.asList(
+            "select 1",
+            "  BEGIN;",
+            "commit ; -- x",
+            "-- a\n/* b /* c */ */ update t set x = 1",
+            "SELECT 1;;",
+            "BEGIN;;",
+            " ; ",
+            "",
+            "select/*x*/1",
+            "\tDISCARD ALL\n")) {
+      assertThat(QueryParser.firstWord(sql))
+          .as(sql)
+          .isEqualTo(
+              QueryParser.trimStatement(sql)
+                  .split("\\s+", 2)[0]
+                  .toUpperCase(java.util.Locale.ROOT));
+    }
+  }
+
+  @Test
   public void parse_StatementPaddedWithWhitespace_ShouldNotBacktrack() {
     // a few thousand spaces before a final character used to take minutes in the statement
     // patterns; 20,000 would take hours

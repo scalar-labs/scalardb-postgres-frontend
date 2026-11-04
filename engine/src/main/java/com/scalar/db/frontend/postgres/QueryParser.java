@@ -1806,6 +1806,22 @@ class QueryParser {
   }
 
   /**
+   * The statement's first word in upper case, up to whitespace: its keyword, as {@code
+   * trimStatement(sql).split("\\s+", 2)[0]} reads it, without scanning the rest of the statement.
+   */
+  static String firstWord(String sql) {
+    int start = skipSpace(sql, 0);
+    int end = start;
+    while (end < sql.length() && !isSpace(sql.charAt(end))) {
+      end++;
+    }
+    if (end > start && sql.charAt(end - 1) == ';' && skipSpace(sql, end) == sql.length()) {
+      end--; // the final ; that trimStatement drops, as in BEGIN;
+    }
+    return sql.substring(start, end).toUpperCase(Locale.ROOT);
+  }
+
+  /**
    * Where the next token starts at or after {@code from}: past whitespace and comments, as
    * skipQuoted reads them.
    */
