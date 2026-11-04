@@ -271,7 +271,7 @@ public class QueryParserTest {
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
                 .clusteringKey(Key.ofBigInt("seq", 2))
-                .projections("id", "seq", "active", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("active").isEqualToBoolean(true))
                 .build());
   }
@@ -361,7 +361,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .all()
-                .projections("name", "price", "id")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("name").isLikeText("a%", "\\"))
                 .and(ConditionBuilder.column("price").isNotNullDouble())
                 .build());
@@ -377,7 +377,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
-                .projections("id", "seq", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .build());
     when(transaction.scan(any()))
         .thenReturn(
@@ -413,7 +413,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .all()
-                .projections("active", "price")
+                .projections("id", "seq", "name", "price", "active")
                 .build());
     when(transaction.scan(any()))
         .thenReturn(
@@ -440,7 +440,12 @@ public class QueryParserTest {
 
     assertThat(plan.getOperations())
         .containsExactly(
-            Scan.newBuilder().namespace(NS).table("t").all().projections("name").build());
+            Scan.newBuilder()
+                .namespace(NS)
+                .table("t")
+                .all()
+                .projections("id", "seq", "name", "price", "active")
+                .build());
     when(transaction.scan(any()))
         .thenReturn(Arrays.asList(map(1, 1, "abca", 1.5, true), map(1, 2, "bc", 2.5, true)));
     assertThat(plan.execute(transaction))
@@ -455,7 +460,12 @@ public class QueryParserTest {
 
     assertThat(plan.getOperations())
         .containsExactly(
-            Scan.newBuilder().namespace(NS).table("t").all().projections("id", "price").build());
+            Scan.newBuilder()
+                .namespace(NS)
+                .table("t")
+                .all()
+                .projections("id", "seq", "name", "price", "active")
+                .build());
     when(transaction.scan(any()))
         .thenReturn(
             Arrays.asList(
@@ -479,7 +489,7 @@ public class QueryParserTest {
             .namespace(NS)
             .table("t")
             .all()
-            .projections("seq", "id", "name")
+            .projections("id", "seq", "name", "price", "active")
             .where(ConditionBuilder.column("seq").isEqualToBigInt(1))
             .build();
     // b is bound on its full primary key (a.id, 2): a Get per row of a, not a scan
@@ -487,7 +497,7 @@ public class QueryParserTest {
     assertThat(String.join("\n", parser.explain(plan)))
         .contains(
             "-> Left Lookup Join (per outer row): ScalarDB Get ns.t partitionKey={id=a.id} "
-                + "clusteringKey={seq=2} projections=[id, seq, name] AS b");
+                + "clusteringKey={seq=2} projections=[id, seq, name, price, active] AS b");
     stubTable(Arrays.asList(map(1, 2, "x", 1.0, true), map(2, 2, "y", 1.0, true)));
     when(transaction.scan(left))
         .thenReturn(
@@ -514,13 +524,13 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .all()
-                .projections("price", "id", "seq", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .build());
     // the correlated EXISTS reads y's partition for each row of x
     assertThat(String.join("\n", parser.explain(plan)))
         .contains(
             "Lookup (per outer row): ScalarDB Scan ns.t partitionKey={id=x.id} "
-                + "projections=[id, seq] AS y");
+                + "projections=[id, seq, name, price, active] AS y");
     stubTable(
         Arrays.asList(
             map(1, 1, "a", 1.0, true),
@@ -1026,9 +1036,9 @@ public class QueryParserTest {
             "    -> Sort n DESC",
             "      -> Aggregate [name, n] GROUP BY c.name",
             "        -> Lookup Join (per outer row): ScalarDB Scan ns.t partitionKey={id=c.id} "
-                + "conditions=[price > 2.0] projections=[price, id] AS o",
+                + "conditions=[price > 2.0] projections=[id, seq, name, price, active] AS o",
             "          -> Lookup Join (per outer row): ScalarDB Get ns.t partitionKey={id=1} "
-                + "clusteringKey={seq=$in1.v} projections=[seq, id, name] AS c",
+                + "clusteringKey={seq=$in1.v} projections=[id, seq, name, price, active] AS c",
             "            -> Values IN (1, 2) AS $in1 (in memory)");
   }
 
@@ -1398,8 +1408,8 @@ public class QueryParserTest {
             "Project [name, other]",
             "  -> Lookup Join (per outer row): ScalarDB Get ns.t partitionKey={id=a.id} "
                 + "clusteringKey={seq=2} conditions=[price > 0.0] "
-                + "projections=[id, seq, price, name] AS b",
-            "    -> ScalarDB ScanAll ns.t projections=[id, name] AS a");
+                + "projections=[id, seq, name, price, active] AS b",
+            "    -> ScalarDB ScanAll ns.t projections=[id, seq, name, price, active] AS a");
     stubTable(Arrays.asList(map(1, 2, "x", 1.0, true), map(2, 2, "y", 1.0, true)));
     when(transaction.scan((Scan) plan.getOperations().get(0)))
         .thenReturn(
@@ -1419,8 +1429,8 @@ public class QueryParserTest {
         .containsExactly(
             "Project [name, other]",
             "  -> Hash Join ON a.price = b.price AND a.id < b.id",
-            "    -> ScalarDB ScanAll ns.t projections=[price, id, name] AS a",
-            "    -> ScalarDB ScanAll ns.t projections=[price, id, name] AS b");
+            "    -> ScalarDB ScanAll ns.t projections=[id, seq, name, price, active] AS a",
+            "    -> ScalarDB ScanAll ns.t projections=[id, seq, name, price, active] AS b");
     stubTable(
         Arrays.asList(
             map(1, 1, "a", 1.0, true),
@@ -1676,7 +1686,7 @@ public class QueryParserTest {
             "Project [name]",
             "  -> Lookup Join (per outer row): ScalarDB Get ns.t partitionKey={id=$in1.v} "
                 + "clusteringKey={seq=1} conditions=[price > 0.0] "
-                + "projections=[id, seq, price, name] AS t",
+                + "projections=[id, seq, name, price, active] AS t",
             "    -> Values IN (2, 1) AS $in1 (in memory)");
     stubTable(
         Arrays.asList(
@@ -1723,7 +1733,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .all()
-                .projections("price", "active", "seq", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .whereOr(alternatives)
                 .build());
     assertThat(parser.explain(plan))
@@ -1731,7 +1741,7 @@ public class QueryParserTest {
             "Project [name]",
             "  -> ScalarDB ScanAll ns.t conditions=[active = true AND name LIKE 'a%' AND seq < 3 OR "
                 + "name LIKE 'a%' AND price > 5.0] "
-                + "projections=[price, active, seq, name] AS t");
+                + "projections=[id, seq, name, price, active] AS t");
     // an OR spanning two tables cannot be pushed down
     assertThat(
             String.join(
@@ -1761,9 +1771,9 @@ public class QueryParserTest {
             "  -> Sort 1 DESC",
             "    -> Union",
             "      -> Project [name]",
-            "        -> ScalarDB Scan ns.t partitionKey={id=1} projections=[id, name] AS t",
+            "        -> ScalarDB Scan ns.t partitionKey={id=1} projections=[id, seq, name, price, active] AS t",
             "      -> Project [name]",
-            "        -> ScalarDB Scan ns.t partitionKey={id=2} projections=[id, name] AS t");
+            "        -> ScalarDB Scan ns.t partitionKey={id=2} projections=[id, seq, name, price, active] AS t");
     assertThat(union.getOutputColumns()).containsExactly("name");
     assertThat(union.execute(transaction)).containsExactly(map("name", "b"), map("name", "a"));
 
@@ -1818,7 +1828,7 @@ public class QueryParserTest {
             "Update ns.t: one ScalarDB Update per row read",
             "  -> Project [id, seq, $1, $2]",
             "    -> Filter NOT t.active",
-            "      -> ScalarDB Scan ns.t partitionKey={id=1} projections=[id, active, seq, price] AS t");
+            "      -> ScalarDB Scan ns.t partitionKey={id=1} projections=[id, seq, name, price, active] AS t");
     stubTable(Arrays.asList(map(1, 1, "a", 1.5, true), map(1, 2, "b", 0.5, false)));
     assertThat(plan.executeWrite(transaction, 10)).isEqualTo(1);
     verify(transaction)
@@ -2548,7 +2558,7 @@ public class QueryParserTest {
         .containsExactly(
             "Delete ns.t: one ScalarDB Delete per row read",
             "  -> Project [id, seq]",
-            "    -> ScalarDB ScanAll ns.t conditions=[seq = 2] projections=[seq, id] AS t");
+            "    -> ScalarDB ScanAll ns.t conditions=[seq = 2] projections=[id, seq, name, price, active] AS t");
     assertThat(delete.executeWrite(transaction, 100)).isEqualTo(2);
     verify(transaction)
         .mutate(
@@ -2591,7 +2601,7 @@ public class QueryParserTest {
         .containsExactly(
             "Delete ns.t: one ScalarDB Delete per row read",
             "  -> Project [id, seq]",
-            "    -> ScalarDB ScanAll ns.t conditions=[seq = 2] projections=[seq, id] AS t");
+            "    -> ScalarDB ScanAll ns.t conditions=[seq = 2] projections=[id, seq, name, price, active] AS t");
   }
 
   @Test
@@ -2616,13 +2626,13 @@ public class QueryParserTest {
                     .isEqualTo(
                         "  -> Lookup Join (per outer row): ScalarDB Get ns.t"
                             + " partitionKey={id=a.id} clusteringKey={seq=a.seq}"
-                            + " projections=[id, seq, name] AS b"
+                            + " projections=[id, seq, name, price, active] AS b"
                             + " (actual rows=2 ScalarDB reads=1)"),
             l ->
                 assertThat(l)
                     .isEqualTo(
                         "    -> ScalarDB Scan ns.t partitionKey={id=1} conditions=[price > 1.0]"
-                            + " projections=[id, price, seq, name] AS a"
+                            + " projections=[id, seq, name, price, active] AS a"
                             + " (actual rows=2 ScalarDB reads=1)"),
             l -> assertThat(l).matches("Execution Time: \\d+\\.\\d{3} ms"));
   }
@@ -2643,7 +2653,7 @@ public class QueryParserTest {
             "    -> Subquery AS cheap",
             "      -> Project [id, seq, price]",
             "        -> ScalarDB Scan ns.t partitionKey={id=1} conditions=[price < 1.0]"
-                + " projections=[id, price, seq] AS t",
+                + " projections=[id, seq, name, price, active] AS t",
             "    -> Subquery AS v",
             "      -> Values");
     assertThat(plan.execute(transaction)).containsExactly(map("seq", 2L, "label", "two"));
@@ -2860,7 +2870,7 @@ public class QueryParserTest {
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
                 .clusteringKey(Key.ofBigInt("seq", 2))
-                .projections("id", "seq", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .build());
   }
 
@@ -2878,7 +2888,7 @@ public class QueryParserTest {
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
                 .clusteringKey(Key.ofBigInt("seq", 2))
-                .projections("id", "seq", "price", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("price").isGreaterThanDouble(0.5))
                 .build());
     assertThat(second.getOperations())
@@ -2888,7 +2898,7 @@ public class QueryParserTest {
                 .table("t")
                 .partitionKey(Key.ofInt("id", 3))
                 .clusteringKey(Key.ofBigInt("seq", 4))
-                .projections("id", "seq", "price", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("price").isGreaterThanDouble(1.5))
                 .build());
     // the plan is bound to the placeholders, not to the values, so it can be reused
@@ -2896,7 +2906,7 @@ public class QueryParserTest {
         .containsExactly(
             "Project [name]",
             "  -> Lookup (per outer row): ScalarDB Get ns.t partitionKey={id=$1}"
-                + " clusteringKey={seq=$2} projections=[id, seq, price, name]"
+                + " clusteringKey={seq=$2} projections=[id, seq, name, price, active]"
                 + " conditions=t.price > $3 AS t");
     // LIMIT takes a parameter too (pushed into the scan here)
     assertThat(
@@ -2955,7 +2965,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
-                .projections("id", "price", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("price").isGreaterThanDouble(1.0))
                 .build());
     plan.rebind(Arrays.asList(1L, 0.1));
@@ -2967,7 +2977,7 @@ public class QueryParserTest {
                 .namespace(NS)
                 .table("t")
                 .partitionKey(Key.ofInt("id", 1))
-                .projections("id", "price", "name")
+                .projections("id", "seq", "name", "price", "active")
                 .where(ConditionBuilder.column("price").isGreaterThanDouble(0.1))
                 .build());
 
