@@ -332,35 +332,78 @@ class QueryParser {
   }
 
   /**
+   * How a source's results become rows, worked out once per source: the keys {@code
+   * qualifier.column}, and the columns the statement uses. A read names every column (see
+   * readColumns), so a row converts only the ones used, as the narrower reads before returned them.
+   */
+  static final class RowShape {
+    final String qualifier;
+    private final Map<String, String> keys = new LinkedHashMap<>(); // column -> qualifier.column
+    @Nullable private final Set<String> used; // null: every column (SELECT *)
+
+    RowShape(String qualifier, List<String> columns, @Nullable Set<String> used) {
+      this.qualifier = qualifier;
+      for (String column : columns) {
+        keys.put(column, qualifier + "." + column);
+      }
+      this.used = used;
+    }
+
+    /** The shape of a table source's rows, worked out when the plan is built. */
+    static RowShape of(LogicalPlan.Source s) {
+      Set<String> used = null;
+      if (!s.star) {
+        // count(*), EXISTS: no column is used, and the read names the partition key alone
+        used =
+            new HashSet<>(
+                s.projections.isEmpty()
+                    ? s.table().metadata.getPartitionKeyNames()
+                    : s.projections);
+      }
+      return new RowShape(s.qualifier, s.columns, used);
+    }
+
+    /** Every column converted, for a read that is not a planned source's. */
+    static RowShape all(String qualifier, List<String> columns) {
+      return new RowShape(qualifier, columns, null);
+    }
+
+    private String key(String column) {
+      String key = keys.get(column);
+      return key != null ? key : qualifier + "." + column;
+    }
+  }
+
+  /**
    * A row keyed as {@code qualifier.column}. Every column of the table is present: ScalarDB caches
    * table metadata (scalar.db.metadata.cache_expiration_time_secs, 60 seconds by default), so for a
    * while after ALTER TABLE a read may not return a new column, which is then null here.
    */
-  static Map<String, Object> rowOf(
-      String qualifier, List<String> columns, @Nullable ColumnMap map, Result result) {
+  static Map<String, Object> rowOf(RowShape shape, @Nullable ColumnMap map, Result result) {
     Map<String, Object> row = new LinkedHashMap<>();
-    if (map == null || !map.decodes()) {
-      for (String name : result.getContainedColumnNames()) {
-        row.put(qualifier + "." + name, result.getAsObject(name));
+    // stored values to the client's: amount = 1990 in a numeric(10,2) column is 19.90
+    Map<String, Column<?>> stored = map != null && map.decodes() ? result.getColumns() : null;
+    for (String name : result.getContainedColumnNames()) {
+      if (shape.used != null && !shape.used.contains(name)) {
+        continue;
       }
-    } else {
-      // stored values to the client's: amount = 1990 in a numeric(10,2) column is 19.90
-      Map<String, Column<?>> stored = result.getColumns();
-      for (String name : result.getContainedColumnNames()) {
-        row.put(qualifier + "." + name, map.value(name, result, stored));
-      }
+      row.put(
+          shape.key(name),
+          map != null && stored != null
+              ? map.value(name, result, stored)
+              : result.getAsObject(name));
     }
-    for (String name : columns) {
-      row.putIfAbsent(qualifier + "." + name, null);
+    for (String key : shape.keys.values()) {
+      row.putIfAbsent(key, null);
     }
     return row;
   }
 
   static List<Map<String, Object>> rowsOf(
-      String qualifier, List<String> columns, @Nullable ColumnMap map, List<Result> results) {
+      RowShape shape, @Nullable ColumnMap map, List<Result> results) {
     List<Map<String, Object>> rows = new ArrayList<>(results.size());
     for (Result result : results) {
-      rows.add(rowOf(qualifier, columns, map, result));
+      rows.add(rowOf(shape, map, result));
     }
     return rows;
   }
@@ -4470,6 +4513,7 @@ class QueryParser {
       } else if (s.lookupParams != null || !s.pushedLate.isEmpty()) {
         Source source = new Source(s.qualifier, s.columns, null, null, null);
         source.lookup = s;
+        source.shape = RowShape.of(s);
         source.lookupParams =
             s.lookupParams == null ? Collections.<String, Expression>emptyMap() : s.lookupParams;
         source.lookupOrderBy = pushedOrder;
@@ -4477,7 +4521,9 @@ class QueryParser {
         sources.add(source);
       } else {
         Operation scan = operation(s, new ArrayList<>(s.pushed), pushedOrder, pushedLimit);
-        sources.add(new Source(s.qualifier, s.columns, scan, null, null));
+        Source source = new Source(s.qualifier, s.columns, scan, null, null);
+        source.shape = RowShape.of(s);
+        sources.add(source);
       }
     }
     Plan plan =
@@ -6329,7 +6375,7 @@ class QueryParser {
       get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), values));
       delete.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), row));
     }
-    if (!reader.rows(get.build(), qualifier, keyColumns(t)).isEmpty()) {
+    if (!reader.rows(get.build(), RowShape.all(qualifier, keyColumns(t))).isEmpty()) {
       throw new PgException.Argument("23505", duplicate);
     }
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -6529,7 +6575,8 @@ class QueryParser {
                   "21000", "ON CONFLICT DO UPDATE command cannot affect row a second time");
             }
             Get existing = get.build();
-            List<Map<String, Object>> found = reader.rows(existing, qualifier, allColumns);
+            List<Map<String, Object>> found =
+                reader.rows(existing, RowShape.all(qualifier, allColumns));
             if (!found.isEmpty()) {
               if (!update) {
                 return null; // DO NOTHING
