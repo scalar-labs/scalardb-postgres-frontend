@@ -124,17 +124,15 @@ final class Operators {
    */
   static final class Scan extends Base {
     private final Operation operation;
-    private final String qualifier;
-    private final List<String> columns;
+    private final QueryParser.RowShape shape;
     private final boolean stream;
     @Nullable private List<Map<String, Object>> cache;
     @Nullable private Plan.Cursor rows;
     private Iterator<Map<String, Object>> cached = NONE;
 
-    Scan(Operation operation, String qualifier, List<String> columns, boolean stream) {
+    Scan(Operation operation, QueryParser.RowShape shape, boolean stream) {
       this.operation = operation;
-      this.qualifier = qualifier;
-      this.columns = columns;
+      this.shape = shape;
       this.stream = stream;
     }
 
@@ -143,14 +141,12 @@ final class Operators {
       close();
       if (cache == null && !stream) {
         cache =
-            reading(
-                execution,
-                () -> QueryParser.readAll(execution.reader.open(operation, qualifier, columns)));
+            reading(execution, () -> QueryParser.readAll(execution.reader.open(operation, shape)));
       }
       if (cache != null) {
         cached = cache.iterator();
       } else {
-        rows = reading(execution, () -> execution.reader.open(operation, qualifier, columns));
+        rows = reading(execution, () -> execution.reader.open(operation, shape));
       }
     }
 
@@ -171,7 +167,7 @@ final class Operators {
 
     @Override
     public String describe() {
-      return "ScalarDB " + QueryParser.describe(operation) + " AS " + qualifier;
+      return "ScalarDB " + QueryParser.describe(operation) + " AS " + shape.qualifier;
     }
 
     @Override

@@ -596,10 +596,10 @@ final class Plan {
       }
 
       @Override
-      public Cursor open(Operation operation, String qualifier, List<String> columns) {
+      public Cursor open(Operation operation, QueryParser.RowShape shape) {
         ColumnMap map = columnMap(operation);
         if (operation instanceof Get) {
-          return listCursor(rowsOf(qualifier, columns, map, read(operation)));
+          return listCursor(rowsOf(shape, map, read(operation)));
         }
         CrudOperable.Scanner<E> scanner;
         reads.incrementAndGet();
@@ -615,7 +615,7 @@ final class Plan {
           @Nullable public Map<String, Object> next() {
             try {
               Optional<Result> result = scanner.one();
-              return result.isPresent() ? rowOf(qualifier, columns, map, result.get()) : null;
+              return result.isPresent() ? rowOf(shape, map, result.get()) : null;
             } catch (TransactionException e) {
               throw new ReadFailure(e);
             }
@@ -1165,7 +1165,7 @@ final class Plan {
     if (s.loaded != null) {
       return new Operators.Values(s.loaded, s.catalogTable + " AS " + s.qualifier + " (in memory)");
     }
-    return new Operators.Scan(s.scan(), s.qualifier, s.columns, stream);
+    return new Operators.Scan(s.scan(), s.shape(), stream);
   }
 
   /** Reads a lookup source for one outer row, binding its lookup columns to the row's values. */
@@ -1173,7 +1173,7 @@ final class Plan {
     Operation operation = lookupOperation(s, left, ctx);
     return operation == null
         ? new ArrayList<Map<String, Object>>()
-        : reader().rows(operation, s.qualifier, s.columns);
+        : reader().rows(operation, s.shape());
   }
 
   /**
@@ -1199,7 +1199,7 @@ final class Plan {
       } else if (operation instanceof Get) {
         gets.add(i);
       } else {
-        results[i] = reader().rows(operation, s.qualifier, s.columns);
+        results[i] = reader().rows(operation, s.shape());
       }
     }
     for (List<Integer> group : groups.values()) {
@@ -1220,7 +1220,7 @@ final class Plan {
     }
     if (gets.size() == 1) {
       int i = gets.get(0);
-      results[i] = reader().rows(operations.get(i), s.qualifier, s.columns);
+      results[i] = reader().rows(operations.get(i), s.shape());
     } else if (!gets.isEmpty()) {
       List<Operation> batch = new ArrayList<>();
       for (int i : gets) {
@@ -1228,8 +1228,7 @@ final class Plan {
       }
       List<List<Result>> read = reader().readAll(batch);
       for (int k = 0; k < gets.size(); k++) {
-        results[gets.get(k)] =
-            rowsOf(s.qualifier, s.columns, reader().columnMap(batch.get(k)), read.get(k));
+        results[gets.get(k)] = rowsOf(s.shape(), reader().columnMap(batch.get(k)), read.get(k));
       }
     }
     return Arrays.asList(results);
@@ -1304,12 +1303,7 @@ final class Plan {
       for (Column<?> column : ((Get) operations.get(i)).getClusteringKey().get().getColumns()) {
         key.add(Operators.normalize(column.getValueAsObject()));
       }
-      results[i] =
-          rowsOf(
-              s.qualifier,
-              s.columns,
-              map,
-              byKey.getOrDefault(key, Collections.<Result>emptyList()));
+      results[i] = rowsOf(s.shape(), map, byKey.getOrDefault(key, Collections.<Result>emptyList()));
     }
   }
 
@@ -1423,6 +1417,7 @@ final class Plan {
     @Nullable Map<String, Expression> lookupParams;
     List<OrderByElement> lookupOrderBy = Collections.emptyList();
     int lookupLimit = -1;
+    @Nullable QueryParser.RowShape shape; // a table source's: how its reads become rows
 
     Source(
         String qualifier,
@@ -1442,6 +1437,11 @@ final class Plan {
     /** The ScalarDB read of a source that is not a lookup. */
     Operation scan() {
       return Objects.requireNonNull(scan, () -> qualifier + " has no scan");
+    }
+
+    /** How a table source's reads become rows. */
+    QueryParser.RowShape shape() {
+      return Objects.requireNonNull(shape, () -> qualifier + " is not a table");
     }
 
     /** The keyed read this source repeats per outer row; only for a lookup source. */
@@ -1546,16 +1546,16 @@ final class Plan {
     @Nullable ColumnMap columnMap(Operation operation);
 
     /** Runs a Get or Scan and returns its rows keyed {@code qualifier.column}, decoded. */
-    default List<Map<String, Object>> rows(
-        Operation operation, String qualifier, List<String> columns) {
-      return rowsOf(qualifier, columns, columnMap(operation), read(operation));
+    default List<Map<String, Object>> rows(Operation operation, QueryParser.RowShape shape) {
+      return rowsOf(shape, columnMap(operation), read(operation));
     }
 
     /**
      * Opens a Get or Scan as a row stream with keys qualified as {@code qualifier.column}; every
-     * one of {@code columns} is present, null when the storage did not return it.
+     * column of the source is present, null when the statement does not use it or the storage did
+     * not return it.
      */
-    Cursor open(Operation operation, String qualifier, List<String> columns);
+    Cursor open(Operation operation, QueryParser.RowShape shape);
 
     /** ScalarDB reads issued so far: one per Get, Scan or opened scanner. */
     long reads();

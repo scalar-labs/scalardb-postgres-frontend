@@ -483,6 +483,8 @@ public final class PostgresServer implements AutoCloseable {
     private boolean tls;
     private final Map<String, String> statements = new HashMap<>(); // name -> SQL with $n
     private final Map<String, int[]> parameterTypes = new HashMap<>(); // name -> declared OIDs
+    // name -> the $n placeholders its SQL has, counted once at Parse rather than at every Bind
+    private final Map<String, Integer> parameterCounts = new HashMap<>();
     // name -> the OIDs Describe reported, by which a binary parameter is read when none was
     // declared
     private final Map<String, int[]> describedTypes = new HashMap<>();
@@ -850,6 +852,7 @@ public final class PostgresServer implements AutoCloseable {
           String text = readString(msg);
           reserve(statementBytes, name, text.length());
           statements.put(name, withoutLeadingComments(text));
+          parameterCounts.put(name, QueryParser.parameterCount(statements.get(name)));
           int[] oids = new int[count(msg, 4)];
           for (int i = 0; i < oids.length; i++) {
             oids[i] = msg.getInt();
@@ -1007,13 +1010,16 @@ public final class PostgresServer implements AutoCloseable {
     }
 
     private boolean isDeallocate(String sql) {
-      return DEALLOCATE.matcher(QueryParser.trimStatement(sql)).matches();
+      // the first word alone rules out nearly every statement, without scanning all of it
+      return QueryParser.firstWord(sql).equals("DEALLOCATE")
+          && DEALLOCATE.matcher(QueryParser.trimStatement(sql)).matches();
     }
 
     /** Drops a prepared statement and what is kept about it. */
     private void forget(String name) {
       statements.remove(name);
       parameterTypes.remove(name);
+      parameterCounts.remove(name);
       describedTypes.remove(name);
       release(statementBytes, name);
     }
@@ -1170,7 +1176,8 @@ public final class PostgresServer implements AutoCloseable {
         params.add(
             format == 0 ? new String(value, StandardCharsets.UTF_8) : decodeBinary(oid, value));
       }
-      int needed = Math.max(QueryParser.parameterCount(sql), oids.length); // as PostgreSQL counts
+      int counted = parameterCounts.getOrDefault(statement, -1);
+      int needed = Math.max(counted >= 0 ? counted : QueryParser.parameterCount(sql), oids.length);
       if (params.size() != needed) {
         throw new PgException.Argument(
             "08P01",
