@@ -5812,7 +5812,7 @@ class QueryParser {
     }
     Set<AndConditionSet> out = new LinkedHashSet<>();
     for (List<ConditionalExpression> combination : combinations) {
-      out.add(ConditionSetBuilder.andConditionSet(new HashSet<>(combination)).build());
+      out.add(ConditionSetBuilder.andConditionSet(new LinkedHashSet<>(combination)).build());
     }
     return out;
   }
