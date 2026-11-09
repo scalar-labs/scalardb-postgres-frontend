@@ -158,6 +158,9 @@ final class Plan {
   // the type each CASE, COALESCE, ... widens to, worked out once (Evaluator.widened); a plan is
   // one session's, cached by its QueryProcessor, so a plain map
   private final Map<Expression, Integer> widenings = new java.util.IdentityHashMap<>();
+  // the plan's column references, resolved once (Evaluator.Resolved); one session's, so plain too
+  private final Map<net.sf.jsqlparser.schema.Column, Evaluator.Resolved> resolvedColumns =
+      new java.util.IdentityHashMap<>();
   @Nullable private Operator root; // the operator tree; null for DML
 
   /** A DML plan whose mutations {@code builder} makes from the bound parameters. */
@@ -1016,7 +1019,8 @@ final class Plan {
         parameters,
         columnTypes(),
         logical == null ? Collections.<LogicalPlan.Source>emptyList() : logical.sources,
-        widenings);
+        widenings,
+        resolvedColumns);
   }
 
   /** The type of every {@code alias.column} the plan reads, which a NULL value cannot tell. */

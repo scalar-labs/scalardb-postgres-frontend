@@ -2227,4 +2227,17 @@ public class PostgresServerTest {
     assertThatThrownBy(() -> open.createStatement().execute("SELECT 1"))
         .isInstanceOf(SQLException.class);
   }
+
+  @Test
+  void typed_ReadsNumbersAsBeforeTheIntegerPrecheck() {
+    assertThat(PostgresServer.typed("12", 701)).isEqualTo(12L);
+    assertThat(PostgresServer.typed("-12", 20)).isEqualTo(-12L);
+    assertThat(PostgresServer.typed("+7", 23)).isEqualTo(7L);
+    assertThat(PostgresServer.typed("12.5", 701)).isEqualTo(12.5);
+    assertThat(PostgresServer.typed("1e3", 701)).isEqualTo(1000.0);
+    assertThat(PostgresServer.typed("\u0661\u0662", 23))
+        .isEqualTo(12L); // Long.valueOf reads any Unicode digit
+    assertThat(PostgresServer.typed("99999999999999999999", 1700))
+        .isEqualTo(new java.math.BigDecimal("99999999999999999999"));
+  }
 }

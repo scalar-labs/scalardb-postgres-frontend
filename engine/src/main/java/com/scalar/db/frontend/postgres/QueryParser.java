@@ -380,7 +380,8 @@ class QueryParser {
    * while after ALTER TABLE a read may not return a new column, which is then null here.
    */
   static Map<String, Object> rowOf(RowShape shape, @Nullable ColumnMap map, Result result) {
-    Map<String, Object> row = new LinkedHashMap<>();
+    // sized for every column, so that a wide row is not rehashed while it fills
+    Map<String, Object> row = new LinkedHashMap<>(shape.keys.size() * 4 / 3 + 1);
     // stored values to the client's: amount = 1990 in a numeric(10,2) column is 19.90
     Map<String, Column<?>> stored = map != null && map.decodes() ? result.getColumns() : null;
     for (String name : result.getContainedColumnNames()) {

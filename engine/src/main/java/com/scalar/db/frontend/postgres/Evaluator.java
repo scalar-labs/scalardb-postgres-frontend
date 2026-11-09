@@ -140,6 +140,8 @@ final class Evaluator {
     final Map<String, com.scalar.db.io.DataType> types; // alias.column -> type, for NULL values
     final List<LogicalPlan.Source> sources; // the plan's FROM items, for plan-time types
     final Map<Expression, Integer> widenings; // CASE, COALESCE, ... -> what it widens to
+    // the plan's column references, resolved once (see Resolved); null without a plan
+    @Nullable final Map<Column, Resolved> columns;
     // a comparison's right operand -> whether it compares as bpchar (see Evaluator.bpchar)
     final Map<Expression, Boolean> bpchars = new java.util.IdentityHashMap<>();
     // whether an arithmetic expression is smallint op smallint, decided once from plan-time types
@@ -157,7 +159,8 @@ final class Evaluator {
           parameters,
           Collections.emptyMap(),
           Collections.emptyList(),
-          new java.util.IdentityHashMap<>());
+          new java.util.IdentityHashMap<>(),
+          null);
     }
 
     Context(
@@ -167,7 +170,8 @@ final class Evaluator {
         List<Object> parameters,
         Map<String, com.scalar.db.io.DataType> types,
         List<LogicalPlan.Source> sources,
-        Map<Expression, Integer> widenings) {
+        Map<Expression, Integer> widenings,
+        @Nullable Map<Column, Resolved> columns) {
       this.outer = outer;
       this.subplans = subplans;
       this.catalog = catalog;
@@ -175,6 +179,7 @@ final class Evaluator {
       this.types = types;
       this.sources = sources;
       this.widenings = widenings;
+      this.columns = columns;
     }
 
     /** The declared type of a column of this plan's sources, or null if not known. */
@@ -2547,8 +2552,53 @@ final class Evaluator {
     return s;
   }
 
+  /**
+   * A column reference's unquoted name and row key, worked out once per parsed node of a plan (kept
+   * with the plan's other per-expression decisions, see {@link Context#columns}) instead of on
+   * every row: unquoting folds case and the key is a new string, hashed afresh, each time.
+   */
+  static final class Resolved {
+    final String rawName;
+    @Nullable final net.sf.jsqlparser.schema.Table table;
+    @Nullable final String tableName;
+    final String unquoted;
+    @Nullable final String key; // qualifier.name, for a qualified reference without a subscript
+
+    Resolved(Column c) {
+      rawName = c.getColumnName();
+      table = c.getTable();
+      tableName = table == null ? null : table.getName();
+      unquoted = QueryParser.unquote(rawName);
+      key =
+          table == null || tableName == null || unquoted.indexOf('[') >= 0
+              ? null
+              : QueryParser.unquote(tableName) + "." + unquoted;
+    }
+
+    // The planner resolves a reference (setting its table) before the plan runs; a node whose name
+    // or table object changed since is worked out again. By identity: getColumnName returns its
+    // field, and Table.getName builds a string per call.
+    boolean matches(Column c) {
+      return rawName == c.getColumnName() && table == c.getTable();
+    }
+  }
+
+  private static Resolved resolved(Column c, Context ctx) {
+    Map<Column, Resolved> cache = ctx.columns;
+    if (cache == null) {
+      return new Resolved(c); // no plan behind the context: nothing to keep it with
+    }
+    Resolved r = cache.get(c);
+    if (r == null || !r.matches(c)) {
+      r = new Resolved(c);
+      cache.put(c, r);
+    }
+    return r;
+  }
+
   @Nullable private static Object column(Column c, List<Map<String, Object>> group, Context ctx) {
-    String raw = QueryParser.unquote(c.getColumnName());
+    Resolved resolved = resolved(c, ctx);
+    String raw = resolved.unquoted;
     if (raw.equals(QueryParser.WHOLE_ROW) && c.getTable() != null) {
       // t as a value: t's row, a record of its columns, from this query's row or, for a
       // correlated reference, the enclosing one's; NULL where an outer join found no row for t
@@ -2577,7 +2627,7 @@ final class Evaluator {
     if (c.getTable() == null && QueryParser.isBooleanLiteral(name)) {
       return name.equalsIgnoreCase("true");
     }
-    Object value = columnValue(c, name, group, ctx);
+    Object value = columnValue(c, name, group, ctx, resolved);
     if (bracket < 0 && c.getArrayConstructor() == null) {
       return value;
     }
@@ -2635,7 +2685,7 @@ final class Evaluator {
   }
 
   @Nullable private static Object columnValue(
-      Column c, String name, List<Map<String, Object>> group, Context ctx) {
+      Column c, String name, List<Map<String, Object>> group, Context ctx, Resolved r) {
     if (group instanceof Operators.Aggregate.EmptyGroup) {
       return null; // the empty grouping set's row over no input: its grouping columns are NULL
     }
@@ -2643,7 +2693,10 @@ final class Evaluator {
     List<Map<String, Object>> candidates =
         ctx.outer == null ? Collections.singletonList(row) : Arrays.asList(row, ctx.outer);
     if (c.getTable() != null) {
-      String key = QueryParser.unquote(c.getTable().getName()) + "." + name;
+      String key =
+          r.key != null && name.equals(r.unquoted)
+              ? r.key
+              : QueryParser.unquote(c.getTable().getName()) + "." + name;
       for (Map<String, Object> candidate : candidates) {
         if (candidate.containsKey(key)) {
           return candidate.get(key);

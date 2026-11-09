@@ -712,9 +712,13 @@ public class QueryProcessor {
 
     /** True for a statement that produces a result set (even an empty one). */
     public boolean returnsRows() {
-      return plan != null
-          && (plan.commandTag(0).matches("(SELECT|EXPLAIN).*")
-              || !plan.getOutputColumns().isEmpty()); // RETURNING
+      if (plan == null) {
+        return false;
+      }
+      String tag = plan.commandTag(0);
+      return (tag.startsWith("SELECT")
+          || tag.startsWith("EXPLAIN")
+          || !plan.getOutputColumns().isEmpty()); // RETURNING
     }
 
     /**
@@ -821,11 +825,20 @@ public class QueryProcessor {
     return open(sql, Collections.emptyList());
   }
 
+  // statement_timeout, parsed once per value rather than on every statement
+  private String timeoutText = "";
+  private long timeoutMillis;
+
   private void startStatement() {
     applyZone();
     Instant now =
         inTransaction() && transactionStart != null ? transactionStart : Evaluator.clock();
-    Evaluator.startStatement(now, millis(current("statement_timeout")));
+    String timeout = current("statement_timeout");
+    if (!timeout.equals(timeoutText)) {
+      timeoutMillis = millis(timeout);
+      timeoutText = timeout;
+    }
+    Evaluator.startStatement(now, timeoutMillis);
     Evaluator.setSettings(sessionSettings);
   }
 

@@ -464,10 +464,7 @@ public final class PostgresServer implements AutoCloseable {
               .i8('M')
               .str("sorry, too many clients already")
               .i8(0);
-      byte[] body = m.bytes.toByteArray();
-      out.writeByte('E');
-      out.writeInt(body.length + 4);
-      out.write(body);
+      m.writeTo(out, 'E');
       out.flush();
     } catch (IOException e) {
       logger.debug("Refusing a connection failed: {}", e.toString());
@@ -1084,32 +1081,35 @@ public final class PostgresServer implements AutoCloseable {
       }
       List<String> notices = rows.notices();
       // client_min_messages above NOTICE (warning, error, ...) suppresses them, as in PostgreSQL
-      String minimum = processor.currentSetting("client_min_messages").toLowerCase(Locale.ROOT);
-      boolean noticesWanted =
-          minimum.isEmpty()
-              || java.util.Arrays.asList(
-                      "debug5", "debug4", "debug3", "debug2", "debug1", "log", "notice", "info")
-                  .contains(minimum);
-      for (String notice : notices) {
-        boolean warning = notice.startsWith(QueryProcessor.WARNING);
-        if (warning
-            ? java.util.Arrays.asList("error", "fatal", "panic").contains(minimum)
-            : !noticesWanted) {
-          continue;
+      // (read only when there is a notice to send)
+      if (!notices.isEmpty()) {
+        String minimum = processor.currentSetting("client_min_messages").toLowerCase(Locale.ROOT);
+        boolean noticesWanted =
+            minimum.isEmpty()
+                || java.util.Arrays.asList(
+                        "debug5", "debug4", "debug3", "debug2", "debug1", "log", "notice", "info")
+                    .contains(minimum);
+        for (String notice : notices) {
+          boolean warning = notice.startsWith(QueryProcessor.WARNING);
+          if (warning
+              ? java.util.Arrays.asList("error", "fatal", "panic").contains(minimum)
+              : !noticesWanted) {
+            continue;
+          }
+          String severity = warning ? "WARNING" : "NOTICE";
+          send(
+              'N',
+              new Msg()
+                  .i8('S')
+                  .str(severity)
+                  .i8('V')
+                  .str(severity)
+                  .i8('C')
+                  .str("01000") // warning
+                  .i8('M')
+                  .str(warning ? notice.substring(QueryProcessor.WARNING.length()) : notice)
+                  .i8(0));
         }
-        String severity = warning ? "WARNING" : "NOTICE";
-        send(
-            'N',
-            new Msg()
-                .i8('S')
-                .str(severity)
-                .i8('V')
-                .str(severity)
-                .i8('C')
-                .str("01000") // warning
-                .i8('M')
-                .str(warning ? notice.substring(QueryProcessor.WARNING.length()) : notice)
-                .i8(0));
       }
       send('C', new Msg().str(processor.lastCommandTag()));
       return null;
@@ -1158,6 +1158,7 @@ public final class PostgresServer implements AutoCloseable {
       }
       int count = count(msg, 4);
       List<String> params = new ArrayList<>();
+      int[] described = describedTypes.getOrDefault(statement, new int[0]);
       for (int i = 0; i < count; i++) {
         int length = msg.getInt();
         if (length < 0) {
@@ -1170,7 +1171,6 @@ public final class PostgresServer implements AutoCloseable {
         byte[] value = new byte[length];
         msg.get(value);
         int format = format(formats, i);
-        int[] described = describedTypes.getOrDefault(statement, new int[0]);
         int oid =
             i < oids.length && oids[i] != 0 ? oids[i] : i < described.length ? described[i] : 0;
         params.add(
@@ -1469,17 +1469,40 @@ public final class PostgresServer implements AutoCloseable {
     }
 
     private void send(char type, Msg m) throws IOException {
-      byte[] body = m.bytes.toByteArray();
-      out.writeByte(type);
-      out.writeInt(body.length + 4);
-      out.write(body);
+      m.writeTo(out, type);
     }
   }
 
   /** A message body under construction. */
   private static final class Msg {
-    private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    // The first 5 bytes are kept for the type and length, so that writeTo sends the whole message
+    // in one write (three writes took the stream's lock three times)
+    private final Frame bytes = new Frame();
     private final DataOutputStream data = new DataOutputStream(bytes);
+
+    private static final class Frame extends ByteArrayOutputStream {
+      Frame() {
+        super(64);
+        count = 5;
+      }
+
+      byte[] array() {
+        return buf;
+      }
+    }
+
+    /** Writes the message: its type, its length (itself and the body), then the body. */
+    void writeTo(DataOutputStream out, char type) throws IOException {
+      byte[] b = bytes.array();
+      int n = bytes.size();
+      int length = n - 1;
+      b[0] = (byte) type;
+      b[1] = (byte) (length >>> 24);
+      b[2] = (byte) (length >>> 16);
+      b[3] = (byte) (length >>> 8);
+      b[4] = (byte) length;
+      out.write(b, 0, n);
+    }
 
     Msg i8(int v) throws IOException {
       data.writeByte(v);
@@ -1760,21 +1783,43 @@ public final class PostgresServer implements AutoCloseable {
         : guess;
   }
 
+  /**
+   * True for an optional sign and one or more digits (as Long.valueOf reads them, Character.digit).
+   */
+  private static boolean signedDigits(String s) {
+    int i = s.isEmpty() ? 0 : s.charAt(0) == '-' || s.charAt(0) == '+' ? 1 : 0;
+    if (i == s.length()) {
+      return false;
+    }
+    for (; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if ((c < '0' || c > '9') && (c < 0x80 || Character.digit(c, 10) < 0)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private static Object guess(String value, int oid) {
     if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false")) {
       return Boolean.valueOf(value.toLowerCase(Locale.ROOT));
     }
-    try {
-      return Long.valueOf(value);
-    } catch (NumberFormatException e) {
-      if (oid == 700 || oid == 701) {
-        return Double.valueOf(value);
-      }
+    // Long.valueOf only for text it can read, so that a float8 parameter costs no exception; past
+    // Long's range it still throws, and the fallback is the same
+    if (signedDigits(value)) {
       try {
-        return Evaluator.decimal(value); // numeric, or an undeclared decimal: exact, as a literal
-      } catch (NumberFormatException notDecimal) {
-        return Double.valueOf(value); // NaN, Infinity
+        return Long.valueOf(value);
+      } catch (NumberFormatException outOfRange) {
+        // as below
       }
+    }
+    if (oid == 700 || oid == 701) {
+      return Double.valueOf(value);
+    }
+    try {
+      return Evaluator.decimal(value); // numeric, or an undeclared decimal: exact, as a literal
+    } catch (NumberFormatException notDecimal) {
+      return Double.valueOf(value); // NaN, Infinity
     }
   }
 
