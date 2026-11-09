@@ -1085,7 +1085,10 @@ final class Plan {
         if (right.lateral) {
           op = new Operators.LateralJoin(op, right, spec.on, spec.kind, leftKeys, this);
         } else if (right.lookup != null) {
-          op = new Operators.LookupJoin(op, right, spec.on, spec.kind, leftKeys, this);
+          // Sort, Aggregate and Distinct read all their input before their first row, so a LIMIT
+          // above them cannot stop the join early either
+          boolean drains = aggregated || distinct || !orderBy.isEmpty();
+          op = new Operators.LookupJoin(op, right, spec.on, spec.kind, leftKeys, this, drains);
         } else if (!spec.hashLeft.isEmpty()) {
           op =
               new Operators.HashJoin(

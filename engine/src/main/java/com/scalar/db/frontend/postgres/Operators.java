@@ -1378,6 +1378,10 @@ final class Operators {
 
     static final int MAX_BATCH = 128;
 
+    // Where everything above the join reads all its rows anyway (a sort, aggregate or DISTINCT on
+    // top), starting small cannot save reads: the batch starts at MAX_BATCH
+    private final boolean drains;
+
     private final java.util.ArrayDeque<Map<String, Object>> pendingLeft =
         new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<List<Map<String, Object>>> pendingCandidates =
@@ -1391,8 +1395,10 @@ final class Operators {
         List<Expression> on,
         LogicalPlan.Join.Kind kind,
         List<String> leftColumns,
-        Plan plan) {
+        Plan plan,
+        boolean drains) {
       super(left, right, on, kind, leftColumns, plan);
+      this.drains = drains;
     }
 
     @Override
@@ -1401,7 +1407,7 @@ final class Operators {
       pendingLeft.clear();
       pendingCandidates.clear();
       leftExhausted = false;
-      batch = BATCH;
+      batch = drains ? MAX_BATCH : BATCH;
     }
 
     /**
