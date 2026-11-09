@@ -4206,4 +4206,28 @@ public class QueryParserTest {
                 .execute(transaction))
         .containsExactly(map("a", "0.3", "b", "1.01", "c", "1.23456789012346"));
   }
+
+  @Test
+  void plainTimestamp_AgreesWithTheGeneralParser() {
+    String[] inputs = {
+      "2026-11-05 14:16:27.001242+09", "2026-11-05 14:16:27+09", "2026-11-05 14:16:27.5-05:30",
+      "2026-11-05T14:16:27.123456+0900", "2026-11-05 14:16:27", "2026-01-01 00:00:00.000001",
+      "1999-12-31 23:59:59.999999+00", "2024-02-29 12:00:00-11", "0001-01-01 00:00:00"
+    };
+    for (String s : inputs) {
+      assertThat(QueryParser.plainTimestamp(s)).as(s).isEqualTo(QueryParser.parsedLocalDateTime(s));
+    }
+    String[] general = {
+      "2026-11-05 14:16:27.1234567", "2026-11-05 24:00:00", "2026-11-05 14:16:60",
+          "2026-02-30 00:00:00",
+      "2026-11-05 14:16:27 JST", "2026-11-05", "0000-01-01 00:00:00", "2026-11-05 14:16:27+16",
+      "epoch", "2026-11-05 14:16:27.+09", "2026-11-05 14:16:27+09:"
+    };
+    for (String s : general) {
+      assertThat(QueryParser.plainTimestamp(s)).as(s).isNull();
+    }
+    // the general parser refuses an offset whose colon is not followed by minutes
+    assertThatThrownBy(() -> QueryParser.parsedLocalDateTime("2026-11-05 14:16:27+09:"))
+        .isInstanceOf(RuntimeException.class);
+  }
 }
