@@ -8254,6 +8254,98 @@ class QueryParser {
    * A timestamp as text, with or without a zone offset; the offset is dropped, as for TIMESTAMP.
    */
   static LocalDateTime localDateTime(String s) {
+    LocalDateTime plain = plainTimestamp(s);
+    return plain != null ? plain : parsedLocalDateTime(s);
+  }
+
+  /**
+   * The shape pgJDBC sends for a timestamp parameter, {@code yyyy-mm-dd hh:mm:ss[.f..f]} with up to
+   * six fraction digits and an optional {@code +hh}, {@code +hhmm} or {@code +hh:mm} offset, read
+   * directly; null for anything else, which {@link #parsedLocalDateTime} reads. As there, the
+   * offset is dropped (a timestamp keeps the local time as written).
+   */
+  @Nullable static LocalDateTime plainTimestamp(String s) {
+    int n = s.length();
+    if (n < 19
+        || s.charAt(4) != '-'
+        || s.charAt(7) != '-'
+        || (s.charAt(10) != ' ' && s.charAt(10) != 'T')
+        || s.charAt(13) != ':'
+        || s.charAt(16) != ':') {
+      return null;
+    }
+    int year = digits(s, 0, 4);
+    int month = digits(s, 5, 7);
+    int day = digits(s, 8, 10);
+    int hour = digits(s, 11, 13);
+    int minute = digits(s, 14, 16);
+    int second = digits(s, 17, 19);
+    if (year <= 0 || month < 0 || day < 0 || hour < 0 || minute < 0 || second < 0) {
+      return null; // year 0 and BC go the general way
+    }
+    int i = 19;
+    int nanos = 0;
+    if (i < n && s.charAt(i) == '.') {
+      int start = ++i;
+      while (i < n && s.charAt(i) >= '0' && s.charAt(i) <= '9') {
+        nanos = nanos * 10 + (s.charAt(i++) - '0');
+        if (i - start > 6) {
+          return null; // finer than microseconds rounds: the general way
+        }
+      }
+      if (i == start) {
+        return null;
+      }
+      for (int k = i - start; k < 9; k++) {
+        nanos *= 10;
+      }
+    }
+    if (i < n) {
+      char sign = s.charAt(i++);
+      int offsetHours = digits(s, i, i + 2);
+      if ((sign != '+' && sign != '-') || offsetHours < 0 || offsetHours > 15) {
+        return null;
+      }
+      i += 2;
+      boolean colon = i < n && s.charAt(i) == ':';
+      if (colon) {
+        i++; // +hh:mm: the minutes must follow
+      }
+      if (colon || i < n) {
+        int offsetMinutes = digits(s, i, i + 2);
+        if (offsetMinutes < 0 || offsetMinutes > 59) {
+          return null;
+        }
+        i += 2;
+      }
+      if (i != n) {
+        return null;
+      }
+    }
+    try {
+      return LocalDateTime.of(year, month, day, hour, minute, second, nanos);
+    } catch (java.time.DateTimeException e) {
+      return null; // 24:00, second 60, an invalid day: the general way decides
+    }
+  }
+
+  /** The non-negative number in {@code s[from, to)}, all digits; -1 otherwise. */
+  private static int digits(String s, int from, int to) {
+    if (to > s.length()) {
+      return -1;
+    }
+    int v = 0;
+    for (int i = from; i < to; i++) {
+      char c = s.charAt(i);
+      if (c < '0' || c > '9') {
+        return -1;
+      }
+      v = v * 10 + (c - '0');
+    }
+    return v;
+  }
+
+  static LocalDateTime parsedLocalDateTime(String s) {
     Object special = Evaluator.specialInput(s, "timestamp");
     if (special != null) {
       return (LocalDateTime) special;
