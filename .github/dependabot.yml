@@ -11,6 +11,9 @@ updates:
       # kept at ScalarDB's versions (see libs.versions.toml); slf4j stays on 1.7 for slf4j-simple
       - dependency-name: com.fasterxml.jackson.core:*
       - dependency-name: org.slf4j:*
+      # 2.x lays code out differently: move with ScalarDB Saga, reformatting in one commit
+      - dependency-name: com.google.googlejavaformat:google-java-format
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /server/src/docker
     schedule:
