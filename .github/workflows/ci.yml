@@ -25,7 +25,7 @@ jobs:
           distribution: temurin
           java-version: 25
       - uses: gradle/actions/setup-gradle@v6
-      # ScalarDB 3.20.0-SNAPSHOT comes from ScalarDB's snapshot repository (see the java conventions)
+      # ScalarDB and the Cluster SDK are releases from Maven Central on this branch
       - run: ./gradlew check :server:shadowJar :server:dockerContext
       - uses: actions/upload-artifact@v7
         if: failure()
