@@ -174,13 +174,13 @@ public final class PostgresServer implements AutoCloseable {
   static final long MAX_SETTLE_SECS = 5;
 
   /** Milliseconds a session waits after DDL on an existing table, see {@link #configure}. */
-  long ddlSettleMillis;
+  volatile long ddlSettleMillis;
 
   // the NOTICE after DDL on an existing table when the cache is too long to wait out
   @Nullable String ddlNotice;
 
   // how often sessions compare cached tables for DDL from another process: the cache expiry
-  long metadataCheckNanos = 1_000_000_000L;
+  volatile long metadataCheckNanos = 1_000_000_000L;
 
   private volatile boolean allowCoordinatorDrop; // scalar.db.postgres.allow_drop_coordinator_tables
   private volatile int maxRowsPerWriteCeiling; // scalar.db.postgres.max_rows_per_write_ceiling

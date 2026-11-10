@@ -18,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** The static helpers the SQL-level tests reach only indirectly. */
 public class HelpersTest {
@@ -472,9 +473,8 @@ public class HelpersTest {
   }
 
   @ParameterizedTest
-  @CsvSource(
-      delimiter = '|',
-      value = {
+  @ValueSource(
+      strings = {
         // the SQL-standard forms JSQLParser keeps as named parameters or a TRIM's FROM operand
         "substring(c FROM 1 FOR 3)",
         "substring(c FROM 2)",
