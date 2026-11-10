@@ -7,23 +7,25 @@
 # its values may read the environment as ${env:NAME}. See getting-started/README.md.
 
 # Tag and digest together: the tag says what this is, the digest is what gets pulled, so rebuilding
-# a commit yields the same base layer. No Dependabot watches this repository: bump both by hand
-# (docker buildx imagetools inspect eclipse-temurin:25-jre-noble).
+# a commit yields the same base layer. Dependabot proposes the bumps (.github/dependabot.yml); by
+# hand, docker buildx imagetools inspect eclipse-temurin:<tag> gives the digest.
 #
 # A JRE, not a JDK: nothing here compiles. 25, the current LTS, although the code targets Java 17:
 # 17 is the floor for ScalarDB Cluster nodes that embed the engine, which this image is not.
-FROM eclipse-temurin:25-jre-noble@sha256:d9a39a23634650173f1e2bbc176227af9728587ecf0f4b62d53e9355cd7a19ab
+FROM eclipse-temurin:25.0.5_8-jre-resolute@sha256:b6e00330337143a2c1a20f1c1c693d4b6ce9a3c30ade8b9d03fc68cc9e3871e7
 
 # One layer: OS packages upgraded, since the base image can carry CVEs already fixed upstream, and a
 # fixed numeric uid/gid, the one other Scalar server images use, so that a Kubernetes runAsNonRoot
-# check passes without a passwd lookup.
+# check passes without a passwd lookup. DEBIAN_FRONTEND is exported in the RUN rather than set with
+# ENV, so that it does not reach the runtime environment.
 # hadolint ignore=DL3005
-RUN apt-get update \
+RUN export DEBIAN_FRONTEND=noninteractive \
+ && apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 201 scalardb \
- && useradd --system --uid 201 --gid 201 --no-create-home scalardb
+ && useradd --system --uid 201 --gid 201 --no-create-home --shell /usr/sbin/nologin scalardb
 
 WORKDIR /scalardb-postgres-frontend
 
@@ -46,7 +48,7 @@ ENTRYPOINT ["java", "-cp", "/scalardb-postgres-frontend/lib/*", "com.scalar.db.f
 CMD ["/scalardb-postgres-frontend/scalardb.properties", "5432"]
 
 # Last, since they change on every build. dockerBuild passes the project version and the git commit.
-# The OCI version label is set too: the base image's says 24.04, Ubuntu's version, not ours.
+# The OCI version label is set too: the base image's carries Ubuntu's version, not ours.
 ARG IMAGE_VERSION=unspecified
 ARG IMAGE_REVISION=unspecified
 LABEL name="scalardb-postgres-frontend" \
