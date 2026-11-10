@@ -64,3 +64,12 @@ def create_all():
         c.execute(t.insert().values(id=1, name='w', active=True, at=datetime.datetime(2024, 1, 1)))
         return c.execute(select(t)).fetchall()
 step("sa create_all + insert", create_all)
+def default_id():
+    # The default primary key: an Integer column that the database numbers (SERIAL)
+    from sqlalchemy import Table, MetaData, Column, Integer, String
+    md = MetaData()
+    t = Table('py_auto', md, Column('id', Integer, primary_key=True), Column('name', String(50)))
+    md.drop_all(engine); md.create_all(engine)
+    with engine.begin() as c:
+        return c.execute(t.insert().values(name='a')).inserted_primary_key
+step("sa default id (serial)", default_id)
