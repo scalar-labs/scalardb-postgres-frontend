@@ -1,3 +1,0 @@
-kind: bugfix
-body: 'Less CPU per statement: the frontend no longer runs regular expressions on every statement to find its first keyword, to read integer parameters, or to look up settings.'
-time: 2026-11-04T15:01:59.926636+09:00

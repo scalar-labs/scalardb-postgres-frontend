@@ -1,3 +1,0 @@
-kind: bugfix
-body: 'A statement''s OR conditions keep the order they were written in when passed to ScalarDB, so the same statement always gives ScalarDB the same conditions.'
-time: 2026-11-09T17:00:01.000001+09:00
