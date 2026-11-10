@@ -1,3 +1,3 @@
-kind: improvement
+kind: bugfix
 body: 'Less CPU per row read: rows convert only the columns the statement uses, with their keys worked out once per query plan, and a prepared statement''s parameter count is kept from Parse instead of being counted again at every Bind.'
 time: 2026-11-05T14:30:24.080226+09:00

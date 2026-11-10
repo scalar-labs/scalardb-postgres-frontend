@@ -1,3 +1,3 @@
-kind: improvement
+kind: bugfix
 body: 'Less CPU per statement and per row: a column reference''s name and row key are worked out once per statement, client_min_messages is read only when there are notices to send, statement_timeout is parsed once per value, a float parameter is typed without an exception, and each protocol message is sent in one write.'
 time: 2026-11-09T17:00:03.000003+09:00

@@ -1,3 +1,3 @@
-kind: improvement
+kind: bugfix
 body: 'Fewer reads for a join that looks up a table per row under an aggregate, sort or DISTINCT, which reads all of its rows anyway: its outer rows are read in batches of 128 from the start instead of growing from 16, so TPC-C StockLevel''s stock lookups take two ScalarDB scans instead of four.'
 time: 2026-11-09T17:00:00.000000+09:00
