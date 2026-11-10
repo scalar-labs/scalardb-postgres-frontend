@@ -587,7 +587,7 @@ public class QueryProcessor {
   private Plan show(String sql) {
     Matcher m = SHOW_NAME.matcher(QueryParser.trimStatement(sql));
     if (!m.matches()) {
-      throw new IllegalArgumentException("Invalid SQL: " + sql);
+      throw new IllegalArgumentException("Invalid SQL: " + QueryParser.quoted(sql));
     }
     Map<String, String> all = new LinkedHashMap<>(defaults);
     all.putAll(settings);
