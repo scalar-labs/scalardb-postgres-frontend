@@ -1031,6 +1031,15 @@ public class PostgresServerTest {
           statement, separators + "CREATE USER x PASSWORD 'topsecret'", "42601", "topsecret");
       statement.execute("/* setup */ CREATE USER h PASSWORD 'pw2'");
       verify(admin).createUser("h", "pw2");
+      // nor a comment between the keywords, which PostgreSQL reads as a space
+      assertRefused(
+          statement, "CREATE /* c */ USER x PASSWORD 'topsecret' 'other'", "42601", "topsecret");
+      assertRefused(
+          statement, "ALTER/**/ROLE x PASSWORD 'topsecret' 'other'", "42601", "topsecret");
+      statement.execute("CREATE -- a line\nUSER i PASSWORD 'pw3'");
+      verify(admin).createUser("i", "pw3");
+      // and a statement that mentions a password but is not Dcl's is not quoted either
+      assertRefused(statement, "SELECT 'topsecret' AS password FROM", "42601", "topsecret");
 
       // Cluster's errors, by code
       doThrow(new IllegalArgumentException("DB-AUTH-10000: The user already exists. Username: e"))

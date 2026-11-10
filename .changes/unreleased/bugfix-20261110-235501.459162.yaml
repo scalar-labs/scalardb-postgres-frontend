@@ -1,0 +1,3 @@
+kind: bugfix
+body: 'A password is no longer repeated in an error message: `CREATE USER` or `ALTER USER` with a comment between its keywords, such as `CREATE /* note */ USER alice PASSWORD ''...''`, was refused with an error that quoted the whole statement, password included, and a client that logs its errors could write the password to its log. Such statements now run like any other `CREATE USER`, and an error never quotes a statement that mentions a password.'
+time: 2026-11-10T23:55:01.459162+09:00
