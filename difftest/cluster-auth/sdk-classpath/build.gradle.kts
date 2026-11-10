@@ -11,7 +11,7 @@ repositories {
     }
 }
 
-dependencies { runtimeOnly("com.scalar-labs:scalardb-cluster-java-client-sdk:3.20.0-SNAPSHOT") }
+dependencies { runtimeOnly("com.scalar-labs:scalardb-cluster-java-client-sdk:3.21.0-SNAPSHOT") }
 
 tasks.register<Copy>("lib") {
     from(configurations.runtimeClasspath)
