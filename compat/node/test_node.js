@@ -29,5 +29,8 @@ async function step(name, fn) {
   await step('seq describeTable', () => sequelize.getQueryInterface().describeTable('widgets'));
   await step('seq showIndex', () => sequelize.getQueryInterface().showIndex('widgets').then(r => r.map(i => i.name)));
   await step('seq showAllTables', () => sequelize.getQueryInterface().showAllTables());
+  // The default primary key: an id column that the database numbers (SERIAL)
+  const Auto = sequelize.define('auto', { name: DataTypes.STRING }, { timestamps: false });
+  await step('seq default id (serial)', () => Auto.sync({ force: true }).then(() => Auto.create({ name: 'a' })).then(r => r.id));
   await sequelize.close();
 })();

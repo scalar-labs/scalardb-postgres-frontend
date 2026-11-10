@@ -35,14 +35,15 @@ updating, deleting and running a transaction.
 | node-postgres (Node.js) | Works. |
 | Sequelize 6 (Node.js) | Works, including `sync` and `describeTable`. See [Reading rows that the transaction wrote](#reading-rows-that-the-transaction-wrote). |
 | pgx v5 (Go) | Works, with parameters and results in binary format. |
-| pg and ActiveRecord 7 (Ruby) | Works, with primary keys that the application supplies. |
+| pg and ActiveRecord 7 (Ruby) | Works, with primary keys that the application supplies and timestamps declared with `precision: 3`. See [Timestamps](#timestamps). |
+| Spring Data JDBC, Spring Data JPA (Hibernate 6) and MyBatis 3 (Java) | Work, with primary keys that the application supplies, such as `@GeneratedValue(strategy = GenerationType.UUID)`. Hibernate's `ddl-auto=update` creates tables. See [Reading rows that the transaction wrote](#reading-rows-that-the-transaction-wrote). |
 | Prisma 6 | `prisma db pull` reads the schema. |
 | DBeaver 26 | Browses tables, columns, keys and indexes, and edits rows in the data grid. |
 | BenchBase | Runs TPC-C with two small patches: one for a catalog query, one that reorders two statements to avoid reading rows the transaction wrote. See `bench/tpcc/README.md`. |
 
 pgAdmin and DataGrip have not been tested.
 
-<!-- TODO: Add Hibernate/Spring Data JPA, Flyway or Liquibase once tested. -->
+<!-- TODO: Add Flyway or Liquibase once tested. -->
 
 ## What to know
 
@@ -51,7 +52,8 @@ pgAdmin and DataGrip have not been tested.
 Within a transaction, ScalarDB refuses a scan over records that the transaction has already written, and the
 error message contains `DB-CORE-10106`. ORMs trigger this when they insert rows and then query the same
 table in one transaction, such as SQLAlchemy's `create_all` followed by an insert and a select, or a Sequelize
-transaction that reads back what it wrote. Read by primary key, use `RETURNING`, or commit before the query.
+transaction that reads back what it wrote. Hibernate flushes pending inserts before a query in the same
+transaction, so a JPQL query after `save` fails the same way. Read by primary key, use `RETURNING`, or commit before the query.
 For details, see [Transactions](transactions.md#reading-rows-that-the-transaction-wrote).
 
 ### Schema migrations
@@ -66,6 +68,13 @@ then uses it needs `scalar.db.metadata.cache_expiration_time_secs` set to 5 seco
 
 `serial` columns and column defaults do not generate values. ORMs that rely on the database to assign IDs,
 such as an auto-increment primary key, need the application to supply them instead, for example as UUIDs.
+
+### Timestamps
+
+Timestamps keep milliseconds, and a value with a finer fraction is refused unless the column is declared
+`timestamp(3)`, which rounds it. ORMs that stamp the current time send microseconds, such as Rails'
+`created_at` and `updated_at`: declare those columns with `precision: 3`. For details, see
+[SQL reference](sql-reference.md).
 
 ### Decimal columns
 
