@@ -12,7 +12,7 @@ end
 conn = ActiveRecord::Base.connection
 step('create_table') do
   conn.drop_table(:widgets, if_exists: true)
-  conn.create_table(:widgets, id: :integer) { |t| t.string :name; t.float :price; t.integer :qty; t.boolean :active; t.datetime :created_at }
+  conn.create_table(:widgets, id: :integer) { |t| t.string :name; t.float :price; t.integer :qty; t.boolean :active; t.datetime :created_at, precision: 3 }
   conn.tables
 end
 class Widget < ActiveRecord::Base; end
@@ -25,3 +25,9 @@ step('columns') { Widget.columns.map { |c| [c.name, c.type] } }
 step('indexes') { conn.indexes(:widgets).map(&:name) }
 step('primary key') { conn.primary_key(:widgets) }
 step('schema dump bits') { [conn.table_exists?(:widgets), conn.column_exists?(:widgets, :name)] }
+# The default primary key: a bigserial id that the database numbers
+class Auto < ActiveRecord::Base; self.table_name = 'autos'; end
+step('default id (bigserial)') { conn.drop_table(:autos, if_exists: true); conn.create_table(:autos) { |t| t.string :name }; Auto.create!(name: 'a').id }
+# Rails' default timestamps carry microseconds, which the frontend refuses
+class Stamp < ActiveRecord::Base; end
+step('timestamps (default precision 6)') { conn.drop_table(:stamps, if_exists: true); conn.create_table(:stamps, id: :integer) { |t| t.timestamps }; Stamp.create!(id: 1).created_at }
