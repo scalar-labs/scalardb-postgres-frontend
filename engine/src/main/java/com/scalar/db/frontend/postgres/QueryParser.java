@@ -1319,7 +1319,7 @@ class QueryParser {
       }
     } catch (net.sf.jsqlparser.parser.ParseException
         | net.sf.jsqlparser.parser.TokenMgrException e) {
-      throw new IllegalArgumentException("Invalid SQL: " + sql, e);
+      throw new IllegalArgumentException("Invalid SQL: " + quoted(sql), e);
     }
     statementCache.put(sql, statement);
     return statement;
@@ -1819,6 +1819,17 @@ class QueryParser {
       Pattern.compile("(?is)CREATE\\s+FRONTEND\\s+METADATA\\s+TABLES(\\s+IF\\s+NOT\\s+EXISTS)?");
 
   /**
+   * The statement as an error message quotes it, or a stand-in when it mentions a password: Dcl
+   * plans the statements that set one without quoting them, and this covers any that do not reach
+   * it, so that a password never comes back in an error a client may log.
+   */
+  static String quoted(String sql) {
+    return sql.toLowerCase(Locale.ROOT).contains("password")
+        ? "(statement not shown: it mentions a password)"
+        : sql;
+  }
+
+  /**
    * The statement without surrounding whitespace and comments and one final {@code ;}, which is
    * what the statement patterns match: a trailing comment would otherwise be read as part of the
    * last value, as in {@code SET search_path TO s -- note}. One pass of skipQuoted, so a {@code --}
@@ -2227,7 +2238,7 @@ class QueryParser {
     if (statement instanceof net.sf.jsqlparser.statement.analyze.Analyze) {
       return Plan.ddl(() -> {}, "ANALYZE"); // no planner statistics to collect
     }
-    throw new PgException.Argument("0A000", "Unsupported statement: " + sql);
+    throw new PgException.Argument("0A000", "Unsupported statement: " + quoted(sql));
   }
 
   // ---- SELECT planning ----

@@ -7,6 +7,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import net.sf.jsqlparser.schema.Table;
@@ -20,22 +21,36 @@ import net.sf.jsqlparser.schema.Table;
  * <p>Statements here can hold a password: no message may quote a string literal or the statement.
  */
 final class Dcl {
-  /** What this class plans, matched on the trimmed statement before JSQLParser sees it. */
-  static final Pattern STATEMENT =
-      Pattern.compile("(?is)(GRANT|REVOKE|(CREATE|ALTER|DROP)\\s+(USER|ROLE))\\b.*");
+  // What this class plans, matched on the trimmed statement before JSQLParser sees it: GRANT,
+  // REVOKE, or CREATE, ALTER or DROP followed by USER or ROLE
+  private static final Pattern FIRST = Pattern.compile("(?i)(GRANT|REVOKE|CREATE|ALTER|DROP)\\b");
+  private static final Pattern SECOND = Pattern.compile("(?i)(USER|ROLE)\\b");
 
   /**
-   * Whether this class plans the trimmed statement. Leading comments are skipped, nested ones too:
-   * a statement that slipped past here would reach JSQLParser, whose errors quote the statement,
-   * password included. So any Unicode whitespace is skipped as well, more than PostgreSQL's six
-   * characters: the lexer here then refuses it without quoting anything.
+   * Whether this class plans the trimmed statement. Comments are skipped before each keyword,
+   * nested ones too, also between CREATE and USER: a statement that slipped past here would reach
+   * JSQLParser, whose errors quote the statement, password included. So any Unicode whitespace is
+   * skipped as well, more than PostgreSQL's six characters: the lexer here then refuses it without
+   * quoting anything.
    */
   static boolean matches(String sql) {
-    int i = QueryParser.skipSpace(sql, 0);
+    Matcher first = FIRST.matcher(sql).region(skipBlank(sql, 0), sql.length());
+    if (!first.lookingAt()) {
+      return false;
+    }
+    String keyword = first.group(1).toUpperCase(Locale.ROOT);
+    return keyword.equals("GRANT")
+        || keyword.equals("REVOKE")
+        || SECOND.matcher(sql).region(skipBlank(sql, first.end()), sql.length()).lookingAt();
+  }
+
+  /** Past whitespace, any Unicode whitespace included, and comments. */
+  private static int skipBlank(String sql, int from) {
+    int i = QueryParser.skipSpace(sql, from);
     while (i < sql.length() && Character.isWhitespace(sql.charAt(i))) {
       i = QueryParser.skipSpace(sql, i + 1);
     }
-    return STATEMENT.matcher(sql.substring(i)).matches();
+    return i;
   }
 
   /** The privileges as ScalarDB SQL names them; GRANT is the grant option. */
@@ -63,7 +78,7 @@ final class Dcl {
     this.in = new Lexer(sql);
   }
 
-  /** Plans a statement {@link #STATEMENT} matched. */
+  /** Plans a statement {@link #matches} accepted. */
   static Plan plan(QueryParser parser, AuthAdmin admin, String sql) {
     return new Dcl(parser, admin, sql).plan();
   }
