@@ -12,7 +12,7 @@
 #
 # A JRE, not a JDK: nothing here compiles. 25, the current LTS, although the code targets Java 17:
 # 17 is the floor for ScalarDB Cluster nodes that embed the engine, which this image is not.
-FROM eclipse-temurin:25.0.5_8-jre-resolute@sha256:b6e00330337143a2c1a20f1c1c693d4b6ce9a3c30ade8b9d03fc68cc9e3871e7
+FROM eclipse-temurin:27_35-jre-resolute@sha256:7520762e9fac9c34ae0ef3a898ff0e9fc652b019860ab859728b17df41f2b497
 
 # One layer: OS packages upgraded, since the base image can carry CVEs already fixed upstream, and a
 # fixed numeric uid/gid, the one other Scalar server images use, so that a Kubernetes runAsNonRoot
