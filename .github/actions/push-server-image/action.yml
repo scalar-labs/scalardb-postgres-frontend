@@ -1,8 +1,8 @@
 name: Push the server image
 description: >-
   Builds the standalone server's image for linux/amd64 and linux/arm64 from a checked-out tree and
-  pushes it to ghcr.io. Shared by release.yml and release-snapshot.yml; tag derivation, signing and job
-  ordering stay with the caller. The same action as ScalarDB Saga's.
+  pushes it to ghcr.io. Shared by release.yml, release-snapshot.yml and publish-image.yml; tag
+  derivation, signing and job ordering stay with the caller. The same action as ScalarDB Saga's.
 
 inputs:
   tags:
@@ -14,6 +14,9 @@ inputs:
   attest:
     description: Attach an SBOM and a max-detail provenance attestation ("true" or "false")
     required: true
+  revision:
+    description: The commit recorded in the image's labels, when not the one the workflow ran on
+    default: ${{ github.sha }}
   gradle-cache-disabled:
     description: Build without the Gradle cache ("true" or "false")
     default: "false"
@@ -75,6 +78,6 @@ runs:
         tags: ${{ inputs.tags }}
         build-args: |
           IMAGE_VERSION=${{ inputs.version }}
-          IMAGE_REVISION=${{ github.sha }}
+          IMAGE_REVISION=${{ inputs.revision }}
         sbom: ${{ inputs.attest }}
         provenance: ${{ inputs.attest == 'true' && 'mode=max' || 'false' }}

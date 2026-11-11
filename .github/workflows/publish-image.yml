@@ -1,0 +1,91 @@
+name: Publish image for an existing release
+
+# Builds and pushes the image of a release whose tag predates image publishing in release.yml, such
+# as v3.20.1: a re-run of release.yml on such a tag runs the workflow as it was at that tag, which
+# has no image job. Run it from main, naming the version. A release cut by release.yml already has
+# its image, which this refuses to replace.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The released version, without the leading v (e.g. 3.20.1)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-image-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish-image:
+    # not in a fork, and only from main: the signature names this workflow on refs/heads/main
+    if: github.repository == 'scalar-labs/scalardb-postgres-frontend' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # linux/arm64 builds under QEMU emulation
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      # cosign's keyless signing, as in release.yml
+      id-token: write
+    env:
+      IMAGE: ghcr.io/scalar-labs/scalardb-postgres-frontend:${{ inputs.version }}
+    steps:
+      # The released tree at the root, where the action builds; main's copy of the action beside it,
+      # since the tag has none. The root first: checkout cleans its directory
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ci
+          sparse-checkout: .github/actions
+          persist-credentials: false
+
+      # the same guard as release.yml's verify-version: the tag must carry its own version
+      - name: Check the version and read the tag's commit
+        id: tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          actual=$(sed -n 's/^version=//p' gradle.properties)
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::gradle.properties at v$VERSION says version=$actual"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Never replace an image release.yml built and signed, or one this workflow already pushed
+      - name: Refuse an existing image
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          if docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "::error::$IMAGE already exists"
+            exit 1
+          fi
+
+      - name: Build and push
+        id: build
+        uses: ./ci/.github/actions/push-server-image
+        with:
+          tags: ${{ env.IMAGE }}
+          version: ${{ inputs.version }}
+          revision: ${{ steps.tag.outputs.sha }}
+          attest: "true"
+          gradle-cache-disabled: "true"
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The certificate names this workflow on refs/heads/main, not release.yml on the tag;
+      # RELEASING.md has the verification command for such an image
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the image
+        run: cosign sign --yes "ghcr.io/scalar-labs/scalardb-postgres-frontend@${{ steps.build.outputs.digest }}"
