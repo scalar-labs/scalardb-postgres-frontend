@@ -94,3 +94,30 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_CENTRAL_GPG_SECRET_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
         run: ./gradlew publishToMavenCentral --no-configuration-cache
+
+  # The standalone server's image under the same version as the jars, `<version>-SNAPSHOT`, which moves
+  # with every commit on its line. Alongside the Maven publication rather than after it: nothing here is
+  # immutable, so there is no failure worth ordering one before the other for. Both architectures, as a
+  # release; no SBOM, provenance or signature, since a moving tag cannot be verified against a release
+  # identity, and each attestation is one more manifest every push orphans for ghcr-cleanup.yml
+  publish-image:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    # linux/arm64 builds under QEMU emulation; release.yml gives its image job the same bound
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and push
+        uses: ./.github/actions/push-server-image
+        with:
+          tags: ghcr.io/scalar-labs/scalardb-postgres-frontend:${{ needs.version.outputs.version }}
+          version: ${{ needs.version.outputs.version }}
+          attest: "false"
+          registry-token: ${{ secrets.GITHUB_TOKEN }}

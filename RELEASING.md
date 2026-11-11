@@ -1,17 +1,34 @@
 # Releasing
 
-A release publishes the engine to Maven Central, where a ScalarDB Cluster node depends on it.
+A release publishes the engine to Maven Central, where a ScalarDB Cluster node depends on it, and the
+standalone server's container image to `ghcr.io/scalar-labs/scalardb-postgres-frontend`.
 
 ## What gets published
 
 | Artifact | Coordinate | Consumed by |
 | --- | --- | --- |
 | Engine | `com.scalar-labs:scalardb-postgres-frontend-engine` | ScalarDB Cluster nodes, which embed it |
+| Server image | `ghcr.io/scalar-labs/scalardb-postgres-frontend` (public) | Anyone running the standalone server |
 
 With its sources and javadoc jars, under the Apache License 2.0 (`LICENSE`, also inside each jar).
-`:server`, the standalone server, is not published to Maven Central: it ships as the fat jar and the
-container image, and it compiles against the Cluster client SDK of the same version, which Cluster
-releases after the engine it embeds.
+`:server`, the standalone server, is not published to Maven Central: it ships as the container image
+(and the fat jar the build makes), and it compiles against the Cluster client SDK of the same version,
+which Cluster releases after the engine it embeds.
+
+The image is built for `linux/amd64` and `linux/arm64` and carries one immutable tag per release,
+`3.20.0`, `3.20.1`, and no tag that floats, as ScalarDB Saga's and the other Scalar images: no `3.20`,
+which would be a second representation of the version branch that nothing keeps in step, and no
+`latest`, which could not be verified by [the recipe below](#verifying-a-published-image), since that
+binds a signature to the release tag that built the image. Pin a version, and let Dependabot or
+Renovate bump it. Each release image is signed with cosign (keyless) and carries an SBOM and a build
+provenance attestation.
+
+Every commit on `main` and on a version branch also pushes the image as that line's `-SNAPSHOT`
+version, `3.21.0-SNAPSHOT` for instance, the same version the engine's snapshot publishes under. That
+tag moves with every commit; it is for tracking a line between releases, never for pinning, and it is
+not signed and carries no SBOM or provenance. Each push leaves the previous snapshot image untagged,
+and `ghcr-cleanup.yml` deletes untagged versions weekly (it never touches tagged ones or the
+manifests a tagged image consists of).
 
 Every commit on `main` and on a version branch also publishes the engine's `-SNAPSHOT` to the Maven
 Central snapshot repository (`release-snapshot.yml`), so a Cluster build can track a line between
@@ -199,7 +216,15 @@ git tag -a v<version> -m "ScalarDB PostgreSQL frontend <version>" && git push or
 `gradle.properties`, a `-SNAPSHOT` version, a commit that is not on the tag's minor version branch
 (`3.20` for `v3.20.0`), and release notes that are missing or incomplete (see [When
 releasing](#when-releasing)). It then uploads the engine to the Central Portal for someone to release,
-and creates the GitHub release with `.changes/v3.20.0.md` as its notes.
+builds, pushes and signs the server image, and creates the GitHub release with `.changes/v3.20.0.md`
+as its notes.
+
+The image is pushed only after the Central upload has succeeded: a deployment can still be dropped,
+while an image tag is public from the moment it is pushed and may already have been pulled. So the
+image goes out before step 5 below, and an image tag means the deployment was accepted for validation,
+not that it was published. A release abandoned at the Portal leaves its image behind: delete the
+package versions tagged `<version>` and `sha256-<digest>` (cosign keeps its signature there, the image
+digest with its `:` written as `-`) along with the git tag and the GitHub release.
 
 ### Steps
 
@@ -230,9 +255,29 @@ For `3.20.0`, on `3.20`:
 7. In ScalarDB Cluster, change the engine dependency to `3.20.0`.
 
 To re-run a release whose tag exists, for example after the upload failed, run `release.yml` by
-`workflow_dispatch` with the tag selected as the ref. If only `github-release` failed, use **Re-run
-failed jobs** on that run instead: a new run uploads again first, which Central refuses for a version
-it already has, and `github-release` would never be reached.
+`workflow_dispatch` with the tag selected as the ref. If only `publish-image` or `github-release`
+failed, use **Re-run failed jobs** on that run instead: a new run uploads again first, which Central
+refuses for a version it already has, and the jobs after it would never be reached.
+
+## Verifying a published image
+
+```sh
+cosign verify ghcr.io/scalar-labs/scalardb-postgres-frontend:<version> \
+  --certificate-identity=https://github.com/scalar-labs/scalardb-postgres-frontend/.github/workflows/release.yml@refs/tags/v<version> \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+```
+
+The identity has to be exact. A keyless signature alone proves only that some GitHub Actions job
+signed the image; naming `release.yml@refs/tags/v<version>` is what makes it evidence that the release
+workflow, running on that tag, built this image. Both halves carry the version and must agree. The
+SBOM and the provenance attestation are listed by:
+
+```sh
+docker buildx imagetools inspect ghcr.io/scalar-labs/scalardb-postgres-frontend:<version>
+```
+
+`./gradlew :server:dockerBuild` builds a single-architecture image into the local Docker and never
+pushes, so a local image cannot be mistaken for a released one.
 
 A patch release is the same on the same branch: cherry-pick the fixes to `3.20`, then follow the steps
 from 2 with `3.20.1`.
@@ -248,3 +293,10 @@ The workflows read four repository secrets, the same ones ScalarDB and ScalarDB 
 | `MAVEN_CENTRAL_GPG_PASSPHRASE` | Its passphrase |
 
 A local `./gradlew publishToMavenLocal` needs none of them and publishes unsigned.
+
+The image needs no secret: `publish-image` pushes with the job's own `GITHUB_TOKEN` (`packages:
+write`), and cosign signs with the job's OIDC identity. A package pushed this way is linked to this
+repository; the first push creates it, and since the repository is public it should be public too.
+Check that once at `https://github.com/orgs/scalar-labs/packages/container/package/scalardb-postgres-frontend`
+after the first snapshot push, and if it shows as private, an organization owner sets it to public in
+the package's settings.

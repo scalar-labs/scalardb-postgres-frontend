@@ -116,6 +116,11 @@ serves every mode, authentication included. Build it from the root of this repos
 `./gradlew :server:dockerContext` alone assembles the build context in `server/build/docker`, for
 `docker build` or a CI build of other platforms.
 
+Releases are also published as `ghcr.io/scalar-labs/scalardb-postgres-frontend:<version>`, for
+`linux/amd64` and `linux/arm64`, signed and with an SBOM ([RELEASING.md](../RELEASING.md)); use that
+name in place of `scalardb-postgres-frontend:3.20.0` below to run a released version without building
+it.
+
 Mount the properties file at `/scalardb-postgres-frontend/scalardb.properties`. Any value in it may
 read the environment as `${env:NAME}`, or `${env:NAME:-default}`, which keeps passwords out of the
 file:
