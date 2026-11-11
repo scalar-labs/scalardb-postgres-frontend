@@ -267,6 +267,15 @@ cosign verify ghcr.io/scalar-labs/scalardb-postgres-frontend:<version> \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com
 ```
 
+An image published afterwards for a release that predates image publishing (3.20.1 and earlier, by
+the manual workflow `publish-image.yml` run from main) is signed by that workflow instead:
+
+```sh
+cosign verify ghcr.io/scalar-labs/scalardb-postgres-frontend:<version> \
+  --certificate-identity=https://github.com/scalar-labs/scalardb-postgres-frontend/.github/workflows/publish-image.yml@refs/heads/main \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+```
+
 The identity has to be exact. A keyless signature alone proves only that some GitHub Actions job
 signed the image; naming `release.yml@refs/tags/v<version>` is what makes it evidence that the release
 workflow, running on that tag, built this image. Both halves carry the version and must agree. The
