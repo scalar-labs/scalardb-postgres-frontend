@@ -1,0 +1,3 @@
+kind: enhancement
+body: 'The standalone server is published as a public container image, ghcr.io/scalar-labs/scalardb-postgres-frontend, for linux/amd64 and linux/arm64: one signed tag per release with an SBOM and provenance, and a -SNAPSHOT tag that follows each version line.'
+time: 2026-11-11T10:00:00.000000+09:00

@@ -19,6 +19,7 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
-    directory: /
+    # the workflows, and the composite actions they call (push-server-image pins its own actions)
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: weekly

@@ -219,12 +219,68 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
         run: ./gradlew publishToMavenCentral --no-configuration-cache
 
-  # The GitHub release, with the notes verify-version read. After the upload, so that a failed upload
-  # leaves no release page pointing at artifacts that are not there. A pre-release version is marked as
+  # The standalone server's image, after the Central upload rather than alongside it: a deployment can
+  # still be dropped before anyone sees it, while an image tag is public the moment it is pushed and
+  # anyone may already have pulled it. Uploading first means a bad credential, a failed signature or a
+  # network fault fails the release before anything reaches ghcr.io. One immutable tag per release and
+  # nothing that floats, as ScalarDB Saga and the other Scalar images (RELEASING.md)
+  publish-image:
+    needs: [verify-version, publish-maven]
+    runs-on: ubuntu-latest
+    # linux/arm64 builds under QEMU emulation, the slowest step in the pipeline
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      # cosign's keyless signing exchanges this job's OIDC identity for a certificate, so there is no
+      # signing key held in a secret
+      id-token: write
+    steps:
+      # the verified commit and no persisted token, as in publish-maven
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/scalar-labs/scalardb-postgres-frontend
+          # One tag per release. A <major>.<minor> tag would be a second representation of the
+          # version branch that nothing keeps in step: re-running an older patch would move it back
+          tags: |
+            type=semver,pattern={{version}}
+          # Stated rather than omitted: the action defaults to latest=auto, which adds the tag on any
+          # semver build. A moving tag cannot be verified against the release that signed it
+          flavor: |
+            latest=false
+
+      # no Gradle cache on the release path, as in publish-maven
+      - name: Build and push
+        id: build
+        uses: ./.github/actions/push-server-image
+        with:
+          tags: ${{ steps.meta.outputs.tags }}
+          version: ${{ needs.verify-version.outputs.version }}
+          attest: "true"
+          gradle-cache-disabled: "true"
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A signature over the image digest. The certificate binds it to this workflow file and the ref
+      # it ran on, which is always the release tag; RELEASING.md has the verification command
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the image
+        run: cosign sign --yes "ghcr.io/scalar-labs/scalardb-postgres-frontend@${{ steps.build.outputs.digest }}"
+
+  # The GitHub release, with the notes verify-version read. After the upload and the image, so that a
+  # failure leaves no release page pointing at artifacts that are not there. A pre-release version is marked as
   # one, and only the highest release takes the Latest badge, so a patch to an older line does not. On
   # a re-run the release is left as it is, since its notes may have been edited since
   github-release:
-    needs: [verify-version, publish-maven]
+    needs: [verify-version, publish-maven, publish-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
