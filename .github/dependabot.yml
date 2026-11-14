@@ -18,6 +18,10 @@ updates:
     directory: /server/src/docker
     schedule:
       interval: weekly
+    ignore:
+      # the image stays on an LTS JDK (25); moving to the next one is a decision, not an update
+      - dependency-name: eclipse-temurin
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     # the workflows, and the composite actions they call (push-server-image pins its own actions)
     directories: ["/", "/.github/actions/*"]
