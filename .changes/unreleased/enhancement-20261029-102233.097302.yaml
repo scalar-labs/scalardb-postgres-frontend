@@ -1,3 +1,0 @@
-kind: enhancement
-body: 'Declared types keep PostgreSQL''s rules: `NUMERIC(p,s)` is exact, `VARCHAR(n)`, `CHAR(n)` and `SMALLINT` are checked and shown as declared, and `json` and `jsonb` keep their type. The declarations are recorded in the frontend''s metadata table, which `CREATE FRONTEND METADATA TABLES` creates once (see `docs/type-encoding.md`).'
-time: 2026-10-29T10:22:33.097302+09:00
