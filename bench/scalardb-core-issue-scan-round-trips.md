@@ -67,6 +67,27 @@ OrderStatus are dominated by these scans (`bench/tpcc/README.md`).
 3. **Raise `DEFAULT_SCAN_FETCH_SIZE`** from 10, for example to 1000, which still bounds memory per
    scan. The frontend now sets 1000 unless the operator chose a value.
 
+## Update, 2026-11-04: fix 1 needs the scan limit to reach storage
+
+On core `master` at 416cdc22f, fix 1 alone would never apply to a transactional scan: Consensus
+Commit removes the scan's limit before it calls storage (`prepareScanForStorage`), so `JdbcDatabase`
+only ever sees unlimited scans and keeps the explicit transaction for all of them. Sending the limit
+to storage is its own change, with its own benefit:
+[scalardb-core-issue-scan-limit.md](scalardb-core-issue-scan-limit.md).
+
+With both, prototyped in [scalardb-core-prototype-scan-limit.patch](scalardb-core-prototype-scan-limit.patch)
+(a scan with `0 < limit <= scan_fetch_size` runs in autocommit, and `ScannerImpl.close` skips the
+`COMMIT` then), every limited scan is one round trip. TPC-C through the frontend, each transaction
+type alone at 1 terminal: Delivery sends 20 statements fewer per transaction (a `BEGIN READ ONLY` and
+`COMMIT` per district) and OrderStatus 2 fewer. Scans without a limit, such as Delivery's order lines
+and StockLevel's, keep both.
+
+**Difficulty: low**, about a day with tests, but per database: pgjdbc uses a cursor only inside a
+transaction, MySQL streams only with a fetch size of `Integer.MIN_VALUE`, and other drivers differ
+again, so the condition belongs in the RDB engine strategies rather than in `JdbcDatabase` as in the
+prototype. Fix 2 (one index scan instead of two) is still open and medium: the before-index scan
+exists for recovery, so merging it needs care in `CrudHandler`'s before-index check.
+
 ## Reproduce
 
 `bench/README.md`: load `schema/` and `data.sql`, run `latency-all.sh 250` (or `DelayProxy.java`

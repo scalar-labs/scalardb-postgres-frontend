@@ -1,0 +1,179 @@
+--- a/core/src/main/java/com/scalar/db/transaction/consensuscommit/CrudHandler.java
++++ b/core/src/main/java/com/scalar/db/transaction/consensuscommit/CrudHandler.java
+@@ -507,12 +507,15 @@
+     }
+ 
+     boolean beforeIndexCheckRequired = requiresBeforeIndexCheck(scan, txMetadata);
++    boolean limited = scan.getLimit() > 0; // PROTOTYPE: first with the limit in storage
+ 
+     for (int i = 0; ; i++) {
+       LinkedHashMap<Snapshot.Key, TransactionResult> results = new LinkedHashMap<>();
++      int storageRows = 0;
+ 
+-      try (Scanner scanner = scanFromStorage(scan, metadata, context.transactionId)) {
++      try (Scanner scanner = scanFromStorage(scan, metadata, context.transactionId, limited)) {
+         for (Result r : scanner) {
++          storageRows++;
+           TransactionResult result = new TransactionResult(r);
+           Snapshot.Key key = new Snapshot.Key(scan, r, metadata);
+           Optional<TransactionResult> processedScanResult =
+@@ -538,6 +541,14 @@
+         logger.warn("Failed to close the scanner. Transaction ID: {}", context.transactionId, e);
+       }
+ 
++      if (limited && results.size() < scan.getLimit() && storageRows >= scan.getLimit()) {
++        // PROTOTYPE: storage stopped at the limit but some rows were filtered out, so more rows
++        // may qualify: scan again without the limit
++        limited = false;
++        i--;
++        continue;
++      }
++
+       // Check if there are PREPARED/DELETED records whose committed (before-image) values match
+       // the query. If any were rolled back, the scan result may be stale, so retry from the
+       // beginning before caching into the snapshot.
+@@ -852,8 +863,14 @@
+ 
+   private Scanner scanFromStorage(Scan scan, TableMetadata metadata, String transactionId)
+       throws CrudException {
++    return scanFromStorage(scan, metadata, transactionId, false);
++  }
++
++  private Scanner scanFromStorage(
++      Scan scan, TableMetadata metadata, String transactionId, boolean keepLimit)
++      throws CrudException {
+     try {
+-      return storage.scan(ConsensusCommitUtils.prepareScanForStorage(scan, metadata));
++      return storage.scan(ConsensusCommitUtils.prepareScanForStorage(scan, metadata, keepLimit));
+     } catch (ExecutionException e) {
+       throw new CrudException(
+           CoreError.CONSENSUS_COMMIT_SCANNING_RECORDS_FROM_STORAGE_FAILED.buildMessage(
+@@ -1042,7 +1059,12 @@
+     private final TransactionContext context;
+     private final TableMetadata metadata;
+     private final TransactionTableMetadata txMetadata;
+-    private final Scanner scanner;
++    private Scanner scanner;
++    // PROTOTYPE: while the storage scan carries the limit, the keys it returned, so that a rescan
++    // without the limit skips them
++    private boolean limited;
++    private int storageRows;
++    private final Set<Snapshot.Key> processedKeys = new HashSet<>();
+ 
+     @Nullable private final LinkedHashMap<Snapshot.Key, TransactionResult> results;
+ 
+@@ -1063,7 +1085,8 @@
+       this.txMetadata = txMetadata;
+       this.metadata = txMetadata.getTableMetadata();
+ 
+-      scanner = scanFromStorage(scan, metadata, context.transactionId);
++      limited = scan.getLimit() > 0;
++      scanner = scanFromStorage(scan, metadata, context.transactionId, limited);
+ 
+       if (isValidationOrSnapshotReadRequired(context) || isOverlapVerificationRequired(context)) {
+         results = new LinkedHashMap<>();
+@@ -1090,11 +1113,30 @@
+           Optional<Result> r = scanner.one();
+ 
+           if (!r.isPresent()) {
++            if (limited && storageRows >= scan.getLimit() && scanCount.get() < scan.getLimit()) {
++              // PROTOTYPE: storage stopped at the limit but rows were filtered out: scan again
++              // without the limit, skipping the rows already processed
++              try {
++                scanner.close();
++              } catch (IOException e) {
++                logger.warn(
++                    "Failed to close the scanner. Transaction ID: {}", context.transactionId, e);
++              }
++              limited = false;
++              scanner = scanFromStorage(scan, metadata, context.transactionId, false);
++              continue;
++            }
+             fullyScanned.set(true);
+             return Optional.empty();
+           }
+ 
+           Snapshot.Key key = new Snapshot.Key(scan, r.get(), metadata);
++          if (limited) {
++            storageRows++;
++            processedKeys.add(key);
++          } else if (processedKeys.contains(key)) {
++            continue;
++          }
+           TransactionResult result = new TransactionResult(r.get());
+ 
+           Optional<TransactionResult> processedScanResult =
+--- a/core/src/main/java/com/scalar/db/transaction/consensuscommit/ConsensusCommitUtils.java
++++ b/core/src/main/java/com/scalar/db/transaction/consensuscommit/ConsensusCommitUtils.java
+@@ -549,10 +549,16 @@
+   }
+ 
+   static Scan prepareScanForStorage(Scan scan, TableMetadata metadata) {
++    return prepareScanForStorage(scan, metadata, false);
++  }
++
++  // PROTOTYPE: keepLimit sends the limit to storage; the caller scans again without it when rows
++  // were filtered out after storage reached the limit
++  static Scan prepareScanForStorage(Scan scan, TableMetadata metadata, boolean keepLimit) {
+     ScanBuilder.BuildableScanOrScanAllFromExisting builder =
+         Scan.newBuilder(scan).clearProjections().consistency(Consistency.LINEARIZABLE);
+ 
+-    if (scan.getLimit() > 0) {
++    if (scan.getLimit() > 0 && !keepLimit) {
+       // Since the recovery process and the conjunction processing may exclude some records from the
+       // scan result -- and a record's survival is only known after per-row recovery -- the scan
+       // must run without a limit; truncating storage-side could drop a genuinely surviving record.
+--- a/core/src/main/java/com/scalar/db/storage/jdbc/JdbcDatabase.java
++++ b/core/src/main/java/com/scalar/db/storage/jdbc/JdbcDatabase.java
+@@ -69,6 +69,7 @@
+   private final VirtualTableInfoManager virtualTableInfoManager;
+   private final JdbcCrudService jdbcCrudService;
+   private final boolean requiresExplicitCommit;
++  private final int scanFetchSize; // PROTOTYPE
+ 
+   @Inject
+   public JdbcDatabase(DatabaseConfig databaseConfig) {
+@@ -78,6 +79,7 @@
+     rdbEngine = RdbEngineFactory.create(config);
+     dataSource = JdbcUtils.initDataSource(config, rdbEngine);
+     requiresExplicitCommit = JdbcUtils.requiresExplicitCommit(dataSource, rdbEngine);
++    scanFetchSize = databaseConfig.getScanFetchSize();
+ 
+     tableMetadataDataSource = JdbcUtils.initDataSourceForTableMetadata(config, rdbEngine);
+     JdbcAdmin jdbcAdmin = new JdbcAdmin(tableMetadataDataSource, config, requiresExplicitCommit);
+@@ -113,6 +115,7 @@
+     this.tableMetadataManager = tableMetadataManager;
+     this.virtualTableInfoManager = virtualTableInfoManager;
+     this.requiresExplicitCommit = requiresExplicitCommit;
++    this.scanFetchSize = databaseConfig.getScanFetchSize();
+   }
+ 
+   @Override
+@@ -151,8 +154,12 @@
+     Connection connection = null;
+     try {
+       connection = dataSource.getConnection();
+-      connection.setAutoCommit(false);
+-      rdbEngine.setConnectionToReadOnly(connection, true);
++      // PROTOTYPE: a scan whose limit fits in one fetch needs no cursor, so it runs in autocommit:
++      // one round trip, without BEGIN READ ONLY and COMMIT
++      if (scan.getLimit() <= 0 || scan.getLimit() > scanFetchSize) {
++        connection.setAutoCommit(false);
++        rdbEngine.setConnectionToReadOnly(connection, true);
++      }
+       return jdbcCrudService.getScanner(scan, connection);
+     } catch (SQLException e) {
+       try {
+--- a/core/src/main/java/com/scalar/db/storage/jdbc/ScannerImpl.java
++++ b/core/src/main/java/com/scalar/db/storage/jdbc/ScannerImpl.java
+@@ -84,7 +84,9 @@
+ 
+     if (commitAndCloseConnectionOnClose) {
+       try {
+-        connection.commit();
++        if (!connection.getAutoCommit()) { // PROTOTYPE: an autocommit scan has nothing to commit
++          connection.commit();
++        }
+       } catch (SQLException e) {
+         try {
+           connection.rollback();
