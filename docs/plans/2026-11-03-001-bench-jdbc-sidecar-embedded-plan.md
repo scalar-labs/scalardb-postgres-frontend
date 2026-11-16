@@ -1,11 +1,22 @@
 ---
 title: "bench: JDBC on PostgreSQL vs the frontend as a sidecar vs ScalarDB Core embedded, on GCP"
 type: bench
-status: planned
+status: completed
 date: 2026-11-03
 ---
 
 # JDBC on PostgreSQL vs the frontend as a sidecar vs ScalarDB Core embedded
+
+## Outcome
+
+Run on 2026-11-03 with frontend 3ef546b, three runs per point. The sidecar (`fe`) reached 76% of
+embedded Core's throughput on read-modify-write at 32 threads and 65% at 64; on point reads, 46% and
+37%. The gap is the sidecar's own CPU, about 250 µs per read and 500 µs per read-modify-write
+transaction (parsing, planning and the wire protocol), against Core's 80–90 µs and 200–240 µs in the
+application. pgJDBC's simple query protocol (no server-side prepared statements) cost the sidecar about
+four times as much CPU again. Embedded Core beat JDBC on PostgreSQL on reads at every thread count and
+was within 5% of it on read-modify-write. Later frontend changes cut its per-statement cost; the TPC-C
+numbers since are in `bench/scalardb-core-issues-tpcc-2026-11.md`.
 
 ## Goal
 
