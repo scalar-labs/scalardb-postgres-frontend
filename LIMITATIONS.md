@@ -222,8 +222,15 @@ at the end of this section.
 - **One collation for all text: ScalarDB's byte order**, PostgreSQL's `C` collation (by code point, which
   is UTF-8 byte order). The backing database must be set up to compare the same way, since keys and
   pushed-down conditions are compared there.
-- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY`, views and `MERGE` are not supported**
-  and fail with a clear error. For insert-or-update, use `INSERT ... ON CONFLICT DO UPDATE`.
+- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
+  fail with a clear error.
+- **`MERGE` runs PostgreSQL 15's forms**: `WHEN MATCHED [AND ...] THEN UPDATE`, `DELETE` or `DO
+  NOTHING`, and `WHEN NOT MATCHED [AND ...] THEN INSERT` or `DO NOTHING`. PostgreSQL 17's `WHEN NOT
+  MATCHED BY SOURCE` and `RETURNING` are refused with `0A000`. When `ON` gives the target's whole
+  primary key, each source row reads one target row; otherwise the statement scans the target. Each
+  row a `NOT MATCHED` clause inserts costs a read of its key, so that an existing key is `23505` as
+  in PostgreSQL. A concurrent writer is found out at commit (`40001`), where PostgreSQL's `READ
+  COMMITTED` would wait for it and re-check the row.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
 - **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified

@@ -23,3 +23,8 @@ What PostgreSQL does, where the plan had to guess:
   int column and inserted into one is int, $2 assigned to a text column is text.
 - PostgreSQL 17 forms (Phase 2): NOT MATCHED BY SOURCE / BY TARGET and RETURNING merge_action() run
   natively (MERGE 7; four RETURNING rows with UPDATE, DELETE, INSERT, INSERT).
+
+Phase 1, same day (branch merge): the cases now run in autocommit with SNAP=1 (see the header of
+cases_merge.sql), and merge_subqueries was added. run-phase1.txt: 33 OK, 18 BOTH_ERR, 2 FE_ERR (the
+PostgreSQL 17 forms, refused with 0A000). The baseline is results/baseline/merge.txt. cases_write and
+cases_write_ac still match their baselines (UPDATE shares the key-move code with MERGE now).

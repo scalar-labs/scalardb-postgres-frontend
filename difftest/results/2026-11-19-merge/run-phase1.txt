@@ -1,0 +1,250 @@
+{'OK': 33, 'BOTH_ERR': 18, 'FE_ERR': 2}
+=== BOTH_ERR merge_insert_default_values
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, null, null).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  23502: null value in column "id" violates not-null constraint
+=== BOTH_ERR merge_update_key_collision
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = 2;
+-- Errors
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(2) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+=== BOTH_ERR merge_twice_matched_update
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  21000: MERGE command cannot affect row a second time
+=== BOTH_ERR merge_twice_matched_delete
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  21000: MERGE command cannot affect row a second time
+=== BOTH_ERR merge_twice_matched_by_source_table
+MERGE INTO mt t USING ms s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  21000: MERGE command cannot affect row a second time
+=== BOTH_ERR merge_duplicate_insert
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (13, 14)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(8) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+=== BOTH_ERR merge_insert_existing_key
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id + 100
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(1) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+=== BOTH_ERR merge_insert_null_key
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 5) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, 0, null).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  23502: null value in column "id" violates not-null constraint
+=== BOTH_ERR merge_update_key_to_null
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = NULL;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, 1, one).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+=== BOTH_ERR merge_unknown_target
+MERGE INTO nosuch t USING ms s ON t.id = s.id WHEN MATCHED THEN DELETE;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: relation "nosuch" does not exist
+LINE 1: MERGE INTO nosuch t USING ms s ON t.id = s.id WHEN MATCHED T...
+                   ^
+LOCATION:  parserOpenTable, parse_relation.c:1469
+  fe: ERROR:  42P01: relation "nosuch" does not exist
+=== BOTH_ERR merge_unknown_set_column
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN UPDATE SET nosuch = 1;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42703: column "nosuch" of relation "mt" does not exist
+LINE 1: ... ms s ON t.id = s.id WHEN MATCHED THEN UPDATE SET nosuch = 1...
+                                                             ^
+LOCATION:  transformUpdateTargetList, analyze.c:2581
+  fe: ERROR:  42703: Unknown column: nosuch
+=== BOTH_ERR merge_qualified_set_column
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET t.v = 1;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42703: column "t" of relation "mt" does not exist
+LINE 2:   WHEN MATCHED THEN UPDATE SET t.v = 1;
+                                       ^
+HINT:  SET target columns cannot be qualified with the relation name.
+LOCATION:  transformUpdateTargetList, analyze.c:2581
+  fe: ERROR:  42703: column "t" of relation "mt" does not exist
+=== BOTH_ERR merge_ambiguous_column
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = v + 1;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42702: column reference "v" is ambiguous
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = v + 1;
+                                           ^
+LOCATION:  colNameToVar, parse_relation.c:932
+  fe: ERROR:  42702: Ambiguous column: v
+=== BOTH_ERR merge_type_mismatch
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 'x';
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  22P02: invalid input syntax for type integer: "x"
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = 'x';
+                                           ^
+LOCATION:  pg_strtoint32_safe, numutils.c:618
+  fe: ERROR:  22P02: invalid input syntax for type integer: "x"
+=== BOTH_ERR merge_insert_too_few_values
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42601: INSERT has more target columns than expressions
+LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id);
+                                            ^
+LOCATION:  transformInsertRow, analyze.c:1096
+  fe: ERROR:  42601: INSERT has more target columns than expressions
+=== BOTH_ERR merge_matched_insert
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id) VALUES (s.id);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42601: syntax error at or near "INSERT"
+LINE 1: ... mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id...
+                                                             ^
+LOCATION:  scanner_yyerror, scan.l:1240
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id) VALUES (s.id)
+=== BOTH_ERR merge_not_matched_update
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET v = 1;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42601: syntax error at or near "UPDATE"
+LINE 1: ...t USING ms s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET...
+                                                             ^
+LOCATION:  scanner_yyerror, scan.l:1240
+  fe: ERROR:  42601: WHEN NOT MATCHED [BY TARGET] cannot take an UPDATE or DELETE clause
+=== BOTH_ERR merge_insert_target_column_reference
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
+-- Parameters (extended protocol)
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
+                                                             ^
+DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+=== FE_ERR merge_not_matched_by_source
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'both'
+  WHEN NOT MATCHED BY SOURCE AND t.id > 3 THEN DELETE
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET note = 'target only'
+  WHEN NOT MATCHED BY TARGET THEN INSERT (id, v, note) VALUES (s.id, s.v, 'source only');
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: WHEN NOT MATCHED BY SOURCE
+=== FE_ERR merge_returning
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v IS NULL THEN DELETE
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+  RETURNING merge_action(), s.sid, t.*;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: MERGE ... RETURNING
