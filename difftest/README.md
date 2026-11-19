@@ -17,7 +17,7 @@ psql ... -f character_setup.sql (both sides), then STOP=0 python3 run.py cases_c
 STOP=0 python3 run.py cases_write.sql                 # DML inside BEGIN ... ROLLBACK
 STOP=0 SNAP=1 python3 run.py cases_write_ac.sql       # autocommit DML, compares all tables, reloads after each case
 STOP=0 python3 run.py cases_bind.sql cases_bind2.sql  # extended protocol (psql \bind), plan-cache reuse
-psql ... -f merge_setup.sql (both sides), then STOP=0 python3 run.py cases_merge.sql   # MERGE (results/2026-11-19-merge)
+psql ... -f merge_setup.sql (both sides), then STOP=0 SNAP=1 SNAP_TABLES='mt mk me' SNAP_RELOAD=merge_reload.sql python3 run.py cases_merge.sql   # MERGE, autocommit, tables compared and reloaded after each case
 python3 leak.py cases_read.sql                        # reports cases that leave a backend idle in transaction
 python3 fuzz.py 7 300 > fuzz_cases.sql && STOP=0 python3 run.py fuzz_cases.sql   # 300 random read queries, seed 7
 ```

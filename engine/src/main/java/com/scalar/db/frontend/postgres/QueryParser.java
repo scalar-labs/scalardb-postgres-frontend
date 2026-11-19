@@ -1468,7 +1468,7 @@ class QueryParser {
   static String normalize(String sql) {
     return parenthesisedJsonOperands(
         outsideLiterals(
-            escapeStringQuotes(sql),
+            mergeActions(escapeStringQuotes(sql)),
             code ->
                 typedEmptyArrays(code)
                     // no table inheritance here, so FROM ONLY t and FROM t* are just t
@@ -1485,6 +1485,54 @@ class QueryParser {
                     .replaceAll(
                         "(?i)\\bAS\\s+(primary|unique|order|group|user|limit|offset|default|check|references|constraint|desc|asc|key|index|exists|using|on|join|all|any|some|case|end|is|in|not|null|like|between|distinct|having|window|over)\\b(?!\")",
                         "AS \"$1\"")));
+  }
+
+  /**
+   * Stands for DO NOTHING in a MERGE action, which JSQLParser does not parse (see mergeActions).
+   */
+  static final String MERGE_DO_NOTHING = "__merge_do_nothing__";
+
+  private static final Pattern MERGE_WORD = Pattern.compile("(?i)\\bMERGE\\b");
+  private static final Pattern MERGE_ACTION =
+      Pattern.compile(
+          "(?i)\\bWHEN\\s+(?:(NOT\\s+MATCHED)(\\s+BY\\s+SOURCE)?|MATCHED)\\b"
+              + "|\\bTHEN\\s+DO\\s+NOTHING\\b|\\bTHEN\\s+INSERT\\s+DEFAULT\\s+VALUES\\b");
+
+  /**
+   * MERGE's actions JSQLParser 5.4 does not parse, rewritten to ones it does: {@code DO NOTHING} to
+   * an assignment of, or an insert of, {@link #MERGE_DO_NOTHING} (by the kind of clause it ends),
+   * which {@link #merge} reads back as DO NOTHING; {@code INSERT DEFAULT VALUES} to {@code INSERT
+   * VALUES (DEFAULT)}, the same with no column defaults. The code segments come in order, so the
+   * last {@code WHEN [NOT] MATCHED} seen is the clause's, even when its condition has a literal.
+   */
+  static String mergeActions(String sql) {
+    if (!MERGE_WORD.matcher(sql).find()) {
+      return sql;
+    }
+    boolean[] insertKind = {false}; // the clause being read is WHEN NOT MATCHED [BY TARGET]
+    return outsideLiterals(
+        sql,
+        code -> {
+          Matcher m = MERGE_ACTION.matcher(code);
+          StringBuilder out = new StringBuilder();
+          while (m.find()) {
+            String found = m.group();
+            String replacement = found;
+            if (found.regionMatches(true, 0, "WHEN", 0, 4)) {
+              insertKind[0] = m.group(1) != null && m.group(2) == null;
+            } else if (found.toUpperCase(Locale.ROOT).endsWith("NOTHING")) {
+              replacement =
+                  insertKind[0]
+                      ? "THEN INSERT VALUES (" + MERGE_DO_NOTHING + ")"
+                      : "THEN UPDATE SET " + MERGE_DO_NOTHING + " = NULL";
+            } else {
+              replacement = "THEN INSERT VALUES (DEFAULT)";
+            }
+            m.appendReplacement(out, Matcher.quoteReplacement(replacement));
+          }
+          m.appendTail(out);
+          return out.toString();
+        });
   }
 
   /**
@@ -2231,6 +2279,16 @@ class QueryParser {
         Target t = target(delete.getTable());
         checkTextAgainstNumber(delete.getWhere(), t);
         return Plan.deferred(ctx -> listOf(delete(delete, t, ctx))).keyed("DELETE");
+      } finally {
+        ctes = saved;
+      }
+    }
+    if (statement instanceof net.sf.jsqlparser.statement.merge.Merge) {
+      net.sf.jsqlparser.statement.merge.Merge merge =
+          (net.sf.jsqlparser.statement.merge.Merge) statement;
+      Map<String, Cte> saved = pushCtes(merge.getWithItemsList());
+      try {
+        return merge(merge);
       } finally {
         ctes = saved;
       }
@@ -6294,35 +6352,13 @@ class QueryParser {
           for (int i = 0; i < setColumns.size(); i++) {
             values.put(setColumns.get(i), row.get("$" + (i + 1)));
           }
-          if (keyMove) {
-            if (execution[0] != reader) {
-              execution[0] = reader;
-              movedFrom.clear();
-              movedTo.clear();
-            }
-            Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo);
-            if (moved != null) {
-              return moved;
-            }
-            // the key stays: the other assignments, or a column rewritten as it is (SET id = id
-            // still updates the row in PostgreSQL)
-            List<String> others = new ArrayList<>(setColumns);
-            others.removeAll(keyColumns(t));
-            if (others.isEmpty()) {
-              for (String c : t.metadata.getColumnNames()) {
-                if (!keyColumns(t).contains(c)) {
-                  others.add(c);
-                  break;
-                }
-              }
-            }
-            if (others.isEmpty()) {
-              throw new PgException.Argument(
-                  "0A000", "Unsupported: an UPDATE of a table with no column but its key");
-            }
-            return new Effect(update(t, others, values), left(t, qualifier, values));
+          if (keyMove && execution[0] != reader) {
+            execution[0] = reader;
+            movedFrom.clear();
+            movedTo.clear();
           }
-          return new Effect(update(t, setColumns, values), left(t, qualifier, values));
+          return updateEffect(
+              t, qualifier, setColumns, keyMove, row, values, reader, movedFrom, movedTo);
         },
         "UPDATE",
         "Update "
@@ -6332,6 +6368,46 @@ class QueryParser {
             + ": one ScalarDB Update per row read"
             + (joins.isEmpty() ? "" : " (joined with FROM, one per key)"),
         returning);
+  }
+
+  /**
+   * The effect of updating one row to {@code values} (column name to new value; {@code row} holds
+   * the old ones): an Update, or with {@code keyMove} a Delete and an Insert when the key changes.
+   */
+  private Effect updateEffect(
+      Target t,
+      String qualifier,
+      List<String> setColumns,
+      boolean keyMove,
+      Map<String, Object> row,
+      Map<String, Object> values,
+      Plan.Reader reader,
+      Set<List<Object>> movedFrom,
+      Set<List<Object>> movedTo) {
+    if (!keyMove) {
+      return new Effect(update(t, setColumns, values), left(t, qualifier, values));
+    }
+    Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo);
+    if (moved != null) {
+      return moved;
+    }
+    // the key stays: the other assignments, or a column rewritten as it is (SET id = id still
+    // updates the row in PostgreSQL)
+    List<String> others = new ArrayList<>(setColumns);
+    others.removeAll(keyColumns(t));
+    if (others.isEmpty()) {
+      for (String c : t.metadata.getColumnNames()) {
+        if (!keyColumns(t).contains(c)) {
+          others.add(c);
+          break;
+        }
+      }
+    }
+    if (others.isEmpty()) {
+      throw new PgException.Argument(
+          "0A000", "Unsupported: an UPDATE of a table with no column but its key");
+    }
+    return new Effect(update(t, others, values), left(t, qualifier, values));
   }
 
   /**
@@ -6457,6 +6533,363 @@ class QueryParser {
             + ": one ScalarDB Delete per row read"
             + (joins.isEmpty() ? "" : " (joined with USING, one per key)"),
         returning);
+  }
+
+  /** One WHEN clause of a MERGE: which rows it is for, its AND condition and its action. */
+  private static final class MergeClause {
+    final boolean matched; // WHEN MATCHED; else WHEN NOT MATCHED [BY TARGET]
+    @Nullable final Expression condition;
+    final char action; // 'U'pdate, 'D'elete, 'I'nsert, 'N'othing
+    final List<String> columns = new ArrayList<>(); // assigned or inserted
+    final List<Expression> values = new ArrayList<>();
+
+    MergeClause(boolean matched, @Nullable Expression condition, char action) {
+      this.matched = matched;
+      this.condition = condition;
+      this.action = action;
+    }
+  }
+
+  /**
+   * MERGE: the source LEFT JOIN the target ON the condition drives it; for each joined row, the
+   * first WHEN clause of its kind (matched, or not) whose AND condition holds decides what is
+   * written. Each clause's condition and values are evaluated for that row only, as PostgreSQL
+   * does. When ON gives the target's whole key, the join reads one target row per source row;
+   * otherwise it scans the target.
+   */
+  // ponytail: WHEN NOT MATCHED BY SOURCE and RETURNING are refused (Phase 2 of the MERGE plan)
+  private Plan merge(net.sf.jsqlparser.statement.merge.Merge merge) throws ExecutionException {
+    if (merge.getReturningClause() != null || merge.getOutputClause() != null) {
+      throw new PgException.Argument("0A000", "Unsupported: MERGE ... RETURNING");
+    }
+    Target t = target(merge.getTable());
+    String tq = qualifierOf(merge.getTable(), t);
+    FromItem source = merge.getFromItem();
+    String sq =
+        source.getAlias() != null
+            ? unquote(source.getAlias().getName())
+            : source instanceof Table ? unquote(((Table) source).getName()) : null;
+    if (sq == null) {
+      throw new PgException.Argument("42601", "subquery in FROM must have an alias");
+    }
+    List<MergeClause> clauses = new ArrayList<>();
+    for (net.sf.jsqlparser.statement.merge.MergeOperation op : merge.getOperations()) {
+      clauses.add(mergeClause(op, t, tq));
+    }
+    // Parameter types: an assigned or inserted placeholder takes its column's
+    for (MergeClause c : clauses) {
+      for (int i = 0; i < c.columns.size(); i++) {
+        inferAssigned(t, c.columns.get(i), c.values.get(i));
+      }
+    }
+    // Planned, never run: resolves every name (42703, 42702) and types the other placeholders
+    PlainSelect check = mergeJoin(merge, source, tq);
+    List<SelectItem<?>> checked = new ArrayList<>();
+    List<Expression> conditions = new ArrayList<>();
+    for (MergeClause c : clauses) {
+      for (Expression v : c.values) {
+        checked.add(SelectItem.from(v));
+      }
+      if (c.condition != null) {
+        conditions.add(c.condition);
+      }
+    }
+    if (checked.isEmpty()) {
+      checked.add(SelectItem.from(new LongValue(1)));
+    }
+    check.setSelectItems(checked);
+    check.setWhere(conditions.stream().reduce(AndExpression::new).orElse(null));
+    block(check, null);
+    // The driving read: every target column as tq.c and every source column as sq.c, so that the
+    // clauses' expressions read the joined row as they would the join
+    PlainSelect sourceColumns = new PlainSelect();
+    sourceColumns.setFromItem(source);
+    sourceColumns.setSelectItems(
+        Collections.singletonList(SelectItem.from(new AllTableColumns(new Table(sq)))));
+    List<String> sourceNames = block(sourceColumns, null).outputNames;
+    PlainSelect join = mergeJoin(merge, source, tq);
+    List<SelectItem<?>> items = new ArrayList<>();
+    for (String c : t.metadata.getColumnNames()) {
+      items.add(
+          SelectItem.from(
+              new net.sf.jsqlparser.schema.Column(new Table(tq), c),
+              new Alias("\"" + tq + "." + c + "\"")));
+    }
+    for (String c : sourceNames) {
+      items.add(
+          SelectItem.from(
+              new net.sf.jsqlparser.schema.Column(new Table(sq), c),
+              new Alias("\"" + sq + "." + c + "\"")));
+    }
+    // A subquery in a clause runs through the read's plan, which knows it only when it is planned
+    // there: as CASE WHEN false THEN ... END, planned but never evaluated (a clause's expressions
+    // run only for the rows that reach it). A literal that reads "select" just adds a NULL.
+    int hidden = 0;
+    for (MergeClause c : clauses) {
+      List<Expression> expressions = new ArrayList<>(c.values);
+      if (c.condition != null) {
+        expressions.add(c.condition);
+      }
+      for (Expression e : expressions) {
+        if (e.toString().toUpperCase(Locale.ROOT).contains("SELECT")) {
+          net.sf.jsqlparser.expression.WhenClause never =
+              new net.sf.jsqlparser.expression.WhenClause(new BooleanValue(false), e);
+          CaseExpression planned = new CaseExpression();
+          planned.setWhenClauses(Collections.singletonList(never));
+          items.add(SelectItem.from(planned, new Alias("\"$merge " + ++hidden + "\"")));
+        }
+      }
+    }
+    join.setSelectItems(items);
+    Plan read = block(join, null);
+    String matchedKey = tq + "." + keyColumns(t).get(0); // NULL only where no target row joined
+    // Per execution: the target keys an UPDATE or DELETE changed, the keys inserted, and the keys
+    // UPDATEs moved from and to
+    Set<List<Object>> changed = new HashSet<>();
+    Set<List<Object>> inserted = new HashSet<>();
+    Set<List<Object>> movedFrom = new HashSet<>();
+    Set<List<Object>> movedTo = new HashSet<>();
+    Object[] execution = {null};
+    return Plan.write(
+        read,
+        (row, reader) -> {
+          if (execution[0] != reader) {
+            execution[0] = reader;
+            changed.clear();
+            inserted.clear();
+            movedFrom.clear();
+            movedTo.clear();
+          }
+          boolean matched = row.get(matchedKey) != null;
+          List<Map<String, Object>> group = Collections.singletonList(row);
+          Evaluator.Context ctx = read.context(null);
+          for (MergeClause c : clauses) {
+            if (c.matched != matched
+                || c.condition != null
+                    && !Evaluator.isTrue(Evaluator.eval(c.condition, group, ctx))) {
+              continue;
+            }
+            if (c.action == 'N') {
+              return null;
+            }
+            if (c.action == 'I') {
+              Map<String, Object> proposed = new LinkedHashMap<>();
+              for (int i = 0; i < c.columns.size(); i++) {
+                proposed.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
+              }
+              return mergeInsert(t, tq, proposed, reader, inserted);
+            }
+            Map<String, Object> old = new LinkedHashMap<>();
+            for (String col : t.metadata.getColumnNames()) {
+              old.put(col, row.get(tq + "." + col));
+            }
+            List<Object> key = new ArrayList<>();
+            for (String col : keyColumns(t)) {
+              key.add(Operators.normalize(writtenValue(t, col, old.get(col))));
+            }
+            if (!changed.add(key)) {
+              throw new PgException.Argument(
+                  "21000", "MERGE command cannot affect row a second time");
+            }
+            if (c.action == 'D') {
+              DeleteBuilder.Buildable b =
+                  Delete.newBuilder()
+                      .namespace(t.namespace)
+                      .table(t.table)
+                      .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), old));
+              if (!t.metadata.getClusteringKeyNames().isEmpty()) {
+                b.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), old));
+              }
+              return new Effect(b.build(), left(t, tq, old));
+            }
+            Map<String, Object> values = new LinkedHashMap<>(old);
+            boolean movesKey = false;
+            for (int i = 0; i < c.columns.size(); i++) {
+              values.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
+              movesKey |= keyColumns(t).contains(c.columns.get(i));
+            }
+            return updateEffect(
+                t, tq, c.columns, movesKey, old, values, reader, movedFrom, movedTo);
+          }
+          return null; // no clause applies
+        },
+        "MERGE",
+        "Merge into "
+            + t.namespace
+            + "."
+            + t.table
+            + ": per joined row, the first WHEN clause that applies",
+        null);
+  }
+
+  /** FROM source LEFT JOIN target ON the MERGE's condition. */
+  private static PlainSelect mergeJoin(
+      net.sf.jsqlparser.statement.merge.Merge merge, FromItem source, String tq) {
+    PlainSelect select = new PlainSelect();
+    select.setFromItem(source);
+    Table target = new Table(merge.getTable().getSchemaName(), merge.getTable().getName());
+    target.setAlias(new Alias(tq));
+    Join join = new Join();
+    join.setLeft(true);
+    join.setRightItem(target);
+    join.setOnExpressions(Collections.singletonList(merge.getOnCondition()));
+    select.setJoins(new ArrayList<>(Collections.singletonList(join)));
+    return select;
+  }
+
+  /** One WHEN clause, checked as PostgreSQL checks it before reading any row. */
+  private static MergeClause mergeClause(
+      net.sf.jsqlparser.statement.merge.MergeOperation op, Target t, String tq) {
+    if (op instanceof net.sf.jsqlparser.statement.merge.MergeInsert) {
+      net.sf.jsqlparser.statement.merge.MergeInsert insert =
+          (net.sf.jsqlparser.statement.merge.MergeInsert) op;
+      if (insert.getWhereCondition() != null) {
+        throw new PgException.Argument("42601", "syntax error at or near \"WHERE\"");
+      }
+      if (insert.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
+        throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
+      }
+      List<Expression> values = new ArrayList<>(insert.getValues());
+      if (values.size() == 1
+          && isColumn(values.get(0))
+          && columnName(values.get(0)).equals(MERGE_DO_NOTHING)) {
+        return new MergeClause(false, insert.getAndPredicate(), 'N');
+      }
+      // the target row does not exist here: only the source can be read
+      noTargetReference(insert.getAndPredicate(), tq);
+      for (Expression v : values) {
+        noTargetReference(v, tq);
+      }
+      MergeClause c = new MergeClause(false, insert.getAndPredicate(), 'I');
+      List<String> names = new ArrayList<>();
+      if (insert.getColumns() != null) {
+        for (Expression col : insert.getColumns()) {
+          String name = existing(t.metadata, assignedColumn(col));
+          if (names.contains(name)) {
+            throw new PgException.Argument(
+                "42701", "column \"" + name + "\" specified more than once");
+          }
+          names.add(name);
+        }
+        if (values.size() < names.size()) {
+          throw new PgException.Argument(
+              "42601", "INSERT has more target columns than expressions");
+        }
+      } else {
+        names.addAll(t.metadata.getColumnNames());
+      }
+      if (values.size() > names.size()) {
+        throw new PgException.Argument("42601", "INSERT has more expressions than target columns");
+      }
+      for (int i = 0; i < values.size(); i++) {
+        c.columns.add(names.get(i));
+        c.values.add(isDefaultKeyword(values.get(i)) ? new NullValue() : values.get(i));
+      }
+      return c;
+    }
+    boolean bySource;
+    Expression condition;
+    if (op instanceof net.sf.jsqlparser.statement.merge.MergeDelete) {
+      net.sf.jsqlparser.statement.merge.MergeDelete delete =
+          (net.sf.jsqlparser.statement.merge.MergeDelete) op;
+      bySource = delete.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE;
+      condition = delete.getAndPredicate();
+      if (bySource) {
+        throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
+      }
+      return new MergeClause(true, condition, 'D');
+    }
+    net.sf.jsqlparser.statement.merge.MergeUpdate update =
+        (net.sf.jsqlparser.statement.merge.MergeUpdate) op;
+    if (update.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
+      throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
+    }
+    if (update.getWhereCondition() != null || update.getDeleteWhereCondition() != null) {
+      throw new PgException.Argument("42601", "syntax error at or near \"WHERE\"");
+    }
+    List<UpdateSet> sets = update.getUpdateSets();
+    if (sets.size() == 1
+        && sets.get(0).getColumns().size() == 1
+        && columnName(sets.get(0).getColumn(0)).equals(MERGE_DO_NOTHING)) {
+      return new MergeClause(true, update.getAndPredicate(), 'N');
+    }
+    checkSingleAssignments(sets);
+    MergeClause c = new MergeClause(true, update.getAndPredicate(), 'U');
+    for (UpdateSet set : sets) {
+      for (int i = 0; i < set.getColumns().size(); i++) {
+        net.sf.jsqlparser.schema.Column col = set.getColumn(i);
+        if (col.getTable() != null && col.getTable().getName() != null) {
+          // as PostgreSQL reads SET t.v: a field v of a column t
+          throw new PgException.Argument(
+              "42703",
+              "column \""
+                  + unquote(col.getTable().getName())
+                  + "\" of relation \""
+                  + t.table
+                  + "\" does not exist");
+        }
+        c.columns.add(existing(t.metadata, assignedColumn(col)));
+        c.values.add(defaultToNull(set.getValue(i)));
+      }
+    }
+    return c;
+  }
+
+  /** WHEN NOT MATCHED reads no target row: a reference to the target is 42P01, as PostgreSQL. */
+  private static void noTargetReference(@Nullable Expression e, String tq) {
+    if (e == null) {
+      return;
+    }
+    e.accept(
+        new Walker() {
+          @Override
+          public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
+            if (column.getTable() != null
+                && column.getTable().getName() != null
+                && unquote(column.getTable().getName()).equals(tq)) {
+              throw new PgException.Argument(
+                  "42P01", "invalid reference to FROM-clause entry for table \"" + tq + "\"");
+            }
+            return null;
+          }
+        },
+        null);
+  }
+
+  /**
+   * A MERGE insert: 23505 for a key the table or this execution already has, as PostgreSQL's unique
+   * index, and 23502 for a NULL key.
+   */
+  private Effect mergeInsert(
+      Target t,
+      String tq,
+      Map<String, Object> proposed,
+      Plan.Reader reader,
+      Set<List<Object>> inserted) {
+    Key partition = keyOf(t, t.metadata.getPartitionKeyNames(), proposed);
+    GetBuilder.BuildableGet get =
+        Get.newBuilder()
+            .namespace(t.namespace)
+            .table(t.table)
+            .partitionKey(partition)
+            .projections(keyColumns(t));
+    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
+      get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), proposed));
+    }
+    List<Object> key = new ArrayList<>();
+    for (String c : keyColumns(t)) {
+      key.add(Operators.normalize(writtenValue(t, c, proposed.get(c))));
+    }
+    if (!inserted.add(key)
+        || !reader.rows(get.build(), RowShape.all(tq, keyColumns(t))).isEmpty()) {
+      throw new PgException.Argument(
+          "23505", "duplicate key value violates unique constraint \"" + t.table + "_pkey\"");
+    }
+    Map<String, Column<?>> columns = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> e : proposed.entrySet()) {
+      columns.put(e.getKey(), writtenColumn(t, e.getKey(), e.getValue()));
+    }
+    return new Effect(put(t, columns, false), left(t, tq, proposed));
   }
 
   /**
