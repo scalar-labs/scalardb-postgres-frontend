@@ -32,3 +32,10 @@ cases_write_ac still match their baselines (UPDATE shares the key-move code with
 After the code review (same day): eight cases added for what it found (a NOT MATCHED clause seeing
 the target, an unaliased source subquery, inserting a key the statement deleted or moved away or
 onto one it moved to). run-phase1.txt now: 37 OK, 22 BOTH_ERR, 2 FE_ERR.
+
+After the second code review (2026-11-20): seven more cases (ANY (SELECT ...) in a condition, a
+text-typed key after a delete, a key moved onto a deleted one, an upper-case target alias, a
+subquery's own alias named like the target, unnamed_subquery, an unaliased join source).
+run-phase1.txt now: 40 OK, 24 BOTH_ERR, 1 CODE (merge_unnamed_subquery_not_referable: 42703 here,
+42P01 natively), 3 FE_ERR (the two PostgreSQL 17 forms, and merge_unaliased_join_source, refused
+with 0A000).
