@@ -32,6 +32,9 @@ merge_not_matched_sees_only_source OK
 merge_unaliased_source_subquery OK
 merge_delete_then_insert_same_key OK
 merge_key_moved_away_then_inserted OK
+merge_any_subquery OK
+merge_text_key_after_delete OK
+merge_move_onto_deleted_key OK
 merge_twice_matched_update BOTH_ERR
 merge_twice_matched_delete BOTH_ERR
 merge_twice_matched_do_nothing OK
@@ -55,6 +58,10 @@ merge_insert_onto_moved_key BOTH_ERR
 merge_not_matched_nothing_target_reference BOTH_ERR
 merge_not_matched_subquery_target_reference BOTH_ERR
 merge_not_matched_target_only_column BOTH_ERR
+merge_not_matched_upper_case_target_alias BOTH_ERR
+merge_not_matched_subquery_own_alias BOTH_ERR
+merge_unnamed_subquery_not_referable CODE
+merge_unaliased_join_source FE_ERR
 merge_bind_values OK
 merge_bind_untyped OK
 merge_not_matched_by_source FE_ERR

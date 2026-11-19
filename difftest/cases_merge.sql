@@ -137,6 +137,17 @@ MERGE INTO mt t USING (VALUES (3, 'x'), (103, 'y')) AS s(k, what) ON t.id = s.k
 MERGE INTO mt t USING (VALUES (3, 30, NULL), (NULL, NULL, 3)) AS s(k, nk, ins) ON t.id = s.k
   WHEN MATCHED THEN UPDATE SET id = s.nk
   WHEN NOT MATCHED THEN INSERT (id, note) VALUES (s.ins, 'back');
+-- @merge_any_subquery
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v = ANY (SELECT v FROM ms WHERE sid < 2) THEN UPDATE SET note = 'any';
+-- @merge_text_key_after_delete
+MERGE INTO mt t USING (VALUES (3, 'x'), (103, 'y')) AS s(k, w) ON t.id = s.k
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id, note) VALUES ('3', s.w);
+-- @merge_move_onto_deleted_key
+MERGE INTO mt t USING (VALUES (1, NULL), (2, 1)) AS s(k, nk) ON t.id = s.k
+  WHEN MATCHED AND s.nk IS NULL THEN DELETE
+  WHEN MATCHED THEN UPDATE SET id = s.nk;
 -- Errors
 -- @merge_twice_matched_update
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
@@ -205,6 +216,18 @@ MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
 -- @merge_not_matched_target_only_column
 MERGE INTO mt t USING (SELECT sid, v FROM ms WHERE sid = 3) s ON t.id = s.sid
   WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
+-- @merge_not_matched_upper_case_target_alias
+MERGE INTO mt T USING (SELECT * FROM ms WHERE sid = 3) s ON T.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, T.v);
+-- @merge_not_matched_subquery_own_alias
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, (SELECT t.nope FROM ms t));
+-- @merge_unnamed_subquery_not_referable
+MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = unnamed_subquery.id
+  WHEN MATCHED THEN DELETE;
+-- @merge_unaliased_join_source
+MERGE INTO mt t USING (ms s JOIN mk k ON k.a = s.id AND k.b = 1) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = k.v;
 -- Parameters (extended protocol)
 -- @merge_bind_values
 MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id

@@ -6358,7 +6358,7 @@ class QueryParser {
             movedTo.clear();
           }
           return updateEffect(
-              t, qualifier, setColumns, keyMove, row, values, reader, movedFrom, movedTo);
+              t, qualifier, setColumns, keyMove, row, values, reader, movedFrom, movedTo, null);
         },
         "UPDATE",
         "Update "
@@ -6383,11 +6383,12 @@ class QueryParser {
       Map<String, Object> values,
       Plan.Reader reader,
       Set<List<Object>> movedFrom,
-      Set<List<Object>> movedTo) {
+      Set<List<Object>> movedTo,
+      @Nullable Set<List<Object>> freed) {
     if (!keyMove) {
       return new Effect(update(t, setColumns, values), left(t, qualifier, values));
     }
-    Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo);
+    Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo, freed);
     if (moved != null) {
       return moved;
     }
@@ -6415,6 +6416,9 @@ class QueryParser {
    * the new one, in the statement's transaction; null when the key stays the same. As PostgreSQL's
    * unique index, a new key that some row holds is 23505; so is one another row of the statement
    * moves to or from, since PostgreSQL's answer then depends on the order it updates the rows in.
+   * MERGE passes {@code freed}, the keys it deleted or moved away (its {@code movedFrom} too): a
+   * row moved onto one of them writes over it, as a MERGE insert does, and {@code movedTo} holds
+   * the keys it inserted as well. UPDATE passes null.
    */
   @Nullable private Effect keyMove(
       Target t,
@@ -6423,9 +6427,8 @@ class QueryParser {
       Map<String, Object> values,
       Plan.Reader reader,
       Set<List<Object>> movedFrom,
-      Set<List<Object>> movedTo) {
-    List<Object> oldKey = new ArrayList<>();
-    List<Object> newKey = new ArrayList<>();
+      Set<List<Object>> movedTo,
+      @Nullable Set<List<Object>> freed) {
     for (String c : keyColumns(t)) {
       if (values.get(c) == null) {
         throw new PgException.Argument(
@@ -6436,19 +6439,22 @@ class QueryParser {
                 + t.table
                 + "\" violates not-null constraint");
       }
-      oldKey.add(Operators.normalize(writtenValue(t, c, row.get(c))));
-      newKey.add(Operators.normalize(writtenValue(t, c, values.get(c))));
     }
+    List<Object> oldKey = keyValues(t, row);
+    List<Object> newKey = keyValues(t, values);
     if (oldKey.equals(newKey)) {
       return null;
     }
     String duplicate = "duplicate key value violates unique constraint \"" + t.table + "_pkey\"";
-    if (movedTo.contains(newKey) || movedFrom.contains(newKey) || movedTo.contains(oldKey)) {
+    boolean overwrite = freed != null && freed.remove(newKey);
+    if (movedTo.contains(newKey)
+        || movedTo.contains(oldKey)
+        || !overwrite && movedFrom.contains(newKey)) {
       throw new PgException.Argument("23505", duplicate);
     }
     movedFrom.add(oldKey);
     movedTo.add(newKey);
-    if (keyExists(t, qualifier, values, reader)) {
+    if (!overwrite && keyExists(t, qualifier, values, reader)) {
       throw new PgException.Argument("23505", duplicate);
     }
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -6456,7 +6462,7 @@ class QueryParser {
       columns.put(c, writtenColumn(t, c, values.get(c)));
     }
     return new Effect(
-        Arrays.<Mutation>asList(deleteOf(t, row), put(t, columns, false)),
+        Arrays.<Mutation>asList(deleteOf(t, row), put(t, columns, overwrite)),
         left(t, qualifier, values));
   }
 
@@ -6556,7 +6562,13 @@ class QueryParser {
     String tq = qualifierOf(merge.getTable(), t);
     FromItem source = merge.getFromItem();
     if (source.getAlias() == null && !(source instanceof Table)) {
-      source.setAlias(new Alias("unnamed_subquery")); // PostgreSQL 16's name for it
+      if (!(source instanceof ParenthesedSelect)) {
+        throw new PgException.Argument(
+            "0A000", "Unsupported: a MERGE source other than a table or subquery without an alias");
+      }
+      // PostgreSQL 16 names it unnamed_subquery but lets no clause use that name; this one no
+      // query writes unquoted
+      source.setAlias(new Alias("\"unnamed subquery\""));
     }
     String sq =
         source.getAlias() != null
@@ -6581,7 +6593,19 @@ class QueryParser {
     try {
       checkMergeClauses(onSource, clauses, false);
     } catch (PgException.Argument e) {
-      if (e.getMessage() != null && e.getMessage().startsWith("Unknown column: " + tq + ".")) {
+      // a reference qualified by the target's name that resolves once the target is joined is the
+      // target, which PostgreSQL reports as 42P01; a subquery's own table of that name stays 42703
+      String prefix = "Unknown column: ";
+      String m = e.getMessage() == null ? "" : e.getMessage();
+      int dot = m.lastIndexOf('.');
+      if (dot > prefix.length()
+          && m.startsWith(prefix)
+          && unquote(m.substring(prefix.length(), dot)).equals(tq)) {
+        try {
+          checkMergeClauses(mergeJoin(merge, source, tq), clauses, false);
+        } catch (PgException.Argument stillFails) {
+          throw e;
+        }
         throw new PgException.Argument(
             "42P01", "invalid reference to FROM-clause entry for table \"" + tq + "\"");
       }
@@ -6615,7 +6639,7 @@ class QueryParser {
     int hidden = 0;
     for (MergeClause c : clauses) {
       for (Expression e : c.expressions()) {
-        if (hasSubquery(e)) {
+        if (!subselects(e).isEmpty()) {
           CaseExpression planned = new CaseExpression();
           planned.setWhenClauses(
               Collections.singletonList(
@@ -6687,8 +6711,10 @@ class QueryParser {
               values.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
               movesKey |= keyColumns(t).contains(c.columns.get(i));
             }
-            // a key moved away counts as removed, the new one as added
-            return updateEffect(t, tq, c.columns, movesKey, old, values, reader, removed, added);
+            // a key moved away counts as removed, the new one as added; a move onto a removed key
+            // writes over it
+            return updateEffect(
+                t, tq, c.columns, movesKey, old, values, reader, removed, added, removed);
           }
           return null; // no clause applies
         },
@@ -6726,27 +6752,6 @@ class QueryParser {
     from.setSelectItems(checked);
     from.setWhere(where);
     block(from, null);
-  }
-
-  /** Whether {@code e} holds a subquery. */
-  private static boolean hasSubquery(Expression e) {
-    boolean[] found = {false};
-    e.accept(
-        new Walker() {
-          @Override
-          public <S> Void visit(net.sf.jsqlparser.statement.select.ParenthesedSelect s, S c) {
-            found[0] = true;
-            return null;
-          }
-
-          @Override
-          public <S> Void visit(Select s, S c) {
-            found[0] = true;
-            return null;
-          }
-        },
-        null);
-    return found[0];
   }
 
   /** FROM source LEFT JOIN target ON the MERGE's condition. */
@@ -6882,11 +6887,15 @@ class QueryParser {
     return new Effect(put(t, columns, freed), left(t, tq, proposed));
   }
 
-  /** The key of {@code values} (column name to value), comparable across writes of a statement. */
+  /**
+   * The key of {@code values} (column name to value) as it is written, so that keys compare across
+   * the writes of a statement whatever form the values took ('3' and 3 for an int key).
+   */
   private static List<Object> keyValues(Target t, Map<String, Object> values) {
     List<Object> key = new ArrayList<>();
     for (String c : keyColumns(t)) {
-      key.add(Operators.normalize(writtenValue(t, c, values.get(c))));
+      Object v = values.get(c);
+      key.add(Operators.normalize(v == null ? null : writtenColumn(t, c, v).getValueAsObject()));
     }
     return key;
   }
