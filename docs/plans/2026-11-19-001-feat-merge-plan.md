@@ -74,16 +74,18 @@ For each row, in clause order, the first clause whose kind matches (matched / no
 ### PostgreSQL's errors, to match exactly
 
 - A target row updated or deleted by a second source row: `21000` "MERGE command cannot affect row a
-  second time". Keys touched are tracked per execution, as `insertRows` tracks proposed keys for `ON
-  CONFLICT DO UPDATE` (`21000` there too). `DO NOTHING` on a second match is not an error.
+  second time". Keys changed are tracked per execution, as `insertRows` tracks proposed keys for `ON
+  CONFLICT DO UPDATE` (`21000` there too). Only a second UPDATE or DELETE of a changed row fails: two
+  matches that both `DO NOTHING`, or an UPDATE then `DO NOTHING`, are not errors (difftest
+  `results/2026-11-19-merge/summary.txt`, which lists PostgreSQL's parse-time errors too).
 - Two inserts of one key in the statement, or an insert of a key that exists: `23505`, as `keyMove`
   words it.
 - A key column set to NULL: `23502`; a type mismatch: the same codes `UPDATE`/`INSERT` give.
 - Unsupported pieces stay `0A000`: a target that is not a plain table (a view, a catalog relation),
   and anything left to a later phase.
 
-Each is a difftest case against native PostgreSQL 18, so the codes and messages are compared, not
-assumed.
+Each is a difftest case against native PostgreSQL 18 (`difftest/cases_merge.sql`, run first on
+2026-11-19), so the codes are compared, not assumed.
 
 ### Command tag, parameters, EXPLAIN
 
