@@ -222,8 +222,8 @@ at the end of this section.
 - **One collation for all text: ScalarDB's byte order**, PostgreSQL's `C` collation (by code point, which
   is UTF-8 byte order). The backing database must be set up to compare the same way, since keys and
   pushed-down conditions are compared there.
-- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
-  fail with a clear error.
+- **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY`, views and `MERGE` are not supported**
+  and fail with a clear error. For insert-or-update, use `INSERT ... ON CONFLICT DO UPDATE`.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
 - **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified
