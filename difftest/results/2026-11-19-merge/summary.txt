@@ -1,0 +1,25 @@
+cases_merge.sql, first run 2026-11-19: native PostgreSQL 18.1 (merge_native, C locale) against the
+frontend before MERGE support (scratch jar of 2026-11-09). native.txt holds PostgreSQL's output for
+every case, the reference Phase 1 is built against; status.txt and run.txt are this run.
+
+Frontend: every case fails, with 0A000 "Unsupported statement" (or 42601 where JSQLParser cannot
+parse: DO NOTHING, INSERT DEFAULT VALUES). 34 FE_ERR, 16 CODE (both fail, different SQLSTATEs), and
+2 BOTH_ERR (merge_matched_insert, merge_not_matched_update: syntax errors on both sides).
+
+What PostgreSQL does, where the plan had to guess:
+- 21000 "MERGE command cannot affect row a second time" only when a second source row would UPDATE
+  or DELETE a target row already changed by the statement. Two matches that both DO NOTHING are not
+  an error (merge_twice_matched_do_nothing, MERGE 0), nor is UPDATE then DO NOTHING
+  (merge_twice_matched_update_then_nothing, MERGE 1).
+- The command tag counts rows inserted, updated or deleted; DO NOTHING rows are not counted
+  (merge_do_nothing: MERGE 2 with two matched rows skipped).
+- Two inserts of one new key, an insert of an existing key, and an UPDATE moving a key onto another
+  row: 23505 on mt_pkey. A NULL key, inserted, assigned or from INSERT DEFAULT VALUES: 23502.
+- A source row whose join key is NULL is NOT MATCHED (merge_null_join_key_skipped).
+- Parse-time errors: a target column in INSERT's VALUES is 42P01 ("invalid reference to
+  FROM-clause entry"), SET t.v is 42703, an unqualified column both sides have is 42702, too few
+  INSERT values 42601, an unknown target 42P01, an unknown SET column 42703, SET v = 'x' 22P02.
+- Untyped parameters take the types of what they meet: in merge_bind_untyped, $1 compared with an
+  int column and inserted into one is int, $2 assigned to a text column is text.
+- PostgreSQL 17 forms (Phase 2): NOT MATCHED BY SOURCE / BY TARGET and RETURNING merge_action() run
+  natively (MERGE 7; four RETURNING rows with UPDATE, DELETE, INSERT, INSERT).
