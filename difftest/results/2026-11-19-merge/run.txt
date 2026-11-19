@@ -1,0 +1,600 @@
+{'FE_ERR': 34, 'CODE': 16, 'BOTH_ERR': 2}
+=== FE_ERR merge_basic
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v, note = s.note
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v, note = s.note
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_matched_delete
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_conditions_in_order
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4 OR sid = 11) s ON t.id = s.id
+  WHEN MATCHED AND s.v IS NULL THEN DELETE
+  WHEN MATCHED AND s.v > 20 THEN UPDATE SET note = 'big'
+  WHEN MATCHED THEN UPDATE SET note = 'other'
+  WHEN NOT MATCHED AND s.v > 65 THEN INSERT (id, v, note) VALUES (s.id, s.v, 'inserted');
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4 OR sid = 11) s ON t.id = s.id
+  WHEN MATCHED AND s.v IS NULL THEN DELETE
+  WHEN MATCHED AND s.v > 20 THEN UPDATE SET note = 'big'
+  WHEN MATCHED THEN UPDATE SET note = 'other'
+  WHEN NOT MATCHED AND s.v > 65 THEN INSERT (id, v, note) VALUES (s.id, s.v, 'inserted')
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_do_nothing
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DO NOTHING
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DO NOTHING
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_not_matched_do_nothing
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'hit'
+  WHEN NOT MATCHED THEN DO NOTHING;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'hit'
+  WHEN NOT MATCHED THEN DO NOTHING
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_no_clause_applies
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND false THEN DELETE
+  WHEN NOT MATCHED AND s.v < 0 THEN INSERT (id) VALUES (s.id);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND false THEN DELETE
+  WHEN NOT MATCHED AND s.v < 0 THEN INSERT (id) VALUES (s.id)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_insert_without_columns
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (3, 4)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT VALUES (s.id, s.v, s.note);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (3, 4)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT VALUES (s.id, s.v, s.note)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_insert_some_columns
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (3, 4)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (3, 4)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_insert_default_keyword
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, DEFAULT, 'd');
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, DEFAULT, 'd')
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== CODE merge_insert_default_values
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
+ROLLBACK;
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, null, null).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT DEFAULT VALUES
+=== FE_ERR merge_update_set_default
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = DEFAULT;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = DEFAULT
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_update_reads_both_sides
+BEGIN;
+MERGE INTO mt AS t USING (SELECT * FROM ms WHERE sid <= 4) AS s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = t.v + coalesce(s.v, 100), note = t.note || '/' || s.note;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt AS t USING (SELECT * FROM ms WHERE sid <= 4) AS s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = t.v + coalesce(s.v, 100), note = t.note || '/' || s.note
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_target_without_alias
+BEGIN;
+MERGE INTO mt USING (SELECT * FROM ms WHERE sid <= 4) s ON mt.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = mt.v * 10;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt USING (SELECT * FROM ms WHERE sid <= 4) s ON mt.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = mt.v * 10
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_source_table_directly
+BEGIN;
+MERGE INTO mt t USING me s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+SELECT count(*) FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING me s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_on_extra_condition
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id AND s.v > 5
+  WHEN MATCHED THEN UPDATE SET note = 'matched'
+  WHEN NOT MATCHED AND s.id <= 5 THEN INSERT (id) VALUES (s.id + 100);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id AND s.v > 5
+  WHEN MATCHED THEN UPDATE SET note = 'matched'
+  WHEN NOT MATCHED AND s.id <= 5 THEN INSERT (id) VALUES (s.id + 100)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_on_non_key
+BEGIN;
+MERGE INTO mt t USING (VALUES (2, 'two'), (9, 'nine')) AS s(v, name) ON t.v = s.v
+  WHEN MATCHED THEN UPDATE SET note = s.name || '!'
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.v * 10, s.v, s.name);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (VALUES (2, 'two'), (9, 'nine')) AS s(v, name) ON t.v = s.v
+  WHEN MATCHED THEN UPDATE SET note = s.name || '!'
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.v * 10, s.v, s.name)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_values_source
+BEGIN;
+MERGE INTO mt t USING (VALUES (1, 100), (9, 900)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (VALUES (1, 100), (9, 900)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_aggregate_source
+BEGIN;
+MERGE INTO mt t USING (SELECT id, sum(v) AS v, count(*) AS n FROM ms WHERE id IS NOT NULL GROUP BY id) s
+  ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v, note = 'n=' || s.n
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, 'n=' || s.n);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT id, sum(v) AS v, count(*) AS n FROM ms WHERE id IS NOT NULL GROUP BY id) s
+  ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v, note = 'n=' || s.n
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, 'n=' || s.n)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_with_cte
+BEGIN;
+WITH s AS (SELECT id, v FROM ms WHERE sid IN (1, 3))
+MERGE INTO mt t USING s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: WITH s AS (SELECT id, v FROM ms WHERE sid IN (1, 3))
+MERGE INTO mt t USING s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_joined_source
+BEGIN;
+MERGE INTO mt t USING (SELECT s.id, s.v, k.v AS kv FROM ms s JOIN mk k ON k.a = s.id AND k.b = 1) s
+  ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.kv;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT s.id, s.v, k.v AS kv FROM ms s JOIN mk k ON k.a = s.id AND k.b = 1) s
+  ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.kv
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_empty_source
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id);
+SELECT count(*) FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_empty_target
+BEGIN;
+MERGE INTO me t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note);
+SELECT * FROM me;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO me t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, s.note)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_composite_key_full
+BEGIN;
+MERGE INTO mk t USING (VALUES (1, 2, 120), (2, 2, 220)) AS s(a, b, v) ON t.a = s.a AND t.b = s.b
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (a, b, v) VALUES (s.a, s.b, s.v);
+SELECT * FROM mk;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mk t USING (VALUES (1, 2, 120), (2, 2, 220)) AS s(a, b, v) ON t.a = s.a AND t.b = s.b
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (a, b, v) VALUES (s.a, s.b, s.v)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_composite_key_partial
+BEGIN;
+MERGE INTO mk t USING (VALUES (1, 5)) AS s(a, d) ON t.a = s.a
+  WHEN MATCHED THEN UPDATE SET v = t.v + s.d;
+SELECT * FROM mk;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mk t USING (VALUES (1, 5)) AS s(a, d) ON t.a = s.a
+  WHEN MATCHED THEN UPDATE SET v = t.v + s.d
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_two_in_one_transaction
+BEGIN;
+MERGE INTO mt t USING (VALUES (9, 90)) AS s(id, v) ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+MERGE INTO mt t USING (VALUES (9, 1)) AS s(id, d) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = t.v + s.d
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, -1);
+SELECT * FROM mt WHERE id = 9;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (VALUES (9, 90)) AS s(id, v) ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_rolled_back
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+ROLLBACK;
+SELECT * FROM mt;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+=== FE_ERR merge_autocommit_no_rows
+MERGE INTO mt t USING (SELECT * FROM ms WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+=== FE_ERR merge_update_key
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = t.id + 100;
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = t.id + 100
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== CODE merge_update_key_collision
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = 2;
+ROLLBACK;
+-- Errors
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(2) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = 2
+=== CODE merge_twice_matched_update
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v;
+ROLLBACK;
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+=== CODE merge_twice_matched_delete
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+ROLLBACK;
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE
+=== FE_ERR merge_twice_matched_do_nothing
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN DO NOTHING;
+SELECT * FROM mt WHERE id = 3;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED THEN DO NOTHING
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_twice_matched_update_then_nothing
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED AND s.v = 31 THEN UPDATE SET v = s.v
+  WHEN MATCHED THEN DO NOTHING;
+SELECT * FROM mt WHERE id = 3;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
+  WHEN MATCHED AND s.v = 31 THEN UPDATE SET v = s.v
+  WHEN MATCHED THEN DO NOTHING
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== CODE merge_twice_matched_by_source_table
+BEGIN;
+MERGE INTO mt t USING ms s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v;
+ROLLBACK;
+  pg: ERROR:  21000: MERGE command cannot affect row a second time
+HINT:  Ensure that not more than one source row matches any one target row.
+LOCATION:  ExecMergeMatched, nodeModifyTable.c:3339
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING ms s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+=== CODE merge_duplicate_insert
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (13, 14)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+ROLLBACK;
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(8) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (13, 14)) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+=== CODE merge_insert_existing_key
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id + 100
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+ROLLBACK;
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(1) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id + 100
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+=== CODE merge_insert_null_key
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 5) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+ROLLBACK;
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, 0, null).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 5) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+=== FE_ERR merge_null_join_key_skipped
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 5) s ON t.id = s.id
+  WHEN NOT MATCHED AND s.id IS NOT NULL THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT count(*) FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 5) s ON t.id = s.id
+  WHEN NOT MATCHED AND s.id IS NOT NULL THEN INSERT (id, v) VALUES (s.id, s.v)
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== CODE merge_update_key_to_null
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = NULL;
+ROLLBACK;
+  pg: ERROR:  23502: null value in column "id" of relation "mt" violates not-null constraint
+DETAIL:  Failing row contains (null, 1, one).
+SCHEMA NAME:  public
+TABLE NAME:  mt
+COLUMN NAME:  id
+LOCATION:  ReportNotNullViolationError, execMain.c:2215
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = NULL
+=== CODE merge_unknown_target
+BEGIN;
+MERGE INTO nosuch t USING ms s ON t.id = s.id WHEN MATCHED THEN DELETE;
+ROLLBACK;
+  pg: ERROR:  42P01: relation "nosuch" does not exist
+LINE 1: MERGE INTO nosuch t USING ms s ON t.id = s.id WHEN MATCHED T...
+                   ^
+LOCATION:  parserOpenTable, parse_relation.c:1469
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO nosuch t USING ms s ON t.id = s.id WHEN MATCHED THEN DELETE
+=== CODE merge_unknown_set_column
+BEGIN;
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN UPDATE SET nosuch = 1;
+ROLLBACK;
+  pg: ERROR:  42703: column "nosuch" of relation "mt" does not exist
+LINE 1: ... ms s ON t.id = s.id WHEN MATCHED THEN UPDATE SET nosuch = 1...
+                                                             ^
+LOCATION:  transformUpdateTargetList, analyze.c:2581
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN UPDATE SET nosuch = 1
+=== CODE merge_qualified_set_column
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET t.v = 1;
+ROLLBACK;
+  pg: ERROR:  42703: column "t" of relation "mt" does not exist
+LINE 2:   WHEN MATCHED THEN UPDATE SET t.v = 1;
+                                       ^
+HINT:  SET target columns cannot be qualified with the relation name.
+LOCATION:  transformUpdateTargetList, analyze.c:2581
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET t.v = 1
+=== CODE merge_ambiguous_column
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = v + 1;
+ROLLBACK;
+  pg: ERROR:  42702: column reference "v" is ambiguous
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = v + 1;
+                                           ^
+LOCATION:  colNameToVar, parse_relation.c:932
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = v + 1
+=== CODE merge_type_mismatch
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 'x';
+ROLLBACK;
+  pg: ERROR:  22P02: invalid input syntax for type integer: "x"
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = 'x';
+                                           ^
+LOCATION:  pg_strtoint32_safe, numutils.c:618
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 'x'
+=== CODE merge_insert_too_few_values
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id);
+ROLLBACK;
+  pg: ERROR:  42601: INSERT has more target columns than expressions
+LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id);
+                                            ^
+LOCATION:  transformInsertRow, analyze.c:1096
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id)
+=== BOTH_ERR merge_matched_insert
+BEGIN;
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id) VALUES (s.id);
+ROLLBACK;
+  pg: ERROR:  42601: syntax error at or near "INSERT"
+LINE 1: ... mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id...
+                                                             ^
+LOCATION:  scanner_yyerror, scan.l:1240
+  fe: ERROR:  42601: Invalid SQL: MERGE INTO mt t USING ms s ON t.id = s.id WHEN MATCHED THEN INSERT (id) VALUES (s.id)
+=== BOTH_ERR merge_not_matched_update
+BEGIN;
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET v = 1;
+ROLLBACK;
+  pg: ERROR:  42601: syntax error at or near "UPDATE"
+LINE 1: ...t USING ms s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET...
+                                                             ^
+LOCATION:  scanner_yyerror, scan.l:1240
+  fe: ERROR:  42601: WHEN NOT MATCHED [BY TARGET] cannot take an UPDATE or DELETE clause
+=== CODE merge_insert_target_column_reference
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
+ROLLBACK;
+-- Parameters (extended protocol)
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
+                                                             ^
+DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v)
+=== FE_ERR merge_bind_values
+BEGIN;
+MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v) \bind 1 111 \g
+MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v) \bind 9 999 \g
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v) 
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_bind_untyped
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v > $1 THEN UPDATE SET note = $2
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, $1, $2) \bind 5 bound \g
+SELECT * FROM mt;
+ROLLBACK;
+-- Phase 2 (PostgreSQL 17): recorded now, expected FE_ERR until then
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v > $1 THEN UPDATE SET note = $2
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, $1, $2) 
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_not_matched_by_source
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'both'
+  WHEN NOT MATCHED BY SOURCE AND t.id > 3 THEN DELETE
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET note = 'target only'
+  WHEN NOT MATCHED BY TARGET THEN INSERT (id, v, note) VALUES (s.id, s.v, 'source only');
+SELECT * FROM mt;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'both'
+  WHEN NOT MATCHED BY SOURCE AND t.id > 3 THEN DELETE
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET note = 'target only'
+  WHEN NOT MATCHED BY TARGET THEN INSERT (id, v, note) VALUES (s.id, s.v, 'source only')
+ERROR:  25P02: current transaction is aborted, commands ignored until end of transaction block
+=== FE_ERR merge_returning
+BEGIN;
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v IS NULL THEN DELETE
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+  RETURNING merge_action(), s.sid, t.*;
+ROLLBACK;
+  pg: 
+  fe: ERROR:  0A000: Unsupported statement: MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED AND s.v IS NULL THEN DELETE
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+  RETURNING merge_action(), s.sid, t.*
