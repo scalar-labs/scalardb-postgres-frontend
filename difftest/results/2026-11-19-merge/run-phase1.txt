@@ -1,4 +1,4 @@
-{'OK': 37, 'BOTH_ERR': 22, 'FE_ERR': 2}
+{'OK': 40, 'BOTH_ERR': 24, 'CODE': 1, 'FE_ERR': 3}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -266,7 +266,6 @@ LOCATION:  errorMissingRTE, parse_relation.c:3754
 === BOTH_ERR merge_not_matched_target_only_column
 MERGE INTO mt t USING (SELECT sid, v FROM ms WHERE sid = 3) s ON t.id = s.sid
   WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
--- Parameters (extended protocol)
 SELECT * FROM mt;
 SELECT * FROM mk;
 SELECT * FROM me;
@@ -277,6 +276,55 @@ LINE 2: ...T MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
 DETAIL:  There is a column named "note" in table "t", but it cannot be referenced from this part of the query.
 LOCATION:  errorMissingColumn, parse_relation.c:3815
   fe: ERROR:  42703: Unknown column: note
+=== BOTH_ERR merge_not_matched_upper_case_target_alias
+MERGE INTO mt T USING (SELECT * FROM ms WHERE sid = 3) s ON T.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, T.v);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, T.v);
+                                                             ^
+DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+=== BOTH_ERR merge_not_matched_subquery_own_alias
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, (SELECT t.nope FROM ms t));
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42703: column t.nope does not exist
+LINE 2: ...MATCHED THEN INSERT (id, v) VALUES (s.id, (SELECT t.nope FRO...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "t.note" or the column "t.note".
+LOCATION:  errorMissingColumn, parse_relation.c:3855
+  fe: ERROR:  42703: Unknown column: t.nope
+=== CODE merge_unnamed_subquery_not_referable
+MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = unnamed_subquery.id
+  WHEN MATCHED THEN DELETE;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "unnamed_subquery"
+LINE 1: ...USING (SELECT id FROM ms WHERE sid = 1) ON t.id = unnamed_su...
+                                                             ^
+DETAIL:  There is an entry for table "unnamed_subquery", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  42703: Unknown column: unnamed_subquery.id
+=== FE_ERR merge_unaliased_join_source
+MERGE INTO mt t USING (ms s JOIN mk k ON k.a = s.id AND k.b = 1) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = k.v;
+-- Parameters (extended protocol)
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: a MERGE source other than a table or subquery without an alias
 === FE_ERR merge_not_matched_by_source
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET note = 'both'
