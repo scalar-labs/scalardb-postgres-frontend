@@ -28,6 +28,10 @@ merge_rolled_back OK
 merge_autocommit_no_rows OK
 merge_update_key OK
 merge_update_key_collision BOTH_ERR
+merge_not_matched_sees_only_source OK
+merge_unaliased_source_subquery OK
+merge_delete_then_insert_same_key OK
+merge_key_moved_away_then_inserted OK
 merge_twice_matched_update BOTH_ERR
 merge_twice_matched_delete BOTH_ERR
 merge_twice_matched_do_nothing OK
@@ -47,6 +51,10 @@ merge_insert_too_few_values BOTH_ERR
 merge_matched_insert BOTH_ERR
 merge_not_matched_update BOTH_ERR
 merge_insert_target_column_reference BOTH_ERR
+merge_insert_onto_moved_key BOTH_ERR
+merge_not_matched_nothing_target_reference BOTH_ERR
+merge_not_matched_subquery_target_reference BOTH_ERR
+merge_not_matched_target_only_column BOTH_ERR
 merge_bind_values OK
 merge_bind_untyped OK
 merge_not_matched_by_source FE_ERR

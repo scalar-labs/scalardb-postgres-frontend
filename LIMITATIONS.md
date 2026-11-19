@@ -229,8 +229,10 @@ at the end of this section.
   MATCHED BY SOURCE` and `RETURNING` are refused with `0A000`. When `ON` gives the target's whole
   primary key, each source row reads one target row; otherwise the statement scans the target. Each
   row a `NOT MATCHED` clause inserts costs a read of its key, so that an existing key is `23505` as
-  in PostgreSQL. A concurrent writer is found out at commit (`40001`), where PostgreSQL's `READ
-  COMMITTED` would wait for it and re-check the row.
+  in PostgreSQL. As with `UPDATE`, an `UPDATE SET` of a key onto one another row of the statement
+  deletes or moves away fails with `23505` (PostgreSQL's answer then depends on the order it reaches
+  the rows; it often fails too). A concurrent writer is found out at commit (`40001`),
+  where PostgreSQL's `READ COMMITTED` would wait for it and re-check the row.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
 - **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified

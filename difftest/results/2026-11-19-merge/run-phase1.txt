@@ -1,4 +1,4 @@
-{'OK': 33, 'BOTH_ERR': 18, 'FE_ERR': 2}
+{'OK': 37, 'BOTH_ERR': 22, 'FE_ERR': 2}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -16,7 +16,6 @@ LOCATION:  ReportNotNullViolationError, execMain.c:2215
 === BOTH_ERR merge_update_key_collision
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET id = 2;
--- Errors
 SELECT * FROM mt;
 SELECT * FROM mk;
 SELECT * FROM me;
@@ -213,7 +212,6 @@ LOCATION:  scanner_yyerror, scan.l:1240
 === BOTH_ERR merge_insert_target_column_reference
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
--- Parameters (extended protocol)
 SELECT * FROM mt;
 SELECT * FROM mk;
 SELECT * FROM me;
@@ -224,6 +222,61 @@ LINE 2:   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
 DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
 LOCATION:  errorMissingRTE, parse_relation.c:3754
   fe: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+=== BOTH_ERR merge_insert_onto_moved_key
+MERGE INTO mt t USING (VALUES (1, 50, NULL), (NULL, NULL, 50)) AS s(k, nk, ins) ON t.id = s.k
+  WHEN MATCHED THEN UPDATE SET id = s.nk
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.ins);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+DETAIL:  Key (id)=(50) already exists.
+SCHEMA NAME:  public
+TABLE NAME:  mt
+CONSTRAINT NAME:  mt_pkey
+LOCATION:  _bt_check_unique, nbtinsert.c:673
+  fe: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+=== BOTH_ERR merge_not_matched_nothing_target_reference
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED AND t.v > 0 THEN DO NOTHING;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+LINE 2:   WHEN NOT MATCHED AND t.v > 0 THEN DO NOTHING;
+                               ^
+DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+=== BOTH_ERR merge_not_matched_subquery_target_reference
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, (SELECT max(x.v) FROM ms x WHERE x.id = t.id));
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+LINE 2: ...ALUES (s.id, (SELECT max(x.v) FROM ms x WHERE x.id = t.id));
+                                                                ^
+DETAIL:  There is an entry for table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingRTE, parse_relation.c:3754
+  fe: ERROR:  42P01: invalid reference to FROM-clause entry for table "t"
+=== BOTH_ERR merge_not_matched_target_only_column
+MERGE INTO mt t USING (SELECT sid, v FROM ms WHERE sid = 3) s ON t.id = s.sid
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
+-- Parameters (extended protocol)
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42703: column "note" does not exist
+LINE 2: ...T MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
+                                                                 ^
+DETAIL:  There is a column named "note" in table "t", but it cannot be referenced from this part of the query.
+LOCATION:  errorMissingColumn, parse_relation.c:3815
+  fe: ERROR:  42703: Unknown column: note
 === FE_ERR merge_not_matched_by_source
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET note = 'both'
