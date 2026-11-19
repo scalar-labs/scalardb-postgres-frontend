@@ -4208,6 +4208,44 @@ public class QueryParserTest {
   }
 
   @Test
+  void mergeActions_RewritesWhatJsqlParserCannotParse() {
+    String nothing = QueryParser.MERGE_DO_NOTHING;
+    // DO NOTHING by the kind of clause it ends, also past a literal in the clause's condition
+    assertThat(
+            QueryParser.mergeActions(
+                "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED AND s.n = 'WHEN NOT MATCHED'"
+                    + " THEN DO NOTHING WHEN NOT MATCHED AND s.n <> 'x' THEN DO NOTHING"))
+        .isEqualTo(
+            "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED AND s.n = 'WHEN NOT MATCHED'"
+                + " THEN UPDATE SET "
+                + nothing
+                + " = NULL WHEN NOT MATCHED AND s.n <> 'x'"
+                + " THEN INSERT VALUES ("
+                + nothing
+                + ")");
+    assertThat(
+            QueryParser.mergeActions(
+                "merge into t using s on t.id = s.id when not matched by target then do nothing"
+                    + " when not matched by source then do nothing"))
+        .isEqualTo(
+            "merge into t using s on t.id = s.id when not matched by target THEN INSERT VALUES ("
+                + nothing
+                + ") when not matched by source THEN UPDATE SET "
+                + nothing
+                + " = NULL");
+    assertThat(
+            QueryParser.mergeActions(
+                "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"))
+        .isEqualTo(
+            "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT VALUES (DEFAULT)");
+    // nothing else changes: ON CONFLICT DO NOTHING, and text that only mentions the words
+    String other = "INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING";
+    assertThat(QueryParser.mergeActions(other)).isSameAs(other);
+    String quoted = "SELECT 'MERGE ... THEN DO NOTHING'";
+    assertThat(QueryParser.mergeActions(quoted)).isEqualTo(quoted);
+  }
+
+  @Test
   void plainTimestamp_AgreesWithTheGeneralParser() {
     String[] inputs = {
       "2026-11-05 14:16:27.001242+09", "2026-11-05 14:16:27+09", "2026-11-05 14:16:27.5-05:30",

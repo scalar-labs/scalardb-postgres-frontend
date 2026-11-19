@@ -1,7 +1,7 @@
 ---
 title: "feat: MERGE"
 type: feat
-status: draft
+status: phase 1 done
 date: 2026-11-19
 ---
 
@@ -18,6 +18,23 @@ The engine already runs every piece of this. `UPDATE ... FROM`, `DELETE ... USIN
 CONFLICT` are read-then-write plans (`Plan.write`): a driving read, then a `Mutator` that turns each
 row into an `Effect` (mutations plus the row left behind) or skips it, and may read ScalarDB itself.
 `MERGE` is one more of those, with a join as the driving read.
+
+## Status
+
+Phase 1 is done (2026-11-19): every Phase 1 case of `difftest/cases_merge.sql` matches PostgreSQL 18
+(33 OK, 18 with the same SQLSTATEs; baseline `difftest/results/baseline/merge.txt`), as do pgJDBC's
+parameter types and plan-cache reuse. As built, differing from the design below where marked:
+
+- The driving read names every column `t.c` / `s.c`, and a clause's condition and values are evaluated
+  on that row only when the row reaches the clause. A subquery in a clause is planned in the read as
+  `CASE WHEN false THEN ... END`, so the plan knows it without running it per row.
+- Names and placeholders are checked by planning, but never running, a SELECT of every clause's
+  expressions over the same join: 42703 and 42702 come before any row is read, as in PostgreSQL.
+- `DO NOTHING` is rewritten to an assignment or insert of a sentinel name JSQLParser parses
+  (`QueryParser.mergeActions`), by the kind of clause it ends; `INSERT DEFAULT VALUES` to `INSERT
+  VALUES (DEFAULT)`.
+- The cases run in autocommit (`run.py` gained `SNAP_TABLES` and `SNAP_RELOAD`): inside `BEGIN`, a
+  scan of rows the transaction wrote fails (DB-CORE-10106), a limit of every write, not of `MERGE`.
 
 ## Parser
 

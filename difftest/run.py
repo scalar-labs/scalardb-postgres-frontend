@@ -39,7 +39,7 @@ stats = {}
 statuses = {}
 for name, ordered, sql in cases:
     if os.environ.get('SNAP'):
-        sql = sql + '\n' + ''.join(f'SELECT * FROM {t};\n' for t in ('emp', 'dept', 'proj', 'assign', 'types'))
+        sql = sql + '\n' + ''.join(f'SELECT * FROM {t};\n' for t in os.environ.get('SNAP_TABLES', 'emp dept proj assign types').split())
     (no, ne), (fo, fe) = run(os.environ.get('NATIVE_PORT', '15440'), os.environ.get('NATIVE', 'native_c'), sql), run(os.environ.get('FEPORT', '15441'), 'sdb', sql)
     if ne and fe: st = 'BOTH_ERR' if CODE.findall(ne) == CODE.findall(fe) else 'CODE'
     elif fe: st = 'FE_ERR'
@@ -50,7 +50,7 @@ for name, ordered, sql in cases:
     else: st = 'DIFF'
     if os.environ.get('SNAP'):
         for port, db in ((os.environ.get('NATIVE_PORT', '15440'), os.environ.get('NATIVE', 'native_c')), (os.environ.get('FEPORT', '15441'), 'sdb')):
-            subprocess.run(['psql', '-X', '-q', '-h', 'localhost', '-U', 'postgres', '-p', port, '-d', db, '-f', 'trunc.sql', '-f', 'data.sql'], check=True, capture_output=True)
+            subprocess.run(['psql', '-X', '-q', '-h', 'localhost', '-U', 'postgres', '-p', port, '-d', db, *[a for f in os.environ.get('SNAP_RELOAD', 'trunc.sql data.sql').split() for a in ('-f', f)]], check=True, capture_output=True)
     stats[st] = stats.get(st, 0) + 1
     statuses[name] = st
     if st != 'OK':
