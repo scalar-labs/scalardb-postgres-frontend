@@ -6448,22 +6448,7 @@ class QueryParser {
     }
     movedFrom.add(oldKey);
     movedTo.add(newKey);
-    GetBuilder.BuildableGet get =
-        Get.newBuilder()
-            .namespace(t.namespace)
-            .table(t.table)
-            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), values))
-            .projections(keyColumns(t));
-    DeleteBuilder.Buildable delete =
-        Delete.newBuilder()
-            .namespace(t.namespace)
-            .table(t.table)
-            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), row));
-    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
-      get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), values));
-      delete.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), row));
-    }
-    if (!reader.rows(get.build(), RowShape.all(qualifier, keyColumns(t))).isEmpty()) {
+    if (keyExists(t, qualifier, values, reader)) {
       throw new PgException.Argument("23505", duplicate);
     }
     Map<String, Column<?>> columns = new LinkedHashMap<>();
@@ -6471,7 +6456,7 @@ class QueryParser {
       columns.put(c, writtenColumn(t, c, values.get(c)));
     }
     return new Effect(
-        Arrays.<Mutation>asList(delete.build(), put(t, columns, false)),
+        Arrays.<Mutation>asList(deleteOf(t, row), put(t, columns, false)),
         left(t, qualifier, values));
   }
 
@@ -6514,17 +6499,7 @@ class QueryParser {
             joins.isEmpty() ? null : keyColumns(t));
     return Plan.write(
         read,
-        (row, reader) -> {
-          DeleteBuilder.Buildable b =
-              Delete.newBuilder()
-                  .namespace(t.namespace)
-                  .table(t.table)
-                  .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), row));
-          if (!t.metadata.getClusteringKeyNames().isEmpty()) {
-            b.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), row));
-          }
-          return new Effect(b.build(), left(t, qualifier, row));
-        },
+        (row, reader) -> new Effect(deleteOf(t, row), left(t, qualifier, row)),
         "DELETE",
         "Delete "
             + t.namespace
@@ -6535,18 +6510,33 @@ class QueryParser {
         returning);
   }
 
+  private enum MergeAction {
+    UPDATE,
+    DELETE,
+    INSERT,
+    NOTHING
+  }
+
   /** One WHEN clause of a MERGE: which rows it is for, its AND condition and its action. */
   private static final class MergeClause {
     final boolean matched; // WHEN MATCHED; else WHEN NOT MATCHED [BY TARGET]
     @Nullable final Expression condition;
-    final char action; // 'U'pdate, 'D'elete, 'I'nsert, 'N'othing
+    final MergeAction action;
     final List<String> columns = new ArrayList<>(); // assigned or inserted
     final List<Expression> values = new ArrayList<>();
 
-    MergeClause(boolean matched, @Nullable Expression condition, char action) {
+    MergeClause(boolean matched, @Nullable Expression condition, MergeAction action) {
       this.matched = matched;
       this.condition = condition;
       this.action = action;
+    }
+
+    List<Expression> expressions() {
+      List<Expression> all = new ArrayList<>(values);
+      if (condition != null) {
+        all.add(condition);
+      }
+      return all;
     }
   }
 
@@ -6554,8 +6544,8 @@ class QueryParser {
    * MERGE: the source LEFT JOIN the target ON the condition drives it; for each joined row, the
    * first WHEN clause of its kind (matched, or not) whose AND condition holds decides what is
    * written. Each clause's condition and values are evaluated for that row only, as PostgreSQL
-   * does. When ON gives the target's whole key, the join reads one target row per source row;
-   * otherwise it scans the target.
+   * does, and a WHEN NOT MATCHED clause sees only the source. When ON gives the target's whole key,
+   * the join reads one target row per source row; otherwise it scans the target.
    */
   // ponytail: WHEN NOT MATCHED BY SOURCE and RETURNING are refused (Phase 2 of the MERGE plan)
   private Plan merge(net.sf.jsqlparser.statement.merge.Merge merge) throws ExecutionException {
@@ -6565,16 +6555,16 @@ class QueryParser {
     Target t = target(merge.getTable());
     String tq = qualifierOf(merge.getTable(), t);
     FromItem source = merge.getFromItem();
+    if (source.getAlias() == null && !(source instanceof Table)) {
+      source.setAlias(new Alias("unnamed_subquery")); // PostgreSQL 16's name for it
+    }
     String sq =
         source.getAlias() != null
             ? unquote(source.getAlias().getName())
-            : source instanceof Table ? unquote(((Table) source).getName()) : null;
-    if (sq == null) {
-      throw new PgException.Argument("42601", "subquery in FROM must have an alias");
-    }
+            : unquote(((Table) source).getName());
     List<MergeClause> clauses = new ArrayList<>();
     for (net.sf.jsqlparser.statement.merge.MergeOperation op : merge.getOperations()) {
-      clauses.add(mergeClause(op, t, tq));
+      clauses.add(mergeClause(op, t));
     }
     // Parameter types: an assigned or inserted placeholder takes its column's
     for (MergeClause c : clauses) {
@@ -6582,31 +6572,28 @@ class QueryParser {
         inferAssigned(t, c.columns.get(i), c.values.get(i));
       }
     }
-    // Planned, never run: resolves every name (42703, 42702) and types the other placeholders
-    PlainSelect check = mergeJoin(merge, source, tq);
-    List<SelectItem<?>> checked = new ArrayList<>();
-    List<Expression> conditions = new ArrayList<>();
-    for (MergeClause c : clauses) {
-      for (Expression v : c.values) {
-        checked.add(SelectItem.from(v));
+    // Planned, never run, to resolve every name before any row is read and to type the other
+    // placeholders: WHEN MATCHED clauses over the join, WHEN NOT MATCHED ones over the source
+    // alone, where a target column is 42703 and the target's name 42P01, as in PostgreSQL
+    PlainSelect onSource = new PlainSelect();
+    onSource.setFromItem(source);
+    checkMergeClauses(mergeJoin(merge, source, tq), clauses, true);
+    try {
+      checkMergeClauses(onSource, clauses, false);
+    } catch (PgException.Argument e) {
+      if (e.getMessage() != null && e.getMessage().startsWith("Unknown column: " + tq + ".")) {
+        throw new PgException.Argument(
+            "42P01", "invalid reference to FROM-clause entry for table \"" + tq + "\"");
       }
-      if (c.condition != null) {
-        conditions.add(c.condition);
-      }
+      throw e;
     }
-    if (checked.isEmpty()) {
-      checked.add(SelectItem.from(new LongValue(1)));
-    }
-    check.setSelectItems(checked);
-    check.setWhere(conditions.stream().reduce(AndExpression::new).orElse(null));
-    block(check, null);
     // The driving read: every target column as tq.c and every source column as sq.c, so that the
     // clauses' expressions read the joined row as they would the join
     PlainSelect sourceColumns = new PlainSelect();
     sourceColumns.setFromItem(source);
     sourceColumns.setSelectItems(
         Collections.singletonList(SelectItem.from(new AllTableColumns(new Table(sq)))));
-    List<String> sourceNames = block(sourceColumns, null).outputNames;
+    List<String> sourceKeys = new ArrayList<>();
     PlainSelect join = mergeJoin(merge, source, tq);
     List<SelectItem<?>> items = new ArrayList<>();
     for (String c : t.metadata.getColumnNames()) {
@@ -6615,7 +6602,8 @@ class QueryParser {
               new net.sf.jsqlparser.schema.Column(new Table(tq), c),
               new Alias("\"" + tq + "." + c + "\"")));
     }
-    for (String c : sourceNames) {
+    for (String c : block(sourceColumns, null).outputNames) {
+      sourceKeys.add(sq + "." + c);
       items.add(
           SelectItem.from(
               new net.sf.jsqlparser.schema.Column(new Table(sq), c),
@@ -6623,19 +6611,15 @@ class QueryParser {
     }
     // A subquery in a clause runs through the read's plan, which knows it only when it is planned
     // there: as CASE WHEN false THEN ... END, planned but never evaluated (a clause's expressions
-    // run only for the rows that reach it). A literal that reads "select" just adds a NULL.
+    // run only for the rows that reach it)
     int hidden = 0;
     for (MergeClause c : clauses) {
-      List<Expression> expressions = new ArrayList<>(c.values);
-      if (c.condition != null) {
-        expressions.add(c.condition);
-      }
-      for (Expression e : expressions) {
-        if (e.toString().toUpperCase(Locale.ROOT).contains("SELECT")) {
-          net.sf.jsqlparser.expression.WhenClause never =
-              new net.sf.jsqlparser.expression.WhenClause(new BooleanValue(false), e);
+      for (Expression e : c.expressions()) {
+        if (hasSubquery(e)) {
           CaseExpression planned = new CaseExpression();
-          planned.setWhenClauses(Collections.singletonList(never));
+          planned.setWhenClauses(
+              Collections.singletonList(
+                  new net.sf.jsqlparser.expression.WhenClause(new BooleanValue(false), e)));
           items.add(SelectItem.from(planned, new Alias("\"$merge " + ++hidden + "\"")));
         }
       }
@@ -6643,12 +6627,11 @@ class QueryParser {
     join.setSelectItems(items);
     Plan read = block(join, null);
     String matchedKey = tq + "." + keyColumns(t).get(0); // NULL only where no target row joined
-    // Per execution: the target keys an UPDATE or DELETE changed, the keys inserted, and the keys
-    // UPDATEs moved from and to
+    // Per execution, by target key: the rows an UPDATE or DELETE changed (a second change is
+    // 21000), the keys deleted or moved away, and the keys inserted or moved to
     Set<List<Object>> changed = new HashSet<>();
-    Set<List<Object>> inserted = new HashSet<>();
-    Set<List<Object>> movedFrom = new HashSet<>();
-    Set<List<Object>> movedTo = new HashSet<>();
+    Set<List<Object>> removed = new HashSet<>();
+    Set<List<Object>> added = new HashSet<>();
     Object[] execution = {null};
     return Plan.write(
         read,
@@ -6656,12 +6639,18 @@ class QueryParser {
           if (execution[0] != reader) {
             execution[0] = reader;
             changed.clear();
-            inserted.clear();
-            movedFrom.clear();
-            movedTo.clear();
+            removed.clear();
+            added.clear();
           }
           boolean matched = row.get(matchedKey) != null;
-          List<Map<String, Object>> group = Collections.singletonList(row);
+          Map<String, Object> visible = row;
+          if (!matched) {
+            visible = new LinkedHashMap<>();
+            for (String k : sourceKeys) {
+              visible.put(k, row.get(k));
+            }
+          }
+          List<Map<String, Object>> group = Collections.singletonList(visible);
           Evaluator.Context ctx = read.context(null);
           for (MergeClause c : clauses) {
             if (c.matched != matched
@@ -6669,38 +6658,28 @@ class QueryParser {
                     && !Evaluator.isTrue(Evaluator.eval(c.condition, group, ctx))) {
               continue;
             }
-            if (c.action == 'N') {
+            if (c.action == MergeAction.NOTHING) {
               return null;
             }
-            if (c.action == 'I') {
+            if (c.action == MergeAction.INSERT) {
               Map<String, Object> proposed = new LinkedHashMap<>();
               for (int i = 0; i < c.columns.size(); i++) {
                 proposed.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
               }
-              return mergeInsert(t, tq, proposed, reader, inserted);
+              return mergeInsert(t, tq, proposed, reader, removed, added);
             }
             Map<String, Object> old = new LinkedHashMap<>();
             for (String col : t.metadata.getColumnNames()) {
               old.put(col, row.get(tq + "." + col));
             }
-            List<Object> key = new ArrayList<>();
-            for (String col : keyColumns(t)) {
-              key.add(Operators.normalize(writtenValue(t, col, old.get(col))));
-            }
+            List<Object> key = keyValues(t, old);
             if (!changed.add(key)) {
               throw new PgException.Argument(
                   "21000", "MERGE command cannot affect row a second time");
             }
-            if (c.action == 'D') {
-              DeleteBuilder.Buildable b =
-                  Delete.newBuilder()
-                      .namespace(t.namespace)
-                      .table(t.table)
-                      .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), old));
-              if (!t.metadata.getClusteringKeyNames().isEmpty()) {
-                b.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), old));
-              }
-              return new Effect(b.build(), left(t, tq, old));
+            if (c.action == MergeAction.DELETE) {
+              removed.add(key);
+              return new Effect(deleteOf(t, old), left(t, tq, old));
             }
             Map<String, Object> values = new LinkedHashMap<>(old);
             boolean movesKey = false;
@@ -6708,8 +6687,8 @@ class QueryParser {
               values.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
               movesKey |= keyColumns(t).contains(c.columns.get(i));
             }
-            return updateEffect(
-                t, tq, c.columns, movesKey, old, values, reader, movedFrom, movedTo);
+            // a key moved away counts as removed, the new one as added
+            return updateEffect(t, tq, c.columns, movesKey, old, values, reader, removed, added);
           }
           return null; // no clause applies
         },
@@ -6720,6 +6699,54 @@ class QueryParser {
             + t.table
             + ": per joined row, the first WHEN clause that applies",
         null);
+  }
+
+  /** Plans, without running, the expressions of the clauses that are {@code matched} or not. */
+  private void checkMergeClauses(PlainSelect from, List<MergeClause> clauses, boolean matched)
+      throws ExecutionException {
+    List<SelectItem<?>> checked = new ArrayList<>();
+    Expression where = null;
+    for (MergeClause c : clauses) {
+      if (c.matched != matched) {
+        continue;
+      }
+      for (Expression v : c.values) {
+        checked.add(SelectItem.from(v));
+      }
+      if (c.condition != null) {
+        where = where == null ? c.condition : new AndExpression(where, c.condition);
+      }
+    }
+    if (checked.isEmpty() && where == null) {
+      return;
+    }
+    if (checked.isEmpty()) {
+      checked.add(SelectItem.from(new LongValue(1)));
+    }
+    from.setSelectItems(checked);
+    from.setWhere(where);
+    block(from, null);
+  }
+
+  /** Whether {@code e} holds a subquery. */
+  private static boolean hasSubquery(Expression e) {
+    boolean[] found = {false};
+    e.accept(
+        new Walker() {
+          @Override
+          public <S> Void visit(net.sf.jsqlparser.statement.select.ParenthesedSelect s, S c) {
+            found[0] = true;
+            return null;
+          }
+
+          @Override
+          public <S> Void visit(Select s, S c) {
+            found[0] = true;
+            return null;
+          }
+        },
+        null);
+    return found[0];
   }
 
   /** FROM source LEFT JOIN target ON the MERGE's condition. */
@@ -6739,7 +6766,7 @@ class QueryParser {
 
   /** One WHEN clause, checked as PostgreSQL checks it before reading any row. */
   private static MergeClause mergeClause(
-      net.sf.jsqlparser.statement.merge.MergeOperation op, Target t, String tq) {
+      net.sf.jsqlparser.statement.merge.MergeOperation op, Target t) {
     if (op instanceof net.sf.jsqlparser.statement.merge.MergeInsert) {
       net.sf.jsqlparser.statement.merge.MergeInsert insert =
           (net.sf.jsqlparser.statement.merge.MergeInsert) op;
@@ -6753,14 +6780,9 @@ class QueryParser {
       if (values.size() == 1
           && isColumn(values.get(0))
           && columnName(values.get(0)).equals(MERGE_DO_NOTHING)) {
-        return new MergeClause(false, insert.getAndPredicate(), 'N');
+        return new MergeClause(false, insert.getAndPredicate(), MergeAction.NOTHING);
       }
-      // the target row does not exist here: only the source can be read
-      noTargetReference(insert.getAndPredicate(), tq);
-      for (Expression v : values) {
-        noTargetReference(v, tq);
-      }
-      MergeClause c = new MergeClause(false, insert.getAndPredicate(), 'I');
+      MergeClause c = new MergeClause(false, insert.getAndPredicate(), MergeAction.INSERT);
       List<String> names = new ArrayList<>();
       if (insert.getColumns() != null) {
         for (Expression col : insert.getColumns()) {
@@ -6783,21 +6805,17 @@ class QueryParser {
       }
       for (int i = 0; i < values.size(); i++) {
         c.columns.add(names.get(i));
-        c.values.add(isDefaultKeyword(values.get(i)) ? new NullValue() : values.get(i));
+        c.values.add(defaultToNull(values.get(i)));
       }
       return c;
     }
-    boolean bySource;
-    Expression condition;
     if (op instanceof net.sf.jsqlparser.statement.merge.MergeDelete) {
       net.sf.jsqlparser.statement.merge.MergeDelete delete =
           (net.sf.jsqlparser.statement.merge.MergeDelete) op;
-      bySource = delete.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE;
-      condition = delete.getAndPredicate();
-      if (bySource) {
+      if (delete.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
         throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
       }
-      return new MergeClause(true, condition, 'D');
+      return new MergeClause(true, delete.getAndPredicate(), MergeAction.DELETE);
     }
     net.sf.jsqlparser.statement.merge.MergeUpdate update =
         (net.sf.jsqlparser.statement.merge.MergeUpdate) op;
@@ -6811,10 +6829,10 @@ class QueryParser {
     if (sets.size() == 1
         && sets.get(0).getColumns().size() == 1
         && columnName(sets.get(0).getColumn(0)).equals(MERGE_DO_NOTHING)) {
-      return new MergeClause(true, update.getAndPredicate(), 'N');
+      return new MergeClause(true, update.getAndPredicate(), MergeAction.NOTHING);
     }
     checkSingleAssignments(sets);
-    MergeClause c = new MergeClause(true, update.getAndPredicate(), 'U');
+    MergeClause c = new MergeClause(true, update.getAndPredicate(), MergeAction.UPDATE);
     for (UpdateSet set : sets) {
       for (int i = 0; i < set.getColumns().size(); i++) {
         net.sf.jsqlparser.schema.Column col = set.getColumn(i);
@@ -6835,61 +6853,70 @@ class QueryParser {
     return c;
   }
 
-  /** WHEN NOT MATCHED reads no target row: a reference to the target is 42P01, as PostgreSQL. */
-  private static void noTargetReference(@Nullable Expression e, String tq) {
-    if (e == null) {
-      return;
-    }
-    e.accept(
-        new Walker() {
-          @Override
-          public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
-            if (column.getTable() != null
-                && column.getTable().getName() != null
-                && unquote(column.getTable().getName()).equals(tq)) {
-              throw new PgException.Argument(
-                  "42P01", "invalid reference to FROM-clause entry for table \"" + tq + "\"");
-            }
-            return null;
-          }
-        },
-        null);
-  }
-
   /**
-   * A MERGE insert: 23505 for a key the table or this execution already has, as PostgreSQL's unique
-   * index, and 23502 for a NULL key.
+   * A MERGE insert, as PostgreSQL's unique index sees it: 23505 for a key this execution inserted
+   * or moved to, or one the table has unless this execution deleted it or moved it away (then the
+   * row is written over, since a Delete and an Insert of one key cannot share a transaction), and
+   * 23502 for a NULL key.
    */
   private Effect mergeInsert(
       Target t,
       String tq,
       Map<String, Object> proposed,
       Plan.Reader reader,
-      Set<List<Object>> inserted) {
-    Key partition = keyOf(t, t.metadata.getPartitionKeyNames(), proposed);
-    GetBuilder.BuildableGet get =
-        Get.newBuilder()
-            .namespace(t.namespace)
-            .table(t.table)
-            .partitionKey(partition)
-            .projections(keyColumns(t));
-    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
-      get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), proposed));
-    }
-    List<Object> key = new ArrayList<>();
-    for (String c : keyColumns(t)) {
-      key.add(Operators.normalize(writtenValue(t, c, proposed.get(c))));
-    }
-    if (!inserted.add(key)
-        || !reader.rows(get.build(), RowShape.all(tq, keyColumns(t))).isEmpty()) {
+      Set<List<Object>> removed,
+      Set<List<Object>> added) {
+    List<Object> key = keyValues(t, proposed);
+    boolean freed = removed.remove(key);
+    if (!added.add(key) || !freed && keyExists(t, tq, proposed, reader)) {
       throw new PgException.Argument(
           "23505", "duplicate key value violates unique constraint \"" + t.table + "_pkey\"");
     }
     Map<String, Column<?>> columns = new LinkedHashMap<>();
-    for (Map.Entry<String, Object> e : proposed.entrySet()) {
-      columns.put(e.getKey(), writtenColumn(t, e.getKey(), e.getValue()));
+    for (String c : t.metadata.getColumnNames()) {
+      // every column, so that a row written over keeps none of the deleted one's values
+      if (proposed.containsKey(c) || freed) {
+        columns.put(c, writtenColumn(t, c, proposed.get(c)));
+      }
     }
-    return new Effect(put(t, columns, false), left(t, tq, proposed));
+    return new Effect(put(t, columns, freed), left(t, tq, proposed));
+  }
+
+  /** The key of {@code values} (column name to value), comparable across writes of a statement. */
+  private static List<Object> keyValues(Target t, Map<String, Object> values) {
+    List<Object> key = new ArrayList<>();
+    for (String c : keyColumns(t)) {
+      key.add(Operators.normalize(writtenValue(t, c, values.get(c))));
+    }
+    return key;
+  }
+
+  /** Whether {@code t} has a row with the key of {@code values}. */
+  private boolean keyExists(
+      Target t, String qualifier, Map<String, Object> values, Plan.Reader reader) {
+    GetBuilder.BuildableGet get =
+        Get.newBuilder()
+            .namespace(t.namespace)
+            .table(t.table)
+            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), values))
+            .projections(keyColumns(t));
+    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
+      get.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), values));
+    }
+    return !reader.rows(get.build(), RowShape.all(qualifier, keyColumns(t))).isEmpty();
+  }
+
+  /** A Delete of the row of {@code t} keyed by {@code row} (column name to value). */
+  private static Delete deleteOf(Target t, Map<String, Object> row) {
+    DeleteBuilder.Buildable b =
+        Delete.newBuilder()
+            .namespace(t.namespace)
+            .table(t.table)
+            .partitionKey(keyOf(t, t.metadata.getPartitionKeyNames(), row));
+    if (!t.metadata.getClusteringKeyNames().isEmpty()) {
+      b.clusteringKey(keyOf(t, t.metadata.getClusteringKeyNames(), row));
+    }
+    return b.build();
   }
 
   /**

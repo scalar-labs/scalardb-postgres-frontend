@@ -121,6 +121,22 @@ MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2)) s ON t.id = s.id
 -- @merge_update_key_collision
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET id = 2;
+-- @merge_not_matched_sees_only_source
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 3)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'm'
+  WHEN NOT MATCHED AND v > 0 THEN INSERT (id, v, note) VALUES (id, v, note);
+-- @merge_unaliased_source_subquery
+MERGE INTO mt t USING (SELECT sid, v AS sv FROM ms WHERE sid IN (1, 3)) ON t.id = sid
+  WHEN MATCHED THEN UPDATE SET v = sv
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (sid, sv);
+-- @merge_delete_then_insert_same_key
+MERGE INTO mt t USING (VALUES (3, 'x'), (103, 'y')) AS s(k, what) ON t.id = s.k
+  WHEN MATCHED THEN DELETE
+  WHEN NOT MATCHED THEN INSERT (id, note) VALUES (s.k - 100, s.what);
+-- @merge_key_moved_away_then_inserted
+MERGE INTO mt t USING (VALUES (3, 30, NULL), (NULL, NULL, 3)) AS s(k, nk, ins) ON t.id = s.k
+  WHEN MATCHED THEN UPDATE SET id = s.nk
+  WHEN NOT MATCHED THEN INSERT (id, note) VALUES (s.ins, 'back');
 -- Errors
 -- @merge_twice_matched_update
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
@@ -176,6 +192,19 @@ MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED THEN UPDATE SET v = 1
 -- @merge_insert_target_column_reference
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.v);
+-- @merge_insert_onto_moved_key
+MERGE INTO mt t USING (VALUES (1, 50, NULL), (NULL, NULL, 50)) AS s(k, nk, ins) ON t.id = s.k
+  WHEN MATCHED THEN UPDATE SET id = s.nk
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.ins);
+-- @merge_not_matched_nothing_target_reference
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED AND t.v > 0 THEN DO NOTHING;
+-- @merge_not_matched_subquery_target_reference
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, (SELECT max(x.v) FROM ms x WHERE x.id = t.id));
+-- @merge_not_matched_target_only_column
+MERGE INTO mt t USING (SELECT sid, v FROM ms WHERE sid = 3) s ON t.id = s.sid
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.sid, v, note);
 -- Parameters (extended protocol)
 -- @merge_bind_values
 MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id

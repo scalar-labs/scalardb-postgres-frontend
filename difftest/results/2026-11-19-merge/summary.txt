@@ -28,3 +28,7 @@ Phase 1, same day (branch merge): the cases now run in autocommit with SNAP=1 (s
 cases_merge.sql), and merge_subqueries was added. run-phase1.txt: 33 OK, 18 BOTH_ERR, 2 FE_ERR (the
 PostgreSQL 17 forms, refused with 0A000). The baseline is results/baseline/merge.txt. cases_write and
 cases_write_ac still match their baselines (UPDATE shares the key-move code with MERGE now).
+
+After the code review (same day): eight cases added for what it found (a NOT MATCHED clause seeing
+the target, an unaliased source subquery, inserting a key the statement deleted or moved away or
+onto one it moved to). run-phase1.txt now: 37 OK, 22 BOTH_ERR, 2 FE_ERR.
