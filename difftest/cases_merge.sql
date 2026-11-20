@@ -228,6 +228,19 @@ MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = unnamed_subque
 -- @merge_unaliased_join_source
 MERGE INTO mt t USING (ms s JOIN mk k ON k.a = s.id AND k.b = 1) ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET v = k.v;
+-- @merge_not_matched_target_unknown_column
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, t.nope);
+-- @merge_not_matched_target_and_ambiguous_name
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (t.v, id);
+-- @merge_unnamed_source_quoted
+MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = "unnamed subquery".id
+  WHEN MATCHED THEN DELETE;
+-- @merge_move_onto_key_deleted_later
+MERGE INTO mt t USING (VALUES (2, 1), (1, NULL)) AS s(k, nk) ON t.id = s.k
+  WHEN MATCHED AND s.nk IS NULL THEN DELETE
+  WHEN MATCHED THEN UPDATE SET id = s.nk;
 -- Parameters (extended protocol)
 -- @merge_bind_values
 MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id

@@ -39,3 +39,9 @@ subquery's own alias named like the target, unnamed_subquery, an unaliased join 
 run-phase1.txt now: 40 OK, 24 BOTH_ERR, 1 CODE (merge_unnamed_subquery_not_referable: 42703 here,
 42P01 natively), 3 FE_ERR (the two PostgreSQL 17 forms, and merge_unaliased_join_source, refused
 with 0A000).
+
+After the third code review (2026-11-20): four more cases (a target column the target lacks, a
+target reference beside an ambiguous name, the unnamed source quoted, a key moved onto one a later
+row deletes). run-phase1.txt now: 40 OK, 28 BOTH_ERR, 1 CODE, 3 FE_ERR. merge_move_onto_key_deleted_later
+is 23505 on both sides in this run; PostgreSQL succeeded on the same statement inside BEGIN, so
+its outcome depends on its row order too.

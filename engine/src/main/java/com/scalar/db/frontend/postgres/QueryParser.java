@@ -3213,6 +3213,9 @@ class QueryParser {
     final List<LogicalPlan.Source> sources;
     @Nullable final Scope outer;
     boolean correlated; // a column was resolved in an enclosing scope
+    // a table that is in the query but cannot be referenced here, as MERGE's target in a WHEN NOT
+    // MATCHED clause: a reference to it is 42P01, as in PostgreSQL
+    @Nullable String hidden;
 
     Scope(List<LogicalPlan.Source> sources, @Nullable Scope outer) {
       this.sources = sources;
@@ -3323,6 +3326,12 @@ class QueryParser {
         if (outer != null) {
           correlated = true;
           return outer.resolve(c);
+        }
+        if (hidden != null
+            && c.getTable() != null
+            && unquote(c.getTable().getName()).equals(hidden)) {
+          throw new PgException.Argument(
+              "42P01", "invalid reference to FROM-clause entry for table \"" + hidden + "\"");
         }
         throw new PgException.Argument("42703", "Unknown column: " + c);
       }
@@ -6358,7 +6367,7 @@ class QueryParser {
             movedTo.clear();
           }
           return updateEffect(
-              t, qualifier, setColumns, keyMove, row, values, reader, movedFrom, movedTo, null);
+              t, qualifier, setColumns, keyMove, row, values, reader, movedFrom, movedTo, false);
         },
         "UPDATE",
         "Update "
@@ -6384,11 +6393,11 @@ class QueryParser {
       Plan.Reader reader,
       Set<List<Object>> movedFrom,
       Set<List<Object>> movedTo,
-      @Nullable Set<List<Object>> freed) {
+      boolean overwriteFreed) {
     if (!keyMove) {
       return new Effect(update(t, setColumns, values), left(t, qualifier, values));
     }
-    Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo, freed);
+    Effect moved = keyMove(t, qualifier, row, values, reader, movedFrom, movedTo, overwriteFreed);
     if (moved != null) {
       return moved;
     }
@@ -6416,9 +6425,9 @@ class QueryParser {
    * the new one, in the statement's transaction; null when the key stays the same. As PostgreSQL's
    * unique index, a new key that some row holds is 23505; so is one another row of the statement
    * moves to or from, since PostgreSQL's answer then depends on the order it updates the rows in.
-   * MERGE passes {@code freed}, the keys it deleted or moved away (its {@code movedFrom} too): a
-   * row moved onto one of them writes over it, as a MERGE insert does, and {@code movedTo} holds
-   * the keys it inserted as well. UPDATE passes null.
+   * MERGE's {@code movedFrom} also holds the keys it deleted and {@code movedTo} the keys it
+   * inserted; with {@code overwriteFreed} (MERGE) a row moved onto a key in {@code movedFrom}
+   * writes over it, as a MERGE insert does, instead of failing.
    */
   @Nullable private Effect keyMove(
       Target t,
@@ -6428,7 +6437,7 @@ class QueryParser {
       Plan.Reader reader,
       Set<List<Object>> movedFrom,
       Set<List<Object>> movedTo,
-      @Nullable Set<List<Object>> freed) {
+      boolean overwriteFreed) {
     for (String c : keyColumns(t)) {
       if (values.get(c) == null) {
         throw new PgException.Argument(
@@ -6446,7 +6455,7 @@ class QueryParser {
       return null;
     }
     String duplicate = "duplicate key value violates unique constraint \"" + t.table + "_pkey\"";
-    boolean overwrite = freed != null && freed.remove(newKey);
+    boolean overwrite = overwriteFreed && movedFrom.remove(newKey);
     if (movedTo.contains(newKey)
         || movedTo.contains(oldKey)
         || !overwrite && movedFrom.contains(newKey)) {
@@ -6516,6 +6525,9 @@ class QueryParser {
         returning);
   }
 
+  /** The name an unaliased MERGE source subquery is planned under; no clause may use it. */
+  private static final String UNNAMED_SOURCE = "unnamed subquery";
+
   private enum MergeAction {
     UPDATE,
     DELETE,
@@ -6566,9 +6578,9 @@ class QueryParser {
         throw new PgException.Argument(
             "0A000", "Unsupported: a MERGE source other than a table or subquery without an alias");
       }
-      // PostgreSQL 16 names it unnamed_subquery but lets no clause use that name; this one no
-      // query writes unquoted
-      source.setAlias(new Alias("\"unnamed subquery\""));
+      // PostgreSQL 16 names it unnamed_subquery but lets no clause use that name: neither does
+      // the statement here use this one
+      source.setAlias(new Alias("\"" + UNNAMED_SOURCE + "\""));
     }
     String sq =
         source.getAlias() != null
@@ -6577,6 +6589,29 @@ class QueryParser {
     List<MergeClause> clauses = new ArrayList<>();
     for (net.sf.jsqlparser.statement.merge.MergeOperation op : merge.getOperations()) {
       clauses.add(mergeClause(op, t));
+    }
+    if (sq.equals(UNNAMED_SOURCE)) {
+      List<Expression> written = new ArrayList<>();
+      written.add(merge.getOnCondition());
+      for (MergeClause c : clauses) {
+        written.addAll(c.expressions());
+      }
+      for (Expression e : written) {
+        e.accept(
+            new Walker() {
+              @Override
+              public <S> Void visit(net.sf.jsqlparser.schema.Column column, S context) {
+                if (column.getTable() != null
+                    && column.getTable().getName() != null
+                    && unquote(column.getTable().getName()).equals(UNNAMED_SOURCE)) {
+                  throw new PgException.Argument(
+                      "42P01", "missing FROM-clause entry for table \"" + UNNAMED_SOURCE + "\"");
+                }
+                return null;
+              }
+            },
+            null);
+      }
     }
     // Parameter types: an assigned or inserted placeholder takes its column's
     for (MergeClause c : clauses) {
@@ -6589,28 +6624,10 @@ class QueryParser {
     // alone, where a target column is 42703 and the target's name 42P01, as in PostgreSQL
     PlainSelect onSource = new PlainSelect();
     onSource.setFromItem(source);
-    checkMergeClauses(mergeJoin(merge, source, tq), clauses, true);
-    try {
-      checkMergeClauses(onSource, clauses, false);
-    } catch (PgException.Argument e) {
-      // a reference qualified by the target's name that resolves once the target is joined is the
-      // target, which PostgreSQL reports as 42P01; a subquery's own table of that name stays 42703
-      String prefix = "Unknown column: ";
-      String m = e.getMessage() == null ? "" : e.getMessage();
-      int dot = m.lastIndexOf('.');
-      if (dot > prefix.length()
-          && m.startsWith(prefix)
-          && unquote(m.substring(prefix.length(), dot)).equals(tq)) {
-        try {
-          checkMergeClauses(mergeJoin(merge, source, tq), clauses, false);
-        } catch (PgException.Argument stillFails) {
-          throw e;
-        }
-        throw new PgException.Argument(
-            "42P01", "invalid reference to FROM-clause entry for table \"" + tq + "\"");
-      }
-      throw e;
-    }
+    checkMergeClauses(mergeJoin(merge, source, tq), clauses, true, null);
+    Scope hiddenTarget = new Scope(Collections.<LogicalPlan.Source>emptyList(), null);
+    hiddenTarget.hidden = tq;
+    checkMergeClauses(onSource, clauses, false, hiddenTarget);
     // The driving read: every target column as tq.c and every source column as sq.c, so that the
     // clauses' expressions read the joined row as they would the join
     PlainSelect sourceColumns = new PlainSelect();
@@ -6714,7 +6731,7 @@ class QueryParser {
             // a key moved away counts as removed, the new one as added; a move onto a removed key
             // writes over it
             return updateEffect(
-                t, tq, c.columns, movesKey, old, values, reader, removed, added, removed);
+                t, tq, c.columns, movesKey, old, values, reader, removed, added, true);
           }
           return null; // no clause applies
         },
@@ -6727,8 +6744,12 @@ class QueryParser {
         null);
   }
 
-  /** Plans, without running, the expressions of the clauses that are {@code matched} or not. */
-  private void checkMergeClauses(PlainSelect from, List<MergeClause> clauses, boolean matched)
+  /**
+   * Plans, without running, the expressions of the clauses that are {@code matched} or not, inside
+   * {@code outer} when given.
+   */
+  private void checkMergeClauses(
+      PlainSelect from, List<MergeClause> clauses, boolean matched, @Nullable Scope outer)
       throws ExecutionException {
     List<SelectItem<?>> checked = new ArrayList<>();
     Expression where = null;
@@ -6751,7 +6772,7 @@ class QueryParser {
     }
     from.setSelectItems(checked);
     from.setWhere(where);
-    block(from, null);
+    block(from, outer);
   }
 
   /** FROM source LEFT JOIN target ON the MERGE's condition. */
@@ -6893,9 +6914,8 @@ class QueryParser {
    */
   private static List<Object> keyValues(Target t, Map<String, Object> values) {
     List<Object> key = new ArrayList<>();
-    for (String c : keyColumns(t)) {
-      Object v = values.get(c);
-      key.add(Operators.normalize(v == null ? null : writtenColumn(t, c, v).getValueAsObject()));
+    for (Column<?> c : keyOf(t, keyColumns(t), values).getColumns()) {
+      key.add(Operators.normalize(c.getValueAsObject()));
     }
     return key;
   }

@@ -22,7 +22,7 @@ row into an `Effect` (mutations plus the row left behind) or skips it, and may r
 ## Status
 
 Phase 1 is done (2026-11-19): every Phase 1 case of `difftest/cases_merge.sql` matches PostgreSQL 18
-(40 OK, 24 with the same SQLSTATEs; baseline `difftest/results/baseline/merge.txt`), as do pgJDBC's
+(40 OK, 28 with the same SQLSTATEs; baseline `difftest/results/baseline/merge.txt`), as do pgJDBC's
 parameter types and plan-cache reuse. As built, differing from the design below where marked:
 
 - The driving read names every column `t.c` / `s.c`, and a clause's condition and values are evaluated
@@ -33,7 +33,8 @@ parameter types and plan-cache reuse. As built, differing from the design below 
 - `DO NOTHING` is rewritten to an assignment or insert of a sentinel name JSQLParser parses
   (`QueryParser.mergeActions`), by the kind of clause it ends; `INSERT DEFAULT VALUES` to `INSERT
   VALUES (DEFAULT)`.
-- A WHEN NOT MATCHED clause sees only the source: it is checked over the source alone and evaluated
+- A WHEN NOT MATCHED clause sees only the source: it is checked over the source alone, inside a scope
+  that holds the target as hidden (a reference to it is 42P01, as PostgreSQL's), and evaluated
   on the source's columns of the row. Keys are tracked per execution across actions, so an insert
   of a key this statement deleted or moved away writes over it (an Upsert after the Delete in the
   same batch) and one onto a key it inserted or moved to is 23505; an UPDATE moving a key onto a
