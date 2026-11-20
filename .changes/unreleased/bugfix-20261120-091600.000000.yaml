@@ -1,0 +1,3 @@
+kind: bugfix
+body: 'The server now turns on TCP keepalive for client connections, as PostgreSQL does. A client whose host went down or whose network was cut no longer leaves its session, and any transaction that session holds, open indefinitely: the operating system closes the connection once keepalive probes go unanswered (after about two hours with the default system settings).'
+time: 2026-11-20T09:16:00.000000+09:00

@@ -525,6 +525,9 @@ public final class PostgresServer implements AutoCloseable {
       // Replies are flushed whole at ReadyForQuery; Nagle would hold the next one back for the
       // client's delayed ACK (tens of milliseconds) on a real network
       socket.setTcpNoDelay(true);
+      // As PostgreSQL does: the OS then closes the session of a client that vanished (host down,
+      // network cut) instead of keeping it, and any transaction it holds, open for good
+      socket.setKeepAlive(true);
       this.socket = socket;
       this.accepted = socket;
       this.in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
