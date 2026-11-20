@@ -24,12 +24,7 @@ FROM ghcr.io/scalar-labs/jre25:25.0.5_8.202611200209@sha256:2f153434ef83a32558f6
 # check passes without a passwd lookup. DEBIAN_FRONTEND is exported in the RUN rather than set with
 # ENV, so that it does not reach the runtime environment.
 # hadolint ignore=DL3005
-RUN export DEBIAN_FRONTEND=noninteractive \
- && apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get autoremove -y \
- && rm -rf /var/lib/apt/lists/* \
- && groupadd --system --gid 201 scalardb \
+RUN groupadd --system --gid 201 scalardb \
  && useradd --system --uid 201 --gid 201 --no-create-home --shell /usr/sbin/nologin scalardb
 
 WORKDIR /scalardb-postgres-frontend
