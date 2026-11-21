@@ -64,3 +64,9 @@ an ambiguous name beside merge_action(), the source's whole row on a BY SOURCE r
 a subquery in RETURNING, repeated RETURNING names, merge_action() in UPDATE ... RETURNING).
 run-phase2.txt: 63 OK, 40 BOTH_ERR, 1 CODE, 1 FE_ERR. cases_write.sql gained
 update_returning_repeated_names, a bug in every write's RETURNING, fixed with it.
+
+After the second Phase 2 review (2026-11-21): five more cases (a table named merge_action, which the
+text check of the previous commit refused; a window in RETURNING; merge_action() in the source; the
+unnamed source in RETURNING; a RETURNING subquery of the target, now refused with 0A000).
+run-phase2.txt: 64 OK, 43 BOTH_ERR, 1 CODE, 2 FE_ERR (merge_unaliased_join_source and
+merge_returning_subquery_of_target, both refused on purpose).

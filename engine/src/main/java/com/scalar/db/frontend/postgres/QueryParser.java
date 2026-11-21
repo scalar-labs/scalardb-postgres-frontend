@@ -2044,18 +2044,10 @@ class QueryParser {
           (create ? "CREATE" : "DROP") + " COORDINATOR TABLES");
     }
     Statement statement = parseStatement(sql);
-    if (!(statement instanceof net.sf.jsqlparser.statement.merge.Merge)
-        && sql.toLowerCase(Locale.ROOT).contains("merge_action")) {
-      boolean[] found = {false};
-      outsideLiterals(
-          sql,
-          code -> {
-            found[0] |= MERGE_ACTION_CALL.matcher(code).find();
-            return code;
-          });
-      if (found[0]) {
-        throw Evaluator.mergeActionOutsideReturning();
-      }
+    if (containsIgnoreCase(sql, "merge_action")
+        && mergeActionCalls(statement) > mergeActionCallsInReturning(statement)) {
+      // merge_action() belongs to MERGE's RETURNING list only, refused before any row as PostgreSQL
+      throw Evaluator.mergeActionOutsideReturning();
     }
     List<Plan.Prelude> prelude = writingCtes(statement);
     try {
@@ -6561,8 +6553,73 @@ class QueryParser {
         returning);
   }
 
-  private static final Pattern MERGE_ACTION_CALL =
-      Pattern.compile("(?i)(?<![\\w$])(?:pg_catalog\\s*\\.\\s*)?merge_action\\s*\\(");
+  /**
+   * Calls of merge_action() anywhere in {@code statement}, subqueries and WITH queries included.
+   */
+  private static int mergeActionCalls(Statement statement) {
+    int[] calls = {0};
+    new net.sf.jsqlparser.util.TablesNamesFinder<Void>() {
+      @Override
+      public <S> Void visit(Function function, S context) {
+        calls[0] += isMergeAction(function) ? 1 : 0;
+        return super.visit(function, context);
+      }
+    }.getTables(statement);
+    return calls[0];
+  }
+
+  /** Calls of merge_action() directly in the RETURNING items of a MERGE, where they belong. */
+  private static int mergeActionCallsInReturning(Statement statement) {
+    if (!(statement instanceof net.sf.jsqlparser.statement.merge.Merge)
+        || ((net.sf.jsqlparser.statement.merge.Merge) statement).getReturningClause() == null) {
+      return 0;
+    }
+    int[] calls = {0};
+    for (SelectItem<?> item :
+        ((net.sf.jsqlparser.statement.merge.Merge) statement).getReturningClause()) {
+      item.getExpression()
+          .accept(
+              new Walker() {
+                @Override
+                public <S> Void visit(Function f, S context) {
+                  calls[0] += isMergeAction(f) ? 1 : 0;
+                  return super.visit(f, context);
+                }
+              },
+              null);
+    }
+    return calls[0];
+  }
+
+  private static boolean isMergeAction(Function f) {
+    String name = f.getName().toLowerCase(Locale.ROOT);
+    return name.equals("merge_action") || name.endsWith(".merge_action");
+  }
+
+  /** Whether {@code e} calls a window function (an OVER clause), outside its subqueries. */
+  private static boolean hasWindow(Expression e) {
+    boolean[] found = {false};
+    e.accept(
+        new Walker() {
+          @Override
+          public <S> Void visit(net.sf.jsqlparser.expression.AnalyticExpression a, S context) {
+            found[0] = true;
+            return null;
+          }
+        },
+        null);
+    return found[0];
+  }
+
+  /** Whether {@code text} contains {@code word}, ignoring case, without copying the text. */
+  private static boolean containsIgnoreCase(String text, String word) {
+    for (int i = 0; i + word.length() <= text.length(); i++) {
+      if (text.regionMatches(true, i, word, 0, word.length())) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /** The driving row's key for the source's whole row, NULL where no source row joined. */
   private static final String MERGE_SOURCE_ROW = "$merge source";
@@ -6654,6 +6711,17 @@ class QueryParser {
       for (MergeClause c : clauses) {
         written.addAll(c.expressions());
       }
+      if (merge.getReturningClause() != null) {
+        for (SelectItem<?> item : merge.getReturningClause()) {
+          Expression e = item.getExpression();
+          if (e instanceof AllTableColumns
+              && unquote(((AllTableColumns) e).getTable().getName()).equals(UNNAMED_SOURCE)) {
+            throw new PgException.Argument(
+                "42P01", "missing FROM-clause entry for table \"" + UNNAMED_SOURCE + "\"");
+          }
+          written.add(e);
+        }
+      }
       for (Expression e : written) {
         e.accept(
             new Walker() {
@@ -6676,13 +6744,7 @@ class QueryParser {
         if (hasAggregate(e)) {
           throw new PgException.Argument("42803", "aggregate functions are not allowed in MERGE");
         }
-        if (callsMergeAction(e)) {
-          throw Evaluator.mergeActionOutsideReturning();
-        }
       }
-    }
-    if (callsMergeAction(merge.getOnCondition())) {
-      throw Evaluator.mergeActionOutsideReturning();
     }
     boolean full = clauses.stream().anyMatch(c -> c.when == MergeWhen.NOT_MATCHED_BY_SOURCE);
     // Parameter types: an assigned or inserted placeholder takes its column's
@@ -6779,6 +6841,25 @@ class QueryParser {
         if (hasAggregate(e)) {
           throw new PgException.Argument(
               "42803", "aggregate functions are not allowed in RETURNING");
+        }
+        if (hasWindow(e)) {
+          throw new PgException.Argument("42P20", "window functions are not allowed in RETURNING");
+        }
+        // ponytail: RETURNING is evaluated after the writes, so a subquery of the target would see
+        // them, where PostgreSQL's sees the table as before the statement: refused; evaluate such
+        // subqueries in the read if a client needs them
+        for (Select sub : subselects(e)) {
+          for (String table :
+              new net.sf.jsqlparser.util.TablesNamesFinder<Void>().getTables((Statement) sub)) {
+            String bare = table.contains(".") ? table.substring(table.lastIndexOf('.') + 1) : table;
+            if (unquote(bare).equals(t.table)) {
+              throw new PgException.Argument(
+                  "0A000",
+                  "Unsupported: a RETURNING subquery that reads the MERGE's target table \""
+                      + t.table
+                      + "\"");
+            }
+          }
         }
         CaseExpression planned = new CaseExpression();
         planned.setWhenClauses(
@@ -6929,6 +7010,7 @@ class QueryParser {
       List<String> sourceNames,
       int[] sourceOids) {
     Returning returning = new Returning();
+    returning.inRead = true;
     List<String> labels = returning.names;
     for (SelectItem<?> item : merge.getReturningClause()) {
       Expression e = item.getExpression();
@@ -6979,22 +7061,6 @@ class QueryParser {
       }
     }
     return returning;
-  }
-
-  /** Whether {@code e} calls merge_action(). */
-  private static boolean callsMergeAction(Expression e) {
-    boolean[] found = {false};
-    e.accept(
-        new Walker() {
-          @Override
-          public <S> Void visit(Function f, S context) {
-            String name = f.getName().toLowerCase(Locale.ROOT);
-            found[0] |= name.equals("merge_action") || name.endsWith(".merge_action");
-            return super.visit(f, context);
-          }
-        },
-        null);
-    return found[0];
   }
 
   /**

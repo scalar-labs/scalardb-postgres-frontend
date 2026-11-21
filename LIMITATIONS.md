@@ -232,7 +232,9 @@ at the end of this section.
   as in PostgreSQL. A source other than a table or a subquery (a parenthesized join, a function)
   needs an alias, which PostgreSQL does not require (`0A000`). Rows are written in the order the join
   returns them: an `UPDATE SET` of a key onto one that a later row of the statement deletes or moves
-  away fails with `23505`, where PostgreSQL can succeed. A concurrent writer is found out at commit
+  away fails with `23505`, where PostgreSQL can succeed. A subquery in `RETURNING` that reads the
+  target table is refused (`0A000`): it would see the statement's own writes, where PostgreSQL's sees
+  the table as it was. A concurrent writer is found out at commit
   (`40001`), where PostgreSQL's `READ COMMITTED` would wait for it and re-check the row.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.

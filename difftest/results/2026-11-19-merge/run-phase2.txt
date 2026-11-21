@@ -1,4 +1,4 @@
-{'OK': 63, 'BOTH_ERR': 40, 'CODE': 1, 'FE_ERR': 1}
+{'OK': 64, 'BOTH_ERR': 43, 'CODE': 1, 'FE_ERR': 2}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -493,6 +493,51 @@ LINE 1: UPDATE mt SET v = 1 WHERE false RETURNING merge_action();
                                                   ^
 LOCATION:  transformMergeSupportFunc, parse_expr.c:1397
   fe: ERROR:  42601: MERGE_ACTION() can only be used in the RETURNING list of a MERGE command
+=== BOTH_ERR merge_returning_window
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 1 RETURNING row_number() OVER ();
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P20: window functions are not allowed in RETURNING
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = 1 RETURNING row_number() ...
+                                                       ^
+LOCATION:  transformWindowFuncCall, parse_agg.c:1019
+  fe: ERROR:  42P20: window functions are not allowed in RETURNING
+=== BOTH_ERR merge_action_in_source
+MERGE INTO mt t USING (SELECT merge_action() AS a, 1 AS id WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42601: MERGE_ACTION() can only be used in the RETURNING list of a MERGE command
+LINE 1: MERGE INTO mt t USING (SELECT merge_action() AS a, 1 AS id W...
+                                      ^
+LOCATION:  transformMergeSupportFunc, parse_expr.c:1397
+  fe: ERROR:  42601: MERGE_ACTION() can only be used in the RETURNING list of a MERGE command
+=== BOTH_ERR merge_returning_unnamed_source
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+LINE 2:   WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+                                             ^
+LOCATION:  errorMissingRTE, parse_relation.c:3761
+  fe: ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+=== FE_ERR merge_returning_subquery_of_target
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v RETURNING (SELECT x.v FROM mt x WHERE x.id = t.id) AS old_v;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: a RETURNING subquery that reads the MERGE's target table "mt"
 === BOTH_ERR merge_action_outside_returning
 SELECT merge_action();
 SELECT * FROM mt;
