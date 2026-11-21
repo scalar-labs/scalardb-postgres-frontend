@@ -377,6 +377,25 @@ MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET v = 7 RETURNING t.v AS x, s.v AS x;
 -- @merge_action_in_update_returning
 UPDATE mt SET v = 1 WHERE false RETURNING merge_action();
+-- @merge_table_named_merge_action
+SET client_min_messages = warning;
+DROP TABLE IF EXISTS merge_action;
+CREATE TABLE merge_action (id int PRIMARY KEY, v int);
+INSERT INTO merge_action (id, v) VALUES (1, 1);
+SELECT * FROM merge_action;
+DROP TABLE merge_action;
+-- @merge_returning_window
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 1 RETURNING row_number() OVER ();
+-- @merge_action_in_source
+MERGE INTO mt t USING (SELECT merge_action() AS a, 1 AS id WHERE false) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+-- @merge_returning_unnamed_source
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+-- @merge_returning_subquery_of_target
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v RETURNING (SELECT x.v FROM mt x WHERE x.id = t.id) AS old_v;
 -- @merge_action_outside_returning
 SELECT merge_action();
 -- @merge_action_in_condition
