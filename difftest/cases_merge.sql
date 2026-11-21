@@ -281,16 +281,83 @@ MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED AND s.v > $1 THEN UPDATE SET note = $2
   WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, $1, $2) \bind 5 bound \g
--- Phase 2 (PostgreSQL 17): recorded now, expected FE_ERR until then
+-- Phase 2 (PostgreSQL 17): WHEN NOT MATCHED BY SOURCE / BY TARGET, RETURNING and merge_action()
 -- @merge_not_matched_by_source
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET note = 'both'
   WHEN NOT MATCHED BY SOURCE AND t.id > 3 THEN DELETE
   WHEN NOT MATCHED BY SOURCE THEN UPDATE SET note = 'target only'
   WHEN NOT MATCHED BY TARGET THEN INSERT (id, v, note) VALUES (s.id, s.v, 'source only');
+-- @merge_by_source_only
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2)) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE THEN DELETE;
+-- @merge_by_source_do_nothing
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2)) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE AND t.v = 3 THEN DO NOTHING
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET v = t.v * 100;
+-- @merge_by_source_empty_source
+MERGE INTO mt t USING (SELECT * FROM ms WHERE false) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE AND t.id % 2 = 0 THEN DELETE;
+-- @merge_by_source_key_update
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 2, 11)) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET id = t.id + 100;
+-- @merge_by_source_composite_key
+MERGE INTO mk t USING (VALUES (1, 1)) AS s(a, b) ON t.a = s.a AND t.b = s.b
+  WHEN MATCHED THEN UPDATE SET v = 0
+  WHEN NOT MATCHED BY SOURCE THEN DELETE;
+-- @merge_by_source_non_key_on
+MERGE INTO mt t USING (VALUES (2), (4)) AS s(v) ON t.v = s.v
+  WHEN NOT MATCHED BY SOURCE THEN UPDATE SET note = 'unmatched';
+-- @merge_by_source_unaliased_source
+MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = id
+  WHEN NOT MATCHED BY SOURCE AND t.id = 5 THEN DELETE;
+-- @merge_by_source_sees_only_target
+MERGE INTO mt t USING (SELECT sid, id AS sidv FROM ms WHERE sid = 1) s ON t.id = s.sidv
+  WHEN NOT MATCHED BY SOURCE AND v > 3 THEN UPDATE SET note = note || '!';
+-- @merge_by_source_source_reference
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED BY SOURCE AND s.v > 0 THEN DELETE;
+-- @merge_by_source_source_reference_in_set
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN UPDATE SET v = s.v;
+-- @merge_by_source_insert
+MERGE INTO mt t USING ms s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN INSERT (id) VALUES (1);
 -- @merge_returning
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED AND s.v IS NULL THEN DELETE
   WHEN MATCHED THEN UPDATE SET v = s.v
   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
   RETURNING merge_action(), s.sid, t.*;
+-- @merge_returning_star
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 3)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'u'
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+  WHEN NOT MATCHED BY SOURCE AND t.id > 4 THEN DELETE
+  RETURNING *;
+-- @merge_returning_expressions
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (1, 3)) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 0
+  WHEN NOT MATCHED THEN INSERT (id, v, note) VALUES (s.id, s.v, 'new')
+  RETURNING merge_action() AS action, t.v + 1 AS next, s.*, lower(merge_action()) || ':' || t.id AS tag;
+-- @merge_returning_do_nothing_not_returned
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN DO NOTHING
+  WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id)
+  RETURNING merge_action(), t.id;
+-- @merge_returning_by_source
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE AND t.id IN (2, 3) THEN UPDATE SET v = -t.v
+  WHEN NOT MATCHED BY SOURCE AND t.id = 4 THEN DELETE
+  RETURNING merge_action(), s.sid, t.id, t.v;
+-- @merge_returning_key_move
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET id = 100
+  RETURNING merge_action(), t.id, s.id;
+-- @merge_returning_bind
+MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
+  RETURNING merge_action(), t.* \bind 9 99 \g
+-- @merge_action_outside_returning
+SELECT merge_action();
+-- @merge_action_in_condition
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED AND merge_action() = 'UPDATE' THEN DELETE;

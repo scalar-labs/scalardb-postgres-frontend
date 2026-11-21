@@ -4409,6 +4409,14 @@ final class Evaluator {
     return s.substring(start, end);
   }
 
+  /** The key of merge_action()'s value in the row MERGE's RETURNING reads. */
+  static final String MERGE_ACTION = "$merge action";
+
+  static PgException.Argument mergeActionOutsideReturning() {
+    return new PgException.Argument(
+        "42601", "MERGE_ACTION() can only be used in the RETURNING list of a MERGE command");
+  }
+
   @Nullable private static Object scalar(Function f, List<Map<String, Object>> group, Context ctx) {
     String name = functionName(f);
     if (name.equals("GROUPING")) {
@@ -4436,6 +4444,13 @@ final class Evaluator {
         values.add(row.values().iterator().next());
       }
       return values;
+    }
+    if (name.equals("MERGE_ACTION")) {
+      Object action = group.isEmpty() ? null : group.get(0).get(MERGE_ACTION);
+      if (action == null) {
+        throw mergeActionOutsideReturning();
+      }
+      return action;
     }
     if (name.equals("PG_TYPEOF")
         && f.getParameters() != null

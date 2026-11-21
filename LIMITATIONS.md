@@ -224,16 +224,16 @@ at the end of this section.
   pushed-down conditions are compared there.
 - **Cursors (`DECLARE`, `FETCH`, `WHERE CURRENT OF`), `COPY` and views are not supported** and
   fail with a clear error.
-- **`MERGE` runs PostgreSQL 15's forms**: `WHEN MATCHED [AND ...] THEN UPDATE`, `DELETE` or `DO
-  NOTHING`, and `WHEN NOT MATCHED [AND ...] THEN INSERT` or `DO NOTHING`. PostgreSQL 17's `WHEN NOT
-  MATCHED BY SOURCE` and `RETURNING` are refused with `0A000`. When `ON` gives the target's whole
-  primary key, each source row reads one target row; otherwise the statement scans the target. Each
-  row a `NOT MATCHED` clause inserts costs a read of its key, so that an existing key is `23505` as
-  in PostgreSQL. A source other than a table or a subquery (a parenthesized join, a function) needs
-  an alias, which PostgreSQL does not require (`0A000`). Rows are written in the order the join
+- **`MERGE` runs PostgreSQL 17's forms**: `WHEN MATCHED`, `WHEN NOT MATCHED [BY TARGET]` and `WHEN
+  NOT MATCHED BY SOURCE`, each with `AND` conditions, and `RETURNING` with `merge_action()`. When `ON`
+  gives the target's whole primary key and no clause is `BY SOURCE`, each source row reads one target
+  row; otherwise the statement scans the target (with `BY SOURCE`, the whole target, as it must).
+  Each row a `NOT MATCHED` clause inserts costs a read of its key, so that an existing key is `23505`
+  as in PostgreSQL. A source other than a table or a subquery (a parenthesized join, a function)
+  needs an alias, which PostgreSQL does not require (`0A000`). Rows are written in the order the join
   returns them: an `UPDATE SET` of a key onto one that a later row of the statement deletes or moves
-  away fails with `23505`, where PostgreSQL can succeed. A concurrent writer is found out at commit (`40001`),
-  where PostgreSQL's `READ COMMITTED` would wait for it and re-check the row.
+  away fails with `23505`, where PostgreSQL can succeed. A concurrent writer is found out at commit
+  (`40001`), where PostgreSQL's `READ COMMITTED` would wait for it and re-check the row.
 - **`time` 24:00:00 cannot be stored** in a column (`0A000`): ScalarDB's TIME ends at 23:59:59.999999.
   As a value (`'24:00'::time`, or input that rounds to it) it works as in PostgreSQL.
 - **A column merged by a RIGHT or FULL JOIN USING** can be read through `SELECT *`, qualified

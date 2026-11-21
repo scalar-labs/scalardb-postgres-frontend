@@ -406,11 +406,25 @@ final class Plan {
   /** An UPDATE, DELETE or INSERT ... SELECT that reads first; {@code tag} is the command word. */
   static Plan write(
       Plan read, Mutator mutator, String tag, String description, @Nullable Returning returning) {
+    return write(read, mutator, tag, description, returning, null);
+  }
+
+  /** As above, with the RETURNING columns' names as clients see them, which may repeat. */
+  static Plan write(
+      Plan read,
+      Mutator mutator,
+      String tag,
+      String description,
+      @Nullable Returning returning,
+      @Nullable List<String> labels) {
     Plan plan =
         constant(
             returning == null ? Collections.<String>emptyList() : returning.names,
             Collections.<Map<String, Object>>emptyList(),
             tag);
+    if (labels != null && returning != null) {
+      plan.labels = labels;
+    }
     plan.write = new WriteByScan(read, mutator, description, returning);
     return plan;
   }

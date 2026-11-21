@@ -53,3 +53,8 @@ run-phase1.txt now: 44 OK, 31 BOTH_ERR, 1 CODE, 3 FE_ERR. The quoted-alias case 
 MERGE: SELECT "S".* failed with a quoted mixed-case alias (cases_read.sql now covers it). A
 multi-statement Query of two MERGEs whose second fails now rolls back the first, as natively
 (checked by hand: psql sends a file's statements one by one, so run.py cannot).
+
+Phase 2 (2026-11-21): 21 cases for WHEN NOT MATCHED BY SOURCE / BY TARGET, RETURNING (*, s.*, t.*,
+expressions, by-source rows, key moves, parameters) and merge_action() outside RETURNING.
+run-phase2.txt: 59 OK, 37 BOTH_ERR, 1 CODE (merge_unnamed_subquery_not_referable), 1 FE_ERR
+(merge_unaliased_join_source, refused). pgJDBC reads RETURNING's column types as natively.
