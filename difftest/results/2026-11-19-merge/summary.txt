@@ -70,3 +70,11 @@ text check of the previous commit refused; a window in RETURNING; merge_action()
 unnamed source in RETURNING; a RETURNING subquery of the target, now refused with 0A000).
 run-phase2.txt: 64 OK, 43 BOTH_ERR, 1 CODE, 2 FE_ERR (merge_unaliased_join_source and
 merge_returning_subquery_of_target, both refused on purpose).
+
+After the third Phase 2 review (2026-11-21): four more cases (the refused unnamed-source statement
+sent twice, a RETURNING subquery of a same-named table in another schema, one of the target through a
+WITH query, merge_action() in a RETURNING subquery); merge_setup.sql gained audit.mt. run-phase2.txt:
+65 OK, 44 BOTH_ERR, 1 CODE, 4 FE_ERR (merge_unaliased_join_source,
+merge_returning_subquery_of_target, merge_returning_subquery_of_target_via_with and
+merge_action_in_returning_subquery, all refused on purpose). cases_write.sql gained
+update_returning_window and update_returning_aggregate, now 42P20 and 42803 for every write.

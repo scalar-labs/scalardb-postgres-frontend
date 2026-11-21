@@ -396,6 +396,20 @@ MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
 -- @merge_returning_subquery_of_target
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET v = s.v RETURNING (SELECT x.v FROM mt x WHERE x.id = t.id) AS old_v;
+-- @merge_unnamed_source_refused_twice
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+-- @merge_returning_subquery_of_same_name_elsewhere
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 0 RETURNING (SELECT count(*) FROM audit.mt) AS n;
+-- @merge_returning_subquery_of_target_via_with
+WITH cur AS (SELECT * FROM mt) MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v RETURNING (SELECT c.v FROM cur c WHERE c.id = t.id);
+-- @merge_action_in_returning_subquery
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE RETURNING (SELECT merge_action());
 -- @merge_action_outside_returning
 SELECT merge_action();
 -- @merge_action_in_condition

@@ -2044,10 +2044,18 @@ class QueryParser {
           (create ? "CREATE" : "DROP") + " COORDINATOR TABLES");
     }
     Statement statement = parseStatement(sql);
-    if (containsIgnoreCase(sql, "merge_action")
-        && mergeActionCalls(statement) > mergeActionCallsInReturning(statement)) {
+    if (containsIgnoreCase(sql, "merge_action")) {
       // merge_action() belongs to MERGE's RETURNING list only, refused before any row as PostgreSQL
-      throw Evaluator.mergeActionOutsideReturning();
+      int[] inReturning = mergeActionCallsInReturning(statement); // anywhere in it, directly in it
+      if (mergeActionCalls(statement) > inReturning[0]) {
+        throw Evaluator.mergeActionOutsideReturning();
+      }
+      if (inReturning[0] > inReturning[1]) {
+        // ponytail: an uncorrelated subquery is read once per statement, so it cannot see each
+        // row's action; plan such a subquery per row if a client needs it
+        throw new PgException.Argument(
+            "0A000", "Unsupported: merge_action() inside a subquery of RETURNING");
+      }
     }
     List<Plan.Prelude> prelude = writingCtes(statement);
     try {
@@ -6312,6 +6320,7 @@ class QueryParser {
           returning.column(t, c);
         }
       } else {
+        checkReturningItem(e);
         returning.names.add(
             item.getAlias() != null ? unquote(item.getAlias().getName()) : label(e));
         returning.expressions.add(e);
@@ -6361,6 +6370,9 @@ class QueryParser {
     }
     boolean keyMove = movesKey;
     Returning returning = returning(update.getReturningClause(), t, qualifier);
+    if (returning != null) {
+      returning.inRead = true; // the read scans the target: its context types its columns
+    }
     // UPDATE ... FROM: the FROM items join the target in the driving read
     List<Join> joins = new ArrayList<>();
     if (update.getFromItem() != null) {
@@ -6526,6 +6538,9 @@ class QueryParser {
     Target t = target(delete.getTable());
     String qualifier = qualifierOf(delete.getTable(), t);
     Returning returning = returning(delete.getReturningClause(), t, qualifier);
+    if (returning != null) {
+      returning.inRead = true; // as UPDATE's
+    }
     // DELETE ... USING: the USING items join the target in the driving read
     List<Join> joins = new ArrayList<>();
     for (FromItem item : usingItems(delete)) {
@@ -6553,42 +6568,61 @@ class QueryParser {
         returning);
   }
 
-  /**
-   * Calls of merge_action() anywhere in {@code statement}, subqueries and WITH queries included.
-   */
-  private static int mergeActionCalls(Statement statement) {
-    int[] calls = {0};
-    new net.sf.jsqlparser.util.TablesNamesFinder<Void>() {
+  /** A walker that counts merge_action() calls, into subqueries and WITH queries. */
+  private static net.sf.jsqlparser.util.TablesNamesFinder<Void> mergeActionCounter(int[] calls) {
+    return new net.sf.jsqlparser.util.TablesNamesFinder<Void>() {
       @Override
       public <S> Void visit(Function function, S context) {
         calls[0] += isMergeAction(function) ? 1 : 0;
         return super.visit(function, context);
       }
-    }.getTables(statement);
+    };
+  }
+
+  /**
+   * Calls of merge_action() anywhere in {@code statement}; 0 for a statement JSQLParser's walker
+   * does not cover, which planning refuses anyway.
+   */
+  private static int mergeActionCalls(Statement statement) {
+    int[] calls = {0};
+    try {
+      mergeActionCounter(calls).getTables(statement);
+    } catch (RuntimeException unsupported) {
+      return 0;
+    }
     return calls[0];
   }
 
-  /** Calls of merge_action() directly in the RETURNING items of a MERGE, where they belong. */
-  private static int mergeActionCallsInReturning(Statement statement) {
+  /**
+   * Calls of merge_action() in a MERGE's RETURNING items: anywhere in them (counted as {@link
+   * #mergeActionCalls} counts, so the two compare), and directly in them, outside subqueries.
+   */
+  private static int[] mergeActionCallsInReturning(Statement statement) {
     if (!(statement instanceof net.sf.jsqlparser.statement.merge.Merge)
         || ((net.sf.jsqlparser.statement.merge.Merge) statement).getReturningClause() == null) {
-      return 0;
+      return new int[] {0, 0};
     }
-    int[] calls = {0};
+    int[] any = {0};
+    int[] direct = {0};
     for (SelectItem<?> item :
         ((net.sf.jsqlparser.statement.merge.Merge) statement).getReturningClause()) {
-      item.getExpression()
-          .accept(
-              new Walker() {
-                @Override
-                public <S> Void visit(Function f, S context) {
-                  calls[0] += isMergeAction(f) ? 1 : 0;
-                  return super.visit(f, context);
-                }
-              },
-              null);
+      Expression e = item.getExpression();
+      try {
+        mergeActionCounter(any).getTables(e);
+      } catch (RuntimeException unsupported) {
+        // left to planning
+      }
+      e.accept(
+          new Walker() {
+            @Override
+            public <S> Void visit(Function f, S context) {
+              direct[0] += isMergeAction(f) ? 1 : 0;
+              return super.visit(f, context);
+            }
+          },
+          null);
     }
-    return calls[0];
+    return new int[] {any[0], Math.min(direct[0], any[0])};
   }
 
   private static boolean isMergeAction(Function f) {
@@ -6596,19 +6630,52 @@ class QueryParser {
     return name.equals("merge_action") || name.endsWith(".merge_action");
   }
 
-  /** Whether {@code e} calls a window function (an OVER clause), outside its subqueries. */
-  private static boolean hasWindow(Expression e) {
-    boolean[] found = {false};
-    e.accept(
-        new Walker() {
-          @Override
-          public <S> Void visit(net.sf.jsqlparser.expression.AnalyticExpression a, S context) {
-            found[0] = true;
-            return null;
-          }
-        },
-        null);
-    return found[0];
+  /** A RETURNING item, as PostgreSQL checks it: no aggregate (42803), no window (42P20). */
+  private static void checkReturningItem(Expression e) {
+    if (hasAggregate(e)) {
+      throw new PgException.Argument("42803", "aggregate functions are not allowed in RETURNING");
+    }
+    if (!windowCalls(e).isEmpty()) {
+      throw new PgException.Argument("42P20", "window functions are not allowed in RETURNING");
+    }
+  }
+
+  /**
+   * Whether {@code select} reads table {@code t}, directly or through the WITH queries in scope. A
+   * statement JSQLParser cannot walk counts as reading it.
+   */
+  private boolean reads(Select select, Target t, Set<String> seenCtes) {
+    List<Table> tables = new ArrayList<>();
+    try {
+      new net.sf.jsqlparser.util.TablesNamesFinder<Void>() {
+        @Override
+        public <S> Void visit(Table table, S context) {
+          tables.add(table);
+          return super.visit(table, context);
+        }
+      }.getTables((Statement) select);
+    } catch (RuntimeException unsupported) {
+      return true;
+    }
+    for (Table table : tables) {
+      String name = unquote(table.getName());
+      Cte cte = table.getSchemaName() == null ? ctes.get(name) : null;
+      if (cte != null) {
+        if (seenCtes.add(name) && reads(cte.item.getSelect(), t, seenCtes)) {
+          return true;
+        }
+        continue;
+      }
+      try {
+        Target read = target(table);
+        if (read.namespace.equals(t.namespace) && read.table.equals(t.table)) {
+          return true;
+        }
+      } catch (PgException.Argument | ExecutionException notATable) {
+        // a WITH query of the subquery's own, or no such table: not the target
+      }
+    }
+    return false;
   }
 
   /** Whether {@code text} contains {@code word}, ignoring case, without copying the text. */
@@ -6716,6 +6783,7 @@ class QueryParser {
           Expression e = item.getExpression();
           if (e instanceof AllTableColumns
               && unquote(((AllTableColumns) e).getTable().getName()).equals(UNNAMED_SOURCE)) {
+            source.setAlias(null); // as below
             throw new PgException.Argument(
                 "42P01", "missing FROM-clause entry for table \"" + UNNAMED_SOURCE + "\"");
           }
@@ -6730,6 +6798,7 @@ class QueryParser {
                 if (column.getTable() != null
                     && column.getTable().getName() != null
                     && unquote(column.getTable().getName()).equals(UNNAMED_SOURCE)) {
+                  source.setAlias(null); // the cached statement, sent again, is checked again
                   throw new PgException.Argument(
                       "42P01", "missing FROM-clause entry for table \"" + UNNAMED_SOURCE + "\"");
                 }
@@ -6838,27 +6907,17 @@ class QueryParser {
         if (e instanceof AllColumns) {
           continue;
         }
-        if (hasAggregate(e)) {
-          throw new PgException.Argument(
-              "42803", "aggregate functions are not allowed in RETURNING");
-        }
-        if (hasWindow(e)) {
-          throw new PgException.Argument("42P20", "window functions are not allowed in RETURNING");
-        }
+        checkReturningItem(e);
         // ponytail: RETURNING is evaluated after the writes, so a subquery of the target would see
         // them, where PostgreSQL's sees the table as before the statement: refused; evaluate such
         // subqueries in the read if a client needs them
         for (Select sub : subselects(e)) {
-          for (String table :
-              new net.sf.jsqlparser.util.TablesNamesFinder<Void>().getTables((Statement) sub)) {
-            String bare = table.contains(".") ? table.substring(table.lastIndexOf('.') + 1) : table;
-            if (unquote(bare).equals(t.table)) {
-              throw new PgException.Argument(
-                  "0A000",
-                  "Unsupported: a RETURNING subquery that reads the MERGE's target table \""
-                      + t.table
-                      + "\"");
-            }
+          if (reads(sub, t, new HashSet<>())) {
+            throw new PgException.Argument(
+                "0A000",
+                "Unsupported: a RETURNING subquery that reads the MERGE's target table \""
+                    + t.table
+                    + "\"");
           }
         }
         CaseExpression planned = new CaseExpression();
