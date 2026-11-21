@@ -216,3 +216,11 @@ ROLLBACK;
 BEGIN;
 UPDATE emp SET salary = 2 WHERE id = 1 RETURNING salary AS x, id AS x;
 ROLLBACK;
+-- @update_returning_window
+BEGIN;
+UPDATE emp SET salary = 2 WHERE id = 1 RETURNING row_number() OVER ();
+ROLLBACK;
+-- @update_returning_aggregate
+BEGIN;
+UPDATE emp SET salary = 2 WHERE id = 1 RETURNING count(*);
+ROLLBACK;

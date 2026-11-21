@@ -29,8 +29,9 @@ evaluated on the row written plus the source row and the action; `*` is the sour
 the target's, as PostgreSQL's, and source columns keep their types. merge_action() anywhere else is
 42601, also outside MERGE, before any row is read. RETURNING's expressions are planned in the read
 (names, ambiguity and subqueries resolved there; an aggregate is 42803, a window 42P20, a subquery
-of the target 0A000). merge_action() is found by walking the parsed statement. cases_merge.sql: 64
-OK, 43 matching errors, 1 different code, 2 refused (baseline
+of the target, also through a WITH query, 0A000). merge_action() is found by walking the parsed
+statement; inside a RETURNING subquery it is refused (0A000). cases_merge.sql: 65 OK, 44 matching
+errors, 1 different code, 4 refused (baseline
 `difftest/results/baseline/merge.txt`). Phase 3 (batching reads) waits for a workload that needs it.
 
 Phase 1 is done (2026-11-19): every Phase 1 case of `difftest/cases_merge.sql` matches PostgreSQL 18

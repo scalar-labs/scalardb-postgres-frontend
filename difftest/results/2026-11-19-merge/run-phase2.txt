@@ -1,4 +1,4 @@
-{'OK': 64, 'BOTH_ERR': 43, 'CODE': 1, 'FE_ERR': 2}
+{'OK': 65, 'BOTH_ERR': 44, 'CODE': 1, 'FE_ERR': 4}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -538,6 +538,43 @@ SELECT * FROM me;
 
   pg: 
   fe: ERROR:  0A000: Unsupported: a RETURNING subquery that reads the MERGE's target table "mt"
+=== BOTH_ERR merge_unnamed_source_refused_twice
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+MERGE INTO mt t USING (SELECT 1 AS sid) ON t.id = sid
+  WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+LINE 2:   WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+                                             ^
+LOCATION:  errorMissingRTE, parse_relation.c:3761
+ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+LINE 2:   WHEN MATCHED THEN DELETE RETURNING "unnamed subquery".sid;
+                                             ^
+LOCATION:  errorMissingRTE, parse_relation.c:3761
+  fe: ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+ERROR:  42P01: missing FROM-clause entry for table "unnamed subquery"
+=== FE_ERR merge_returning_subquery_of_target_via_with
+WITH cur AS (SELECT * FROM mt) MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v RETURNING (SELECT c.v FROM cur c WHERE c.id = t.id);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: a RETURNING subquery that reads the MERGE's target table "mt"
+=== FE_ERR merge_action_in_returning_subquery
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN DELETE RETURNING (SELECT merge_action());
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: 
+  fe: ERROR:  0A000: Unsupported: merge_action() inside a subquery of RETURNING
 === BOTH_ERR merge_action_outside_returning
 SELECT merge_action();
 SELECT * FROM mt;

@@ -519,7 +519,8 @@ final class Plan {
     }
     returned = new ArrayList<>();
     if (write.returning != null) {
-      // MERGE plans its RETURNING in the read, so the read's context knows its subqueries
+      // UPDATE, DELETE and MERGE read the target, so the read's context knows its columns (and, for
+      // MERGE, RETURNING's subqueries); INSERT ... SELECT's read is of other tables
       Evaluator.Context ctx = write.returning.inRead ? write.read.context(null) : context(null);
       for (Map<String, Object> row : left) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1491,7 +1492,8 @@ final class Plan {
     final List<Expression> expressions = new ArrayList<>();
     final List<Integer> oids = new ArrayList<>(); // 0 for computed items
     final List<Integer> typmods = new ArrayList<>(); // -1 for computed items
-    boolean inRead; // planned in the write's read, and evaluated in its context (MERGE)
+    boolean
+        inRead; // evaluated in the read's context: UPDATE, DELETE and MERGE, which read the target
 
     /** Records a plain column of {@code t}, as typed as a SELECT of it would be. */
     void column(Target t, String name) {
