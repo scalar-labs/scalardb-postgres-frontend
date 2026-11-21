@@ -43,3 +43,5 @@ upsert_do_nothing_repeated_key OK
 upsert_do_update_repeated_key BOTH_ERR
 upsert_excluded_repeated_key BOTH_ERR
 update_returning_repeated_names OK
+update_returning_window BOTH_ERR
+update_returning_aggregate BOTH_ERR

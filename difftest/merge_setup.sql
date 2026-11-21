@@ -18,3 +18,7 @@ INSERT INTO ms VALUES
   (1, 1, 10, 's1'), (2, 2, NULL, 's2'), (3, 6, 60, 's3'), (4, 7, 70, 's4'), (5, NULL, 0, 's5'),
   (11, 3, 31, 's11'), (12, 3, 32, 's12'), (13, 8, 80, 's13'), (14, 8, 81, 's14');
 INSERT INTO mk VALUES (1, 1, 11), (1, 2, 12), (2, 1, 21);
+-- a table of the target's name in another schema (a RETURNING subquery may read it)
+CREATE SCHEMA IF NOT EXISTS audit;
+DROP TABLE IF EXISTS audit.mt;
+CREATE TABLE audit.mt (id int PRIMARY KEY);
