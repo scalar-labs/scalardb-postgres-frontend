@@ -406,21 +406,13 @@ final class Plan {
   /** An UPDATE, DELETE or INSERT ... SELECT that reads first; {@code tag} is the command word. */
   static Plan write(
       Plan read, Mutator mutator, String tag, String description, @Nullable Returning returning) {
-    // RETURNING's names may repeat (RETURNING v AS x, id AS x): clients see them as written, and
-    // the rows are keyed by unique ones
-    List<String> labels = null;
-    if (returning != null) {
-      labels = new ArrayList<>(returning.names);
-      QueryParser.makeUnique(returning.names);
-    }
+    // RETURNING's names may repeat (RETURNING v AS x, id AS x): constant() shows them as written
+    // and keys the rows by unique ones, its outputNames
     Plan plan =
         constant(
             returning == null ? Collections.<String>emptyList() : returning.names,
             Collections.<Map<String, Object>>emptyList(),
             tag);
-    if (labels != null) {
-      plan.labels = labels;
-    }
     plan.write = new WriteByScan(read, mutator, description, returning);
     return plan;
   }
@@ -527,15 +519,15 @@ final class Plan {
     }
     returned = new ArrayList<>();
     if (write.returning != null) {
+      // MERGE plans its RETURNING in the read, so the read's context knows its subqueries
+      Evaluator.Context ctx = write.returning.inRead ? write.read.context(null) : context(null);
       for (Map<String, Object> row : left) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (int i = 0; i < write.returning.names.size(); i++) {
           out.put(
-              write.returning.names.get(i),
+              outputNames.get(i),
               Evaluator.eval(
-                  write.returning.expressions.get(i),
-                  Collections.singletonList(row),
-                  write.read.context(null))); // the read plans MERGE's RETURNING subqueries
+                  write.returning.expressions.get(i), Collections.singletonList(row), ctx));
         }
         returned.add(out);
       }
@@ -1499,6 +1491,7 @@ final class Plan {
     final List<Expression> expressions = new ArrayList<>();
     final List<Integer> oids = new ArrayList<>(); // 0 for computed items
     final List<Integer> typmods = new ArrayList<>(); // -1 for computed items
+    boolean inRead; // planned in the write's read, and evaluated in its context (MERGE)
 
     /** Records a plain column of {@code t}, as typed as a SELECT of it would be. */
     void column(Target t, String name) {
