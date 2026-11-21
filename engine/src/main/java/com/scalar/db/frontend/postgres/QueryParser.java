@@ -6548,6 +6548,9 @@ class QueryParser {
         returning);
   }
 
+  /** The driving row's key for the source's whole row, NULL where no source row joined. */
+  private static final String MERGE_SOURCE_ROW = "$merge source";
+
   /** The name an unaliased MERGE source subquery is planned under; no clause may use it. */
   private static final String UNNAMED_SOURCE = "unnamed subquery";
 
@@ -6558,17 +6561,24 @@ class QueryParser {
     NOTHING
   }
 
+  /** Which joined rows a MERGE clause is for. */
+  private enum MergeWhen {
+    MATCHED,
+    NOT_MATCHED_BY_TARGET, // WHEN NOT MATCHED [BY TARGET]: a source row no target row joined
+    NOT_MATCHED_BY_SOURCE // a target row no source row joined
+  }
+
   /** One WHEN clause of a MERGE: which rows it is for, its AND condition and its action. */
   private static final class MergeClause {
-    final boolean matched; // WHEN MATCHED; else WHEN NOT MATCHED [BY TARGET]
+    final MergeWhen when;
     @Nullable final Expression condition;
     final MergeAction action;
     final List<String> columns = new ArrayList<>(); // assigned or inserted
     final List<Expression> values = new ArrayList<>();
     boolean movesKey; // an UPDATE that assigns a key column
 
-    MergeClause(boolean matched, @Nullable Expression condition, MergeAction action) {
-      this.matched = matched;
+    MergeClause(MergeWhen when, @Nullable Expression condition, MergeAction action) {
+      this.when = when;
       this.condition = condition;
       this.action = action;
     }
@@ -6583,16 +6593,17 @@ class QueryParser {
   }
 
   /**
-   * MERGE: the source LEFT JOIN the target ON the condition drives it; for each joined row, the
-   * first WHEN clause of its kind (matched, or not) whose AND condition holds decides what is
+   * MERGE: the source LEFT JOIN the target ON the condition drives it (a FULL JOIN when a clause is
+   * WHEN NOT MATCHED BY SOURCE); for each joined row, the first WHEN clause of its kind (matched,
+   * not matched by target, not matched by source) whose AND condition holds decides what is
    * written. Each clause's condition and values are evaluated for that row only, as PostgreSQL
-   * does, and a WHEN NOT MATCHED clause sees only the source. When ON gives the target's whole key,
-   * the join reads one target row per source row; otherwise it scans the target.
+   * does; a clause for unmatched rows sees only the side that has a row. When ON gives the target's
+   * whole key and no clause is BY SOURCE, the join reads one target row per source row; otherwise
+   * it scans the target. RETURNING reads the row written, the source row and merge_action().
    */
-  // ponytail: WHEN NOT MATCHED BY SOURCE and RETURNING are refused (Phase 2 of the MERGE plan)
   private Plan merge(net.sf.jsqlparser.statement.merge.Merge merge) throws ExecutionException {
-    if (merge.getReturningClause() != null || merge.getOutputClause() != null) {
-      throw new PgException.Argument("0A000", "Unsupported: MERGE ... RETURNING");
+    if (merge.getOutputClause() != null) {
+      throw new PgException.Argument("42601", "syntax error at or near \"OUTPUT\"");
     }
     Target t = target(merge.getTable());
     String tq = qualifierOf(merge.getTable(), t);
@@ -6649,8 +6660,12 @@ class QueryParser {
         if (hasAggregate(e)) {
           throw new PgException.Argument("42803", "aggregate functions are not allowed in MERGE");
         }
+        if (callsMergeAction(e)) {
+          throw Evaluator.mergeActionOutsideReturning();
+        }
       }
     }
+    boolean full = clauses.stream().anyMatch(c -> c.when == MergeWhen.NOT_MATCHED_BY_SOURCE);
     // Parameter types: an assigned or inserted placeholder takes its column's
     for (MergeClause c : clauses) {
       for (int i = 0; i < c.columns.size(); i++) {
@@ -6669,11 +6684,17 @@ class QueryParser {
     Runnable undoUses = () -> uses.forEach((cte, n) -> cte.uses = n);
     PlainSelect onSource = new PlainSelect();
     onSource.setFromItem(source);
-    checkMergeClauses(mergeJoin(merge, source, tq), clauses, true, null);
+    checkMergeClauses(mergeJoin(merge, source, tq, false), clauses, MergeWhen.MATCHED, null);
     undoUses.run();
     Scope hiddenTarget = new Scope(Collections.<LogicalPlan.Source>emptyList(), null);
     hiddenTarget.hidden = tq;
-    checkMergeClauses(onSource, clauses, false, hiddenTarget);
+    checkMergeClauses(onSource, clauses, MergeWhen.NOT_MATCHED_BY_TARGET, hiddenTarget);
+    undoUses.run();
+    PlainSelect onTarget = new PlainSelect();
+    onTarget.setFromItem(mergeTarget(merge, tq));
+    Scope hiddenSource = new Scope(Collections.<LogicalPlan.Source>emptyList(), null);
+    hiddenSource.hidden = sq;
+    checkMergeClauses(onTarget, clauses, MergeWhen.NOT_MATCHED_BY_SOURCE, hiddenSource);
     undoUses.run();
     // The driving read: every target column as tq.c and every source column as sq.c, so that the
     // clauses' expressions read the joined row as they would the join
@@ -6682,16 +6703,28 @@ class QueryParser {
     sourceColumns.setSelectItems(
         Collections.singletonList(
             SelectItem.from(new AllTableColumns(new Table(quoteIfNeeded(sq))))));
-    List<String> sourceNames = block(sourceColumns, null).outputNames;
+    Plan sourcePlan = block(sourceColumns, null);
+    List<String> sourceNames = sourcePlan.outputNames;
+    int[] sourceOids = sourcePlan.outputOids();
     undoUses.run();
     List<String> sourceKeys = new ArrayList<>();
-    PlainSelect join = mergeJoin(merge, source, tq);
+    List<String> targetKeys = new ArrayList<>();
+    PlainSelect join = mergeJoin(merge, source, tq, full);
     List<SelectItem<?>> items = new ArrayList<>();
     for (String c : t.metadata.getColumnNames()) {
+      targetKeys.add(tq + "." + c);
       items.add(
           SelectItem.from(
               new net.sf.jsqlparser.schema.Column(new Table(quoteIfNeeded(tq)), c),
               new Alias("\"" + tq + "." + c + "\"")));
+    }
+    if (full) {
+      // the source's whole row: NULL only where no source row joined (its columns may all be NULL)
+      items.add(
+          SelectItem.from(
+              new net.sf.jsqlparser.schema.Column(
+                  new Table(quoteIfNeeded(sq)), "\"" + WHOLE_ROW + "\""),
+              new Alias("\"" + MERGE_SOURCE_ROW + "\"")));
     }
     for (String c : sourceNames) {
       sourceKeys.add(sq + "." + c);
@@ -6717,6 +6750,11 @@ class QueryParser {
     }
     join.setSelectItems(items);
     Plan read = block(join, null);
+    List<String> labels = new ArrayList<>();
+    Returning returning =
+        merge.getReturningClause() == null
+            ? null
+            : mergeReturning(merge, t, tq, sq, sourceNames, sourceOids, full, labels);
     String matchedKey = tq + "." + keyColumns(t).get(0); // NULL only where no target row joined
     // Per execution, by target key: the rows an UPDATE or DELETE changed (a second change is
     // 21000), the keys deleted or moved away, and the keys inserted or moved to
@@ -6735,18 +6773,23 @@ class QueryParser {
             removed.clear();
             added.clear();
           }
-          boolean matched = row.get(matchedKey) != null;
+          boolean targetRow = row.get(matchedKey) != null;
+          boolean sourceRow = !full || row.get(MERGE_SOURCE_ROW) != null;
+          MergeWhen when =
+              !targetRow
+                  ? MergeWhen.NOT_MATCHED_BY_TARGET
+                  : sourceRow ? MergeWhen.MATCHED : MergeWhen.NOT_MATCHED_BY_SOURCE;
           Map<String, Object> visible = row;
-          if (!matched) {
+          if (when != MergeWhen.MATCHED) {
             visible = new LinkedHashMap<>();
-            for (String k : sourceKeys) {
+            for (String k : when == MergeWhen.NOT_MATCHED_BY_TARGET ? sourceKeys : targetKeys) {
               visible.put(k, row.get(k));
             }
           }
           List<Map<String, Object>> group = Collections.singletonList(visible);
           Evaluator.Context ctx = context[0];
           for (MergeClause c : clauses) {
-            if (c.matched != matched
+            if (c.when != when
                 || c.condition != null
                     && !Evaluator.isTrue(Evaluator.eval(c.condition, group, ctx))) {
               continue;
@@ -6759,7 +6802,8 @@ class QueryParser {
               for (int i = 0; i < c.columns.size(); i++) {
                 proposed.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
               }
-              return mergeInsert(t, tq, proposed, reader, removed, added);
+              return returned(
+                  mergeInsert(t, tq, proposed, reader, removed, added), row, sourceKeys, "INSERT");
             }
             Map<String, Object> old = new LinkedHashMap<>();
             for (String col : t.metadata.getColumnNames()) {
@@ -6772,7 +6816,8 @@ class QueryParser {
             }
             if (c.action == MergeAction.DELETE) {
               removed.add(key);
-              return new Effect(deleteOf(t, old), left(t, tq, old));
+              return returned(
+                  new Effect(deleteOf(t, old), left(t, tq, old)), row, sourceKeys, "DELETE");
             }
             Map<String, Object> values = new LinkedHashMap<>(old);
             for (int i = 0; i < c.columns.size(); i++) {
@@ -6780,8 +6825,12 @@ class QueryParser {
             }
             // a key moved away counts as removed, the new one as added; a move onto a removed key
             // writes over it
-            return updateEffect(
-                t, tq, c.columns, c.movesKey, old, values, reader, removed, added, true);
+            return returned(
+                updateEffect(
+                    t, tq, c.columns, c.movesKey, old, values, reader, removed, added, true),
+                row,
+                sourceKeys,
+                "UPDATE");
           }
           return null; // no clause applies
         },
@@ -6791,20 +6840,129 @@ class QueryParser {
             + "."
             + t.table
             + ": per joined row, the first WHEN clause that applies",
-        null);
+        returning,
+        labels);
   }
 
   /**
-   * Plans, without running, the expressions of the clauses that are {@code matched} or not, inside
-   * {@code outer} when given.
+   * {@code effect} with what MERGE's RETURNING reads beside the row written: the source row's
+   * columns (NULL for a target row no source row joined) and merge_action().
+   */
+  private static Effect returned(
+      Effect effect, Map<String, Object> row, List<String> sourceKeys, String action) {
+    Map<String, Object> out = new LinkedHashMap<>(effect.row);
+    for (String k : sourceKeys) {
+      out.put(k, row.get(k));
+    }
+    out.put(Evaluator.MERGE_ACTION, action);
+    return new Effect(effect.mutations, out);
+  }
+
+  /**
+   * MERGE's RETURNING: {@code *} is the source's columns then the target's, {@code s.*} and {@code
+   * t.*} one side's, anything else an expression over both and merge_action(). Planned, never run,
+   * over the join to resolve its names. {@code labels} receives the names as written, which may
+   * repeat; the Returning's own names are unique, as rows are keyed by them.
+   */
+  private Returning mergeReturning(
+      net.sf.jsqlparser.statement.merge.Merge merge,
+      Target t,
+      String tq,
+      String sq,
+      List<String> sourceNames,
+      int[] sourceOids,
+      boolean full,
+      List<String> labels)
+      throws ExecutionException {
+    Returning returning = new Returning();
+    List<SelectItem<?>> checked = new ArrayList<>();
+    for (SelectItem<?> item : merge.getReturningClause()) {
+      Expression e = item.getExpression();
+      boolean all = e instanceof AllColumns && !(e instanceof AllTableColumns);
+      String side =
+          e instanceof AllTableColumns ? unquote(((AllTableColumns) e).getTable().getName()) : null;
+      if (all || sq.equals(side)) {
+        for (int i = 0; i < sourceNames.size(); i++) {
+          labels.add(sourceNames.get(i));
+          returning.expressions.add(
+              new net.sf.jsqlparser.schema.Column(
+                  new Table(quoteIfNeeded(sq)), sourceNames.get(i)));
+          returning.oids.add(sourceOids[i]);
+          returning.typmods.add(-1);
+        }
+      }
+      if (all || tq.equals(side)) {
+        for (String c : t.metadata.getColumnNames()) {
+          labels.add(c);
+          returning.expressions.add(
+              new net.sf.jsqlparser.schema.Column(new Table(quoteIfNeeded(tq)), c));
+          returning.column(t, c);
+        }
+      }
+      if (side != null && !side.equals(sq) && !side.equals(tq)) {
+        throw new PgException.Argument(
+            "42P01", "missing FROM-clause entry for table \"" + side + "\"");
+      }
+      if (e instanceof AllColumns) {
+        continue;
+      }
+      labels.add(item.getAlias() != null ? unquote(item.getAlias().getName()) : label(e));
+      returning.expressions.add(e);
+      String qualifier =
+          isColumn(e) && ((net.sf.jsqlparser.schema.Column) e).getTable() != null
+              ? unquote(((net.sf.jsqlparser.schema.Column) e).getTable().getName())
+              : null;
+      if (isColumn(e)
+          && tq.equals(qualifier)
+          && t.metadata.getColumnNames().contains(columnName(e))) {
+        returning.column(t, columnName(e));
+      } else if (isColumn(e) && sq.equals(qualifier) && sourceNames.contains(columnName(e))) {
+        returning.oids.add(sourceOids[sourceNames.indexOf(columnName(e))]); // typed as the source's
+        returning.typmods.add(-1);
+      } else {
+        returning.oids.add(0);
+        returning.typmods.add(-1);
+      }
+      if (!callsMergeAction(e)) {
+        checked.add(SelectItem.from(e));
+      }
+    }
+    if (!checked.isEmpty()) {
+      PlainSelect check = mergeJoin(merge, merge.getFromItem(), tq, full);
+      check.setSelectItems(checked);
+      block(check, null);
+    }
+    returning.names.addAll(labels);
+    makeUnique(returning.names);
+    return returning;
+  }
+
+  /** Whether {@code e} calls merge_action(). */
+  private static boolean callsMergeAction(Expression e) {
+    boolean[] found = {false};
+    e.accept(
+        new Walker() {
+          @Override
+          public <S> Void visit(Function f, S context) {
+            found[0] |= f.getName().equalsIgnoreCase("merge_action");
+            return super.visit(f, context);
+          }
+        },
+        null);
+    return found[0];
+  }
+
+  /**
+   * Plans, without running, the expressions of the clauses for {@code when}'s rows, inside {@code
+   * outer} when given.
    */
   private void checkMergeClauses(
-      PlainSelect from, List<MergeClause> clauses, boolean matched, @Nullable Scope outer)
+      PlainSelect from, List<MergeClause> clauses, MergeWhen when, @Nullable Scope outer)
       throws ExecutionException {
     List<SelectItem<?>> checked = new ArrayList<>();
     Expression where = null;
     for (MergeClause c : clauses) {
-      if (c.matched != matched) {
+      if (c.when != when) {
         continue;
       }
       for (Expression v : c.values) {
@@ -6825,19 +6983,35 @@ class QueryParser {
     block(from, outer);
   }
 
-  /** FROM source LEFT JOIN target ON the MERGE's condition. */
+  /** FROM source LEFT (or FULL) JOIN target ON the MERGE's condition. */
   private static PlainSelect mergeJoin(
-      net.sf.jsqlparser.statement.merge.Merge merge, FromItem source, String tq) {
+      net.sf.jsqlparser.statement.merge.Merge merge, FromItem source, String tq, boolean full) {
     PlainSelect select = new PlainSelect();
     select.setFromItem(source);
-    Table target = new Table(merge.getTable().getSchemaName(), merge.getTable().getName());
-    target.setAlias(new Alias(quoteIfNeeded(tq)));
     Join join = new Join();
-    join.setLeft(true);
-    join.setRightItem(target);
+    if (full) {
+      join.setFull(true);
+    } else {
+      join.setLeft(true);
+    }
+    join.setRightItem(mergeTarget(merge, tq));
     join.setOnExpressions(Collections.singletonList(merge.getOnCondition()));
     select.setJoins(new ArrayList<>(Collections.singletonList(join)));
     return select;
+  }
+
+  /** WHEN MATCHED, or WHEN NOT MATCHED BY SOURCE for an UPDATE or DELETE on the source side. */
+  private static MergeWhen whenOf(@Nullable net.sf.jsqlparser.statement.merge.MergeSide side) {
+    return side == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE
+        ? MergeWhen.NOT_MATCHED_BY_SOURCE
+        : MergeWhen.MATCHED;
+  }
+
+  /** The MERGE's target table under its qualifier. */
+  private static Table mergeTarget(net.sf.jsqlparser.statement.merge.Merge merge, String tq) {
+    Table target = new Table(merge.getTable().getSchemaName(), merge.getTable().getName());
+    target.setAlias(new Alias(quoteIfNeeded(tq)));
+    return target;
   }
 
   /** One WHEN clause, checked as PostgreSQL checks it before reading any row. */
@@ -6850,15 +7024,18 @@ class QueryParser {
         throw new PgException.Argument("42601", "syntax error at or near \"WHERE\"");
       }
       if (insert.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
-        throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
+        throw new PgException.Argument("42601", "syntax error at or near \"INSERT\"");
       }
       List<Expression> values = new ArrayList<>(insert.getValues());
       if (values.size() == 1
           && isColumn(values.get(0))
           && columnName(values.get(0)).equals(MERGE_DO_NOTHING)) {
-        return new MergeClause(false, insert.getAndPredicate(), MergeAction.NOTHING);
+        return new MergeClause(
+            MergeWhen.NOT_MATCHED_BY_TARGET, insert.getAndPredicate(), MergeAction.NOTHING);
       }
-      MergeClause c = new MergeClause(false, insert.getAndPredicate(), MergeAction.INSERT);
+      MergeClause c =
+          new MergeClause(
+              MergeWhen.NOT_MATCHED_BY_TARGET, insert.getAndPredicate(), MergeAction.INSERT);
       List<String> names = new ArrayList<>();
       if (insert.getColumns() != null) {
         for (Expression col : insert.getColumns()) {
@@ -6888,16 +7065,11 @@ class QueryParser {
     if (op instanceof net.sf.jsqlparser.statement.merge.MergeDelete) {
       net.sf.jsqlparser.statement.merge.MergeDelete delete =
           (net.sf.jsqlparser.statement.merge.MergeDelete) op;
-      if (delete.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
-        throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
-      }
-      return new MergeClause(true, delete.getAndPredicate(), MergeAction.DELETE);
+      return new MergeClause(
+          whenOf(delete.getSide()), delete.getAndPredicate(), MergeAction.DELETE);
     }
     net.sf.jsqlparser.statement.merge.MergeUpdate update =
         (net.sf.jsqlparser.statement.merge.MergeUpdate) op;
-    if (update.getSide() == net.sf.jsqlparser.statement.merge.MergeSide.SOURCE) {
-      throw new PgException.Argument("0A000", "Unsupported: WHEN NOT MATCHED BY SOURCE");
-    }
     if (update.getWhereCondition() != null || update.getDeleteWhereCondition() != null) {
       throw new PgException.Argument("42601", "syntax error at or near \"WHERE\"");
     }
@@ -6905,10 +7077,12 @@ class QueryParser {
     if (sets.size() == 1
         && sets.get(0).getColumns().size() == 1
         && columnName(sets.get(0).getColumn(0)).equals(MERGE_DO_NOTHING)) {
-      return new MergeClause(true, update.getAndPredicate(), MergeAction.NOTHING);
+      return new MergeClause(
+          whenOf(update.getSide()), update.getAndPredicate(), MergeAction.NOTHING);
     }
     checkSingleAssignments(sets);
-    MergeClause c = new MergeClause(true, update.getAndPredicate(), MergeAction.UPDATE);
+    MergeClause c =
+        new MergeClause(whenOf(update.getSide()), update.getAndPredicate(), MergeAction.UPDATE);
     for (UpdateSet set : sets) {
       for (int i = 0; i < set.getColumns().size(); i++) {
         net.sf.jsqlparser.schema.Column col = set.getColumn(i);
