@@ -4238,6 +4238,17 @@ public class QueryParserTest {
                 "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT DEFAULT VALUES"))
         .isEqualTo(
             "MERGE INTO t USING s ON t.id = s.id WHEN NOT MATCHED THEN INSERT VALUES (DEFAULT)");
+    // a comment between THEN and the action
+    assertThat(
+            QueryParser.mergeActions(
+                "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN /* x */ DO NOTHING"
+                    + " WHEN NOT MATCHED THEN -- y\n DO NOTHING"))
+        .isEqualTo(
+            "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN /* x */ UPDATE SET "
+                + nothing
+                + " = NULL WHEN NOT MATCHED THEN -- y\n INSERT VALUES ("
+                + nothing
+                + ")");
     // nothing else changes: ON CONFLICT DO NOTHING, and text that only mentions the words
     String other = "INSERT INTO t VALUES (1) ON CONFLICT DO NOTHING";
     assertThat(QueryParser.mergeActions(other)).isSameAs(other);

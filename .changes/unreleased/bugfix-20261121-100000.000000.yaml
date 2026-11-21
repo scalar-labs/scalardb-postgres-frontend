@@ -1,0 +1,3 @@
+kind: bugfix
+body: '`SELECT "S".*` and `SELECT *` over a table whose alias is quoted and not all lower case, such as `FROM emp AS "S"`, no longer fail with "Unknown column": the columns kept the alias as written.'
+time: 2026-11-21T10:00:00.000000+09:00

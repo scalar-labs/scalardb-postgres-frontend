@@ -275,3 +275,5 @@ now_fixed_within_statement OK
 clock_timestamp_moves OK
 nth_value_empty_frame OK
 nth_value_zero BOTH_ERR
+star_of_quoted_mixed_case_alias OK
+star_with_quoted_mixed_case_alias OK

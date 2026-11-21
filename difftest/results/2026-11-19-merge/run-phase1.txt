@@ -1,4 +1,4 @@
-{'OK': 40, 'BOTH_ERR': 28, 'CODE': 1, 'FE_ERR': 3}
+{'OK': 44, 'BOTH_ERR': 31, 'CODE': 1, 'FE_ERR': 3}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -366,7 +366,6 @@ LOCATION:  errorMissingRTE, parse_relation.c:3761
 MERGE INTO mt t USING (VALUES (2, 1), (1, NULL)) AS s(k, nk) ON t.id = s.k
   WHEN MATCHED AND s.nk IS NULL THEN DELETE
   WHEN MATCHED THEN UPDATE SET id = s.nk;
--- Parameters (extended protocol)
 SELECT * FROM mt;
 SELECT * FROM mk;
 SELECT * FROM me;
@@ -378,6 +377,40 @@ TABLE NAME:  mt
 CONSTRAINT NAME:  mt_pkey
 LOCATION:  _bt_check_unique, nbtinsert.c:673
   fe: ERROR:  23505: duplicate key value violates unique constraint "mt_pkey"
+=== BOTH_ERR merge_source_named_like_target
+MERGE INTO mt USING ms AS mt ON false WHEN NOT MATCHED THEN DO NOTHING;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42712: name "mt" specified more than once
+DETAIL:  The name is used both as MERGE target table and data source.
+LOCATION:  transformMergeStmt, parse_merge.c:224
+  fe: ERROR:  42712: name "mt" specified more than once
+=== BOTH_ERR merge_aggregate_in_set
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = max(s.v);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42803: aggregate functions are not allowed in UPDATE
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = max(s.v);
+                                           ^
+LOCATION:  check_agglevels_and_constraints, parse_agg.c:611
+  fe: ERROR:  42803: aggregate functions are not allowed in MERGE
+=== BOTH_ERR merge_read_only
+SET default_transaction_read_only = on;
+MERGE INTO mt t USING (VALUES (1)) AS s(id) ON t.id = s.id WHEN MATCHED THEN UPDATE SET note = 'ro';
+SET default_transaction_read_only = off;
+-- Parameters (extended protocol)
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  25006: cannot execute MERGE in a read-only transaction
+LOCATION:  PreventCommandIfReadOnly, utility.c:411
+  fe: ERROR:  25006: cannot execute MERGE in a read-only transaction
 === FE_ERR merge_not_matched_by_source
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET note = 'both'

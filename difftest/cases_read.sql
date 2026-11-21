@@ -555,3 +555,7 @@ SELECT count(DISTINCT clock_timestamp()) > 1 AS moves FROM emp a, emp b;
 SELECT x, nth_value(x, 1) OVER (ORDER BY x ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) AS nv, nth_value(x, 2) OVER (ORDER BY x) AS second FROM (VALUES (1), (2), (3)) v(x) ORDER BY x;
 -- @nth_value_zero
 SELECT nth_value(x, 0) OVER () FROM (VALUES (1)) v(x);
+-- @star_of_quoted_mixed_case_alias
+SELECT "E".* FROM emp AS "E" WHERE id <= 2 ORDER BY 1;
+-- @star_with_quoted_mixed_case_alias
+SELECT * FROM emp AS "E" JOIN dept AS "D" ON "D".id = "E".dept_id WHERE "E".id <= 2 ORDER BY 1;

@@ -1498,6 +1498,18 @@ class QueryParser {
           "(?i)\\bWHEN\\s+(?:(NOT\\s+MATCHED)(\\s+BY\\s+SOURCE)?|MATCHED)\\b"
               + "|\\bTHEN\\s+DO\\s+NOTHING\\b|\\bTHEN\\s+INSERT\\s+DEFAULT\\s+VALUES\\b");
 
+  private static final Pattern MERGE_ACTION_AFTER_THEN =
+      Pattern.compile("(?i)(\\s*)(?:(DO\\s+NOTHING)|INSERT\\s+DEFAULT\\s+VALUES)\\b");
+  // a segment that a comment or literal follows ends with a NUL (see outsideLiterals)
+  private static final Pattern TRAILING_THEN = Pattern.compile("(?i)\\bTHEN\\s*\\x00?$");
+
+  /** DO NOTHING as an action JSQLParser parses after a clause of either kind. */
+  private static String mergeNothing(boolean insertKind) {
+    return insertKind
+        ? "INSERT VALUES (" + MERGE_DO_NOTHING + ")"
+        : "UPDATE SET " + MERGE_DO_NOTHING + " = NULL";
+  }
+
   /**
    * MERGE's actions JSQLParser 5.4 does not parse, rewritten to ones it does: {@code DO NOTHING} to
    * an assignment of, or an insert of, {@link #MERGE_DO_NOTHING} (by the kind of clause it ends),
@@ -1510,9 +1522,21 @@ class QueryParser {
       return sql;
     }
     boolean[] insertKind = {false}; // the clause being read is WHEN NOT MATCHED [BY TARGET]
+    boolean[] then = {false}; // the code before a comment ended with THEN
     return outsideLiterals(
         sql,
-        code -> {
+        segment -> {
+          String code = segment;
+          Matcher rest = MERGE_ACTION_AFTER_THEN.matcher(code);
+          if (then[0] && rest.lookingAt()) {
+            code =
+                rest.group(1)
+                    + (rest.group(2) != null
+                        ? mergeNothing(insertKind[0])
+                        : "INSERT VALUES (DEFAULT)")
+                    + code.substring(rest.end());
+          }
+          then[0] = TRAILING_THEN.matcher(code).find();
           Matcher m = MERGE_ACTION.matcher(code);
           StringBuilder out = new StringBuilder();
           while (m.find()) {
@@ -1521,10 +1545,7 @@ class QueryParser {
             if (found.regionMatches(true, 0, "WHEN", 0, 4)) {
               insertKind[0] = m.group(1) != null && m.group(2) == null;
             } else if (found.toUpperCase(Locale.ROOT).endsWith("NOTHING")) {
-              replacement =
-                  insertKind[0]
-                      ? "THEN INSERT VALUES (" + MERGE_DO_NOTHING + ")"
-                      : "THEN UPDATE SET " + MERGE_DO_NOTHING + " = NULL";
+              replacement = "THEN " + mergeNothing(insertKind[0]);
             } else {
               replacement = "THEN INSERT VALUES (DEFAULT)";
             }
@@ -3907,7 +3928,8 @@ class QueryParser {
           if (s.catalogTable != null && c.equals(Catalog.TABLEOID)) {
             continue; // a system column
           }
-          Expression column = new net.sf.jsqlparser.schema.Column(new Table(s.qualifier), c);
+          Expression column =
+              new net.sf.jsqlparser.schema.Column(new Table(quoteIfNeeded(s.qualifier)), c);
           String name = multi ? s.qualifier + "." + c : c;
           for (int k = position + 1;
               !(e instanceof AllTableColumns) && k < plan.sources.size();
@@ -3922,7 +3944,8 @@ class QueryParser {
                 coalesce.setParameters(
                     new ExpressionList<Expression>(
                         column,
-                        new net.sf.jsqlparser.schema.Column(new Table(later.qualifier), c)));
+                        new net.sf.jsqlparser.schema.Column(
+                            new Table(quoteIfNeeded(later.qualifier)), c)));
                 column = coalesce;
               }
             }
@@ -6542,6 +6565,7 @@ class QueryParser {
     final MergeAction action;
     final List<String> columns = new ArrayList<>(); // assigned or inserted
     final List<Expression> values = new ArrayList<>();
+    boolean movesKey; // an UPDATE that assigns a key column
 
     MergeClause(boolean matched, @Nullable Expression condition, MergeAction action) {
       this.matched = matched;
@@ -6573,6 +6597,7 @@ class QueryParser {
     Target t = target(merge.getTable());
     String tq = qualifierOf(merge.getTable(), t);
     FromItem source = merge.getFromItem();
+    boolean named = false; // this planning named an unaliased source
     if (source.getAlias() == null && !(source instanceof Table)) {
       if (!(source instanceof ParenthesedSelect)) {
         throw new PgException.Argument(
@@ -6581,6 +6606,7 @@ class QueryParser {
       // PostgreSQL 16 names it unnamed_subquery but lets no clause use that name: neither does
       // the statement here use this one
       source.setAlias(new Alias("\"" + UNNAMED_SOURCE + "\""));
+      named = true;
     }
     String sq =
         source.getAlias() != null
@@ -6590,7 +6616,12 @@ class QueryParser {
     for (net.sf.jsqlparser.statement.merge.MergeOperation op : merge.getOperations()) {
       clauses.add(mergeClause(op, t));
     }
-    if (sq.equals(UNNAMED_SOURCE)) {
+    if (sq.equals(tq)) {
+      throw new PgException.Argument("42712", "name \"" + tq + "\" specified more than once");
+    }
+    // The statement is cached by its text and planning qualifies its columns in place, so a later
+    // planning finds the unnamed source's own columns qualified by its name: check the first only
+    if (named) {
       List<Expression> written = new ArrayList<>();
       written.add(merge.getOnCondition());
       for (MergeClause c : clauses) {
@@ -6613,6 +6644,13 @@ class QueryParser {
             null);
       }
     }
+    for (MergeClause c : clauses) {
+      for (Expression e : c.expressions()) {
+        if (hasAggregate(e)) {
+          throw new PgException.Argument("42803", "aggregate functions are not allowed in MERGE");
+        }
+      }
+    }
     // Parameter types: an assigned or inserted placeholder takes its column's
     for (MergeClause c : clauses) {
       for (int i = 0; i < c.columns.size(); i++) {
@@ -6622,32 +6660,44 @@ class QueryParser {
     // Planned, never run, to resolve every name before any row is read and to type the other
     // placeholders: WHEN MATCHED clauses over the join, WHEN NOT MATCHED ones over the source
     // alone, where a target column is 42703 and the target's name 42P01, as in PostgreSQL
+    // (these plannings are not the statement's references to a WITH query: each one's count is
+    // undone, or a volatile WITH query used once would count as used more than once)
+    Map<Cte, Integer> uses = new HashMap<>();
+    for (Cte cte : ctes.values()) {
+      uses.put(cte, cte.uses);
+    }
+    Runnable undoUses = () -> uses.forEach((cte, n) -> cte.uses = n);
     PlainSelect onSource = new PlainSelect();
     onSource.setFromItem(source);
     checkMergeClauses(mergeJoin(merge, source, tq), clauses, true, null);
+    undoUses.run();
     Scope hiddenTarget = new Scope(Collections.<LogicalPlan.Source>emptyList(), null);
     hiddenTarget.hidden = tq;
     checkMergeClauses(onSource, clauses, false, hiddenTarget);
+    undoUses.run();
     // The driving read: every target column as tq.c and every source column as sq.c, so that the
     // clauses' expressions read the joined row as they would the join
     PlainSelect sourceColumns = new PlainSelect();
     sourceColumns.setFromItem(source);
     sourceColumns.setSelectItems(
-        Collections.singletonList(SelectItem.from(new AllTableColumns(new Table(sq)))));
+        Collections.singletonList(
+            SelectItem.from(new AllTableColumns(new Table(quoteIfNeeded(sq))))));
+    List<String> sourceNames = block(sourceColumns, null).outputNames;
+    undoUses.run();
     List<String> sourceKeys = new ArrayList<>();
     PlainSelect join = mergeJoin(merge, source, tq);
     List<SelectItem<?>> items = new ArrayList<>();
     for (String c : t.metadata.getColumnNames()) {
       items.add(
           SelectItem.from(
-              new net.sf.jsqlparser.schema.Column(new Table(tq), c),
+              new net.sf.jsqlparser.schema.Column(new Table(quoteIfNeeded(tq)), c),
               new Alias("\"" + tq + "." + c + "\"")));
     }
-    for (String c : block(sourceColumns, null).outputNames) {
+    for (String c : sourceNames) {
       sourceKeys.add(sq + "." + c);
       items.add(
           SelectItem.from(
-              new net.sf.jsqlparser.schema.Column(new Table(sq), c),
+              new net.sf.jsqlparser.schema.Column(new Table(quoteIfNeeded(sq)), c),
               new Alias("\"" + sq + "." + c + "\"")));
     }
     // A subquery in a clause runs through the read's plan, which knows it only when it is planned
@@ -6674,11 +6724,13 @@ class QueryParser {
     Set<List<Object>> removed = new HashSet<>();
     Set<List<Object>> added = new HashSet<>();
     Object[] execution = {null};
+    Evaluator.Context[] context = {null};
     return Plan.write(
         read,
         (row, reader) -> {
           if (execution[0] != reader) {
             execution[0] = reader;
+            context[0] = read.context(null);
             changed.clear();
             removed.clear();
             added.clear();
@@ -6692,7 +6744,7 @@ class QueryParser {
             }
           }
           List<Map<String, Object>> group = Collections.singletonList(visible);
-          Evaluator.Context ctx = read.context(null);
+          Evaluator.Context ctx = context[0];
           for (MergeClause c : clauses) {
             if (c.matched != matched
                 || c.condition != null
@@ -6723,15 +6775,13 @@ class QueryParser {
               return new Effect(deleteOf(t, old), left(t, tq, old));
             }
             Map<String, Object> values = new LinkedHashMap<>(old);
-            boolean movesKey = false;
             for (int i = 0; i < c.columns.size(); i++) {
               values.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
-              movesKey |= keyColumns(t).contains(c.columns.get(i));
             }
             // a key moved away counts as removed, the new one as added; a move onto a removed key
             // writes over it
             return updateEffect(
-                t, tq, c.columns, movesKey, old, values, reader, removed, added, true);
+                t, tq, c.columns, c.movesKey, old, values, reader, removed, added, true);
           }
           return null; // no clause applies
         },
@@ -6781,7 +6831,7 @@ class QueryParser {
     PlainSelect select = new PlainSelect();
     select.setFromItem(source);
     Table target = new Table(merge.getTable().getSchemaName(), merge.getTable().getName());
-    target.setAlias(new Alias(tq));
+    target.setAlias(new Alias(quoteIfNeeded(tq)));
     Join join = new Join();
     join.setLeft(true);
     join.setRightItem(target);
@@ -6876,6 +6926,7 @@ class QueryParser {
         c.values.add(defaultToNull(set.getValue(i)));
       }
     }
+    c.movesKey = c.columns.stream().anyMatch(keyColumns(t)::contains);
     return c;
   }
 
