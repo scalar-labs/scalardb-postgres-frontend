@@ -960,7 +960,7 @@ public final class PostgresServer implements AutoCloseable {
             "(?is)DEALLOCATE\\s+(?:PREPARE\\s+)?(ALL|\"[^\"]+\"|[\\w$]+)");
 
     private final java.util.Set<String> WRITES =
-        new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE"));
+        new java.util.HashSet<>(java.util.Arrays.asList("INSERT", "UPDATE", "DELETE", "MERGE"));
 
     private String firstWord(String sql) {
       return QueryParser.firstWord(sql);

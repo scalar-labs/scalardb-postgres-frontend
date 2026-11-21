@@ -132,7 +132,7 @@ public class QueryProcessor {
   private static final Pattern ON_CONFLICT =
       Pattern.compile("\\bON\\s+CONFLICT\\b", Pattern.CASE_INSENSITIVE);
   private static final Set<String> WRITES =
-      new HashSet<>(Arrays.asList("INSERT", "UPDATE", "DELETE", "TRUNCATE"));
+      new HashSet<>(Arrays.asList("INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE"));
   private static final Pattern SAVEPOINT_NAME =
       Pattern.compile(
           "(?is)(?:SAVEPOINT\\s+|RELEASE\\s+(?:SAVEPOINT\\s+)?|ROLLBACK\\s+(?:WORK\\s+|TRANSACTION\\s+)?TO\\s+(?:SAVEPOINT\\s+)?)\"?([\\w$]+)\"?");

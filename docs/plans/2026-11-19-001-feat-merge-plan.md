@@ -22,7 +22,7 @@ row into an `Effect` (mutations plus the row left behind) or skips it, and may r
 ## Status
 
 Phase 1 is done (2026-11-19): every Phase 1 case of `difftest/cases_merge.sql` matches PostgreSQL 18
-(40 OK, 28 with the same SQLSTATEs; baseline `difftest/results/baseline/merge.txt`), as do pgJDBC's
+(44 OK, 31 with the same SQLSTATEs; baseline `difftest/results/baseline/merge.txt`), as do pgJDBC's
 parameter types and plan-cache reuse. As built, differing from the design below where marked:
 
 - The driving read names every column `t.c` / `s.c`, and a clause's condition and values are evaluated
@@ -40,6 +40,10 @@ parameter types and plan-cache reuse. As built, differing from the design below 
   same batch) and one onto a key it inserted or moved to is 23505; an UPDATE moving a key onto a
   freed one writes over it too. Keys compare as written ('3' and 3 for an int key). (Both from the
   code reviews.)
+- MERGE is a write to the session and the server (their WRITES sets): 25006 in a read-only
+  transaction, and the implicit transaction a multi-statement Query or a batch gets.
+- Plannings that only check names do not count as uses of a WITH query, so a volatile one used once
+  as the source runs. An aggregate in a clause is 42803; a source named like the target is 42712.
 - Known differences left: a reference to `unnamed_subquery` is 42703 here, 42P01 in PostgreSQL (the
   frontend's code for an unknown qualifier); an unaliased source that is neither a table nor a
   subquery is refused with 0A000.

@@ -480,7 +480,7 @@ final class Plan {
                 "54000",
                 "The statement would write more than "
                     + cap
-                    + " rows, so nothing was written. Narrow the WHERE clause, raise the cap"
+                    + " rows, so nothing was written. Narrow the rows it reads (its WHERE clause, or a MERGE's source), raise the cap"
                     + " with SET scalardb.max_rows_per_write = <n> (0 for no limit), or use"
                     + " TRUNCATE to empty a table");
           }
