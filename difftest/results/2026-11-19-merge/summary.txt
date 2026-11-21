@@ -58,3 +58,9 @@ Phase 2 (2026-11-21): 21 cases for WHEN NOT MATCHED BY SOURCE / BY TARGET, RETUR
 expressions, by-source rows, key moves, parameters) and merge_action() outside RETURNING.
 run-phase2.txt: 59 OK, 37 BOTH_ERR, 1 CODE (merge_unnamed_subquery_not_referable), 1 FE_ERR
 (merge_unaliased_join_source, refused). pgJDBC reads RETURNING's column types as natively.
+
+After the Phase 2 code review (2026-11-21): seven more cases (a volatile WITH source with RETURNING,
+an ambiguous name beside merge_action(), the source's whole row on a BY SOURCE row, an aggregate and
+a subquery in RETURNING, repeated RETURNING names, merge_action() in UPDATE ... RETURNING).
+run-phase2.txt: 63 OK, 40 BOTH_ERR, 1 CODE, 1 FE_ERR. cases_write.sql gained
+update_returning_repeated_names, a bug in every write's RETURNING, fixed with it.
