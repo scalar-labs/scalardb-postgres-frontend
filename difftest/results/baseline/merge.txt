@@ -94,5 +94,12 @@ merge_returning_do_nothing_not_returned OK
 merge_returning_by_source OK
 merge_returning_key_move OK
 merge_returning_bind OK
+merge_returning_volatile_cte_source OK
+merge_returning_ambiguous_with_action BOTH_ERR
+merge_returning_source_row_by_source OK
+merge_returning_aggregate BOTH_ERR
+merge_returning_subquery OK
+merge_returning_repeated_names OK
+merge_action_in_update_returning BOTH_ERR
 merge_action_outside_returning BOTH_ERR
 merge_action_in_condition BOTH_ERR
