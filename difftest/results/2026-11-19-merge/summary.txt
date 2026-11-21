@@ -45,3 +45,11 @@ target reference beside an ambiguous name, the unnamed source quoted, a key move
 row deletes). run-phase1.txt now: 40 OK, 28 BOTH_ERR, 1 CODE, 3 FE_ERR. merge_move_onto_key_deleted_later
 is 23505 on both sides in this run; PostgreSQL succeeded on the same statement inside BEGIN, so
 its outcome depends on its row order too.
+
+After the final review of the whole feature (2026-11-21): seven more cases (an unaliased source
+planned again after DDL, a volatile WITH source, quoted mixed-case aliases, a comment before DO
+NOTHING, a source named like the target, an aggregate in SET, MERGE in a read-only transaction).
+run-phase1.txt now: 44 OK, 31 BOTH_ERR, 1 CODE, 3 FE_ERR. The quoted-alias case found a bug outside
+MERGE: SELECT "S".* failed with a quoted mixed-case alias (cases_read.sql now covers it). A
+multi-statement Query of two MERGEs whose second fails now rolls back the first, as natively
+(checked by hand: psql sends a file's statements one by one, so run.py cannot).

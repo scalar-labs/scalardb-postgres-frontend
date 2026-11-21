@@ -148,6 +148,25 @@ MERGE INTO mt t USING (VALUES (3, 'x'), (103, 'y')) AS s(k, w) ON t.id = s.k
 MERGE INTO mt t USING (VALUES (1, NULL), (2, 1)) AS s(k, nk) ON t.id = s.k
   WHEN MATCHED AND s.nk IS NULL THEN DELETE
   WHEN MATCHED THEN UPDATE SET id = s.nk;
+-- @merge_unaliased_source_planned_again
+SET client_min_messages = warning;
+MERGE INTO mt t USING (SELECT sid, v AS sv FROM ms WHERE sid = 1) ON t.id = sid
+  WHEN MATCHED THEN UPDATE SET note = 'u';
+CREATE TABLE mzz (id int PRIMARY KEY);
+DROP TABLE mzz;
+MERGE INTO mt t USING (SELECT sid, v AS sv FROM ms WHERE sid = 1) ON t.id = sid
+  WHEN MATCHED THEN UPDATE SET note = 'u';
+-- @merge_volatile_cte_source
+WITH s AS (SELECT id, random() AS r FROM ms WHERE sid = 1)
+MERGE INTO mt t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET note = 'v';
+-- @merge_quoted_aliases
+MERGE INTO mt AS "T" USING (SELECT * FROM ms WHERE sid = 1) AS "S" ON "T".id = "S".id
+  WHEN MATCHED THEN UPDATE SET note = "S".note;
+-- @merge_comment_before_do_nothing
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid <= 4) s ON t.id = s.id
+  WHEN MATCHED THEN /* skip */ DO NOTHING
+  WHEN NOT MATCHED THEN -- add
+    INSERT (id) VALUES (s.id);
 -- Errors
 -- @merge_twice_matched_update
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid IN (11, 12)) s ON t.id = s.id
@@ -241,6 +260,15 @@ MERGE INTO mt t USING (SELECT id FROM ms WHERE sid = 1) ON t.id = "unnamed subqu
 MERGE INTO mt t USING (VALUES (2, 1), (1, NULL)) AS s(k, nk) ON t.id = s.k
   WHEN MATCHED AND s.nk IS NULL THEN DELETE
   WHEN MATCHED THEN UPDATE SET id = s.nk;
+-- @merge_source_named_like_target
+MERGE INTO mt USING ms AS mt ON false WHEN NOT MATCHED THEN DO NOTHING;
+-- @merge_aggregate_in_set
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = max(s.v);
+-- @merge_read_only
+SET default_transaction_read_only = on;
+MERGE INTO mt t USING (VALUES (1)) AS s(id) ON t.id = s.id WHEN MATCHED THEN UPDATE SET note = 'ro';
+SET default_transaction_read_only = off;
 -- Parameters (extended protocol)
 -- @merge_bind_values
 MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id

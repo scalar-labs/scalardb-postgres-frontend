@@ -35,6 +35,10 @@ merge_key_moved_away_then_inserted OK
 merge_any_subquery OK
 merge_text_key_after_delete OK
 merge_move_onto_deleted_key OK
+merge_unaliased_source_planned_again OK
+merge_volatile_cte_source OK
+merge_quoted_aliases OK
+merge_comment_before_do_nothing OK
 merge_twice_matched_update BOTH_ERR
 merge_twice_matched_delete BOTH_ERR
 merge_twice_matched_do_nothing OK
@@ -66,6 +70,9 @@ merge_not_matched_target_unknown_column BOTH_ERR
 merge_not_matched_target_and_ambiguous_name BOTH_ERR
 merge_unnamed_source_quoted BOTH_ERR
 merge_move_onto_key_deleted_later BOTH_ERR
+merge_source_named_like_target BOTH_ERR
+merge_aggregate_in_set BOTH_ERR
+merge_read_only BOTH_ERR
 merge_bind_values OK
 merge_bind_untyped OK
 merge_not_matched_by_source FE_ERR
