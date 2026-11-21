@@ -1,4 +1,4 @@
-{'OK': 59, 'BOTH_ERR': 37, 'CODE': 1, 'FE_ERR': 1}
+{'OK': 63, 'BOTH_ERR': 40, 'CODE': 1, 'FE_ERR': 1}
 === BOTH_ERR merge_insert_default_values
 MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 3) s ON t.id = s.id
   WHEN NOT MATCHED THEN INSERT DEFAULT VALUES;
@@ -458,6 +458,41 @@ LINE 1: ... s ON t.id = s.id WHEN NOT MATCHED BY SOURCE THEN INSERT (id...
                                                              ^
 LOCATION:  scanner_yyerror, scan.l:1240
   fe: ERROR:  42601: WHEN NOT MATCHED BY SOURCE cannot take an INSERT clause
+=== BOTH_ERR merge_returning_ambiguous_with_action
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING merge_action() || v;
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42702: column reference "v" is ambiguous
+LINE 2: ...ED THEN UPDATE SET note = 'x' RETURNING merge_action() || v;
+                                                                     ^
+LOCATION:  colNameToVar, parse_relation.c:932
+  fe: ERROR:  42702: Ambiguous column: v
+=== BOTH_ERR merge_returning_aggregate
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING count(*);
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42803: aggregate functions are not allowed in RETURNING
+LINE 2: ... WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING count(*);
+                                                              ^
+LOCATION:  check_agglevels_and_constraints, parse_agg.c:611
+  fe: ERROR:  42803: aggregate functions are not allowed in RETURNING
+=== BOTH_ERR merge_action_in_update_returning
+UPDATE mt SET v = 1 WHERE false RETURNING merge_action();
+SELECT * FROM mt;
+SELECT * FROM mk;
+SELECT * FROM me;
+
+  pg: ERROR:  42601: MERGE_ACTION() can only be used in the RETURNING list of a MERGE command
+LINE 1: UPDATE mt SET v = 1 WHERE false RETURNING merge_action();
+                                                  ^
+LOCATION:  transformMergeSupportFunc, parse_expr.c:1397
+  fe: ERROR:  42601: MERGE_ACTION() can only be used in the RETURNING list of a MERGE command
 === BOTH_ERR merge_action_outside_returning
 SELECT merge_action();
 SELECT * FROM mt;

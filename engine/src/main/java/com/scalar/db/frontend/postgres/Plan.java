@@ -406,23 +406,19 @@ final class Plan {
   /** An UPDATE, DELETE or INSERT ... SELECT that reads first; {@code tag} is the command word. */
   static Plan write(
       Plan read, Mutator mutator, String tag, String description, @Nullable Returning returning) {
-    return write(read, mutator, tag, description, returning, null);
-  }
-
-  /** As above, with the RETURNING columns' names as clients see them, which may repeat. */
-  static Plan write(
-      Plan read,
-      Mutator mutator,
-      String tag,
-      String description,
-      @Nullable Returning returning,
-      @Nullable List<String> labels) {
+    // RETURNING's names may repeat (RETURNING v AS x, id AS x): clients see them as written, and
+    // the rows are keyed by unique ones
+    List<String> labels = null;
+    if (returning != null) {
+      labels = new ArrayList<>(returning.names);
+      QueryParser.makeUnique(returning.names);
+    }
     Plan plan =
         constant(
             returning == null ? Collections.<String>emptyList() : returning.names,
             Collections.<Map<String, Object>>emptyList(),
             tag);
-    if (labels != null && returning != null) {
+    if (labels != null) {
       plan.labels = labels;
     }
     plan.write = new WriteByScan(read, mutator, description, returning);
@@ -539,7 +535,7 @@ final class Plan {
               Evaluator.eval(
                   write.returning.expressions.get(i),
                   Collections.singletonList(row),
-                  context(null)));
+                  write.read.context(null))); // the read plans MERGE's RETURNING subqueries
         }
         returned.add(out);
       }

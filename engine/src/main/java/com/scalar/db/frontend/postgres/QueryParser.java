@@ -2044,6 +2044,19 @@ class QueryParser {
           (create ? "CREATE" : "DROP") + " COORDINATOR TABLES");
     }
     Statement statement = parseStatement(sql);
+    if (!(statement instanceof net.sf.jsqlparser.statement.merge.Merge)
+        && sql.toLowerCase(Locale.ROOT).contains("merge_action")) {
+      boolean[] found = {false};
+      outsideLiterals(
+          sql,
+          code -> {
+            found[0] |= MERGE_ACTION_CALL.matcher(code).find();
+            return code;
+          });
+      if (found[0]) {
+        throw Evaluator.mergeActionOutsideReturning();
+      }
+    }
     List<Plan.Prelude> prelude = writingCtes(statement);
     try {
       Plan plan = plan(statement, sql);
@@ -6548,6 +6561,9 @@ class QueryParser {
         returning);
   }
 
+  private static final Pattern MERGE_ACTION_CALL =
+      Pattern.compile("(?i)(?<![\\w$])(?:pg_catalog\\s*\\.\\s*)?merge_action\\s*\\(");
+
   /** The driving row's key for the source's whole row, NULL where no source row joined. */
   private static final String MERGE_SOURCE_ROW = "$merge source";
 
@@ -6665,6 +6681,9 @@ class QueryParser {
         }
       }
     }
+    if (callsMergeAction(merge.getOnCondition())) {
+      throw Evaluator.mergeActionOutsideReturning();
+    }
     boolean full = clauses.stream().anyMatch(c -> c.when == MergeWhen.NOT_MATCHED_BY_SOURCE);
     // Parameter types: an assigned or inserted placeholder takes its column's
     for (MergeClause c : clauses) {
@@ -6748,13 +6767,34 @@ class QueryParser {
         }
       }
     }
+    // RETURNING's expressions too: planning them resolves their names (42703, 42702) before any
+    // write, as PostgreSQL does, and makes their subqueries known to the read's plan, in whose
+    // context RETURNING is evaluated
+    if (merge.getReturningClause() != null) {
+      for (SelectItem<?> item : merge.getReturningClause()) {
+        Expression e = item.getExpression();
+        if (e instanceof AllColumns) {
+          continue;
+        }
+        if (hasAggregate(e)) {
+          throw new PgException.Argument(
+              "42803", "aggregate functions are not allowed in RETURNING");
+        }
+        CaseExpression planned = new CaseExpression();
+        planned.setWhenClauses(
+            Collections.singletonList(
+                new net.sf.jsqlparser.expression.WhenClause(new BooleanValue(false), e)));
+        items.add(SelectItem.from(planned, new Alias("\"$merge " + ++hidden + "\"")));
+      }
+    }
     join.setSelectItems(items);
     Plan read = block(join, null);
-    List<String> labels = new ArrayList<>();
     Returning returning =
         merge.getReturningClause() == null
             ? null
-            : mergeReturning(merge, t, tq, sq, sourceNames, sourceOids, full, labels);
+            : mergeReturning(merge, t, tq, sq, sourceNames, sourceOids);
+    // a BY SOURCE row has no source row: its whole-row reference is NULL, as the read's would be
+    String noSource = sq + "." + Evaluator.NULL_EXTENDED;
     String matchedKey = tq + "." + keyColumns(t).get(0); // NULL only where no target row joined
     // Per execution, by target key: the rows an UPDATE or DELETE changed (a second change is
     // 21000), the keys deleted or moved away, and the keys inserted or moved to
@@ -6803,7 +6843,11 @@ class QueryParser {
                 proposed.put(c.columns.get(i), Evaluator.eval(c.values.get(i), group, ctx));
               }
               return returned(
-                  mergeInsert(t, tq, proposed, reader, removed, added), row, sourceKeys, "INSERT");
+                  mergeInsert(t, tq, proposed, reader, removed, added),
+                  returning == null ? null : row,
+                  sourceKeys,
+                  "INSERT",
+                  null);
             }
             Map<String, Object> old = new LinkedHashMap<>();
             for (String col : t.metadata.getColumnNames()) {
@@ -6817,7 +6861,11 @@ class QueryParser {
             if (c.action == MergeAction.DELETE) {
               removed.add(key);
               return returned(
-                  new Effect(deleteOf(t, old), left(t, tq, old)), row, sourceKeys, "DELETE");
+                  new Effect(deleteOf(t, old), left(t, tq, old)),
+                  returning == null ? null : row,
+                  sourceKeys,
+                  "DELETE",
+                  sourceRow ? null : noSource);
             }
             Map<String, Object> values = new LinkedHashMap<>(old);
             for (int i = 0; i < c.columns.size(); i++) {
@@ -6828,9 +6876,10 @@ class QueryParser {
             return returned(
                 updateEffect(
                     t, tq, c.columns, c.movesKey, old, values, reader, removed, added, true),
-                row,
+                returning == null ? null : row,
                 sourceKeys,
-                "UPDATE");
+                "UPDATE",
+                sourceRow ? null : noSource);
           }
           return null; // no clause applies
         },
@@ -6840,8 +6889,7 @@ class QueryParser {
             + "."
             + t.table
             + ": per joined row, the first WHEN clause that applies",
-        returning,
-        labels);
+        returning);
   }
 
   /**
@@ -6849,8 +6897,18 @@ class QueryParser {
    * columns (NULL for a target row no source row joined) and merge_action().
    */
   private static Effect returned(
-      Effect effect, Map<String, Object> row, List<String> sourceKeys, String action) {
+      Effect effect,
+      @Nullable Map<String, Object> row,
+      List<String> sourceKeys,
+      String action,
+      @Nullable String noSource) {
+    if (row == null) {
+      return effect; // no RETURNING
+    }
     Map<String, Object> out = new LinkedHashMap<>(effect.row);
+    if (noSource != null) {
+      out.put(noSource, Boolean.TRUE);
+    }
     for (String k : sourceKeys) {
       out.put(k, row.get(k));
     }
@@ -6860,9 +6918,8 @@ class QueryParser {
 
   /**
    * MERGE's RETURNING: {@code *} is the source's columns then the target's, {@code s.*} and {@code
-   * t.*} one side's, anything else an expression over both and merge_action(). Planned, never run,
-   * over the join to resolve its names. {@code labels} receives the names as written, which may
-   * repeat; the Returning's own names are unique, as rows are keyed by them.
+   * t.*} one side's, anything else an expression over both and merge_action(), already planned (and
+   * so qualified) in the read.
    */
   private Returning mergeReturning(
       net.sf.jsqlparser.statement.merge.Merge merge,
@@ -6870,12 +6927,9 @@ class QueryParser {
       String tq,
       String sq,
       List<String> sourceNames,
-      int[] sourceOids,
-      boolean full,
-      List<String> labels)
-      throws ExecutionException {
+      int[] sourceOids) {
     Returning returning = new Returning();
-    List<SelectItem<?>> checked = new ArrayList<>();
+    List<String> labels = returning.names;
     for (SelectItem<?> item : merge.getReturningClause()) {
       Expression e = item.getExpression();
       boolean all = e instanceof AllColumns && !(e instanceof AllTableColumns);
@@ -6923,17 +6977,7 @@ class QueryParser {
         returning.oids.add(0);
         returning.typmods.add(-1);
       }
-      if (!callsMergeAction(e)) {
-        checked.add(SelectItem.from(e));
-      }
     }
-    if (!checked.isEmpty()) {
-      PlainSelect check = mergeJoin(merge, merge.getFromItem(), tq, full);
-      check.setSelectItems(checked);
-      block(check, null);
-    }
-    returning.names.addAll(labels);
-    makeUnique(returning.names);
     return returning;
   }
 
@@ -6944,7 +6988,8 @@ class QueryParser {
         new Walker() {
           @Override
           public <S> Void visit(Function f, S context) {
-            found[0] |= f.getName().equalsIgnoreCase("merge_action");
+            String name = f.getName().toLowerCase(Locale.ROOT);
+            found[0] |= name.equals("merge_action") || name.endsWith(".merge_action");
             return super.visit(f, context);
           }
         },

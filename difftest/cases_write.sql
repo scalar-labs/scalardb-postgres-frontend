@@ -212,3 +212,7 @@ ROLLBACK;
 BEGIN;
 INSERT INTO dept VALUES (312, 'a', NULL, NULL, NULL), (312, 'b', NULL, NULL, NULL) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 ROLLBACK;
+-- @update_returning_repeated_names
+BEGIN;
+UPDATE emp SET salary = 2 WHERE id = 1 RETURNING salary AS x, id AS x;
+ROLLBACK;

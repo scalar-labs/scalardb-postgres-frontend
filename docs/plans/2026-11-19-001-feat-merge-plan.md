@@ -27,7 +27,9 @@ row no source row joined; BY SOURCE clauses are checked over the target alone wi
 (42P01 for a source reference, as PostgreSQL's), and evaluated on the target's columns. RETURNING is
 evaluated on the row written plus the source row and the action; `*` is the source's columns then
 the target's, as PostgreSQL's, and source columns keep their types. merge_action() anywhere else is
-42601. cases_merge.sql: 59 OK, 37 matching errors, 1 different code, 1 refused (baseline
+42601, also outside MERGE, before any row is read. RETURNING's expressions are planned in the read
+(names, ambiguity and subqueries resolved there; an aggregate is 42803). cases_merge.sql: 63 OK, 40
+matching errors, 1 different code, 1 refused (baseline
 `difftest/results/baseline/merge.txt`). Phase 3 (batching reads) waits for a workload that needs it.
 
 Phase 1 is done (2026-11-19): every Phase 1 case of `difftest/cases_merge.sql` matches PostgreSQL 18

@@ -356,6 +356,27 @@ MERGE INTO mt t USING (VALUES ($1::int, $2::int)) AS s(id, v) ON t.id = s.id
   WHEN MATCHED THEN UPDATE SET v = s.v
   WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v)
   RETURNING merge_action(), t.* \bind 9 99 \g
+-- @merge_returning_volatile_cte_source
+WITH s AS (SELECT random() AS r, 1 AS id) MERGE INTO mt t USING s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 1 RETURNING s.id;
+-- @merge_returning_ambiguous_with_action
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING merge_action() || v;
+-- @merge_returning_source_row_by_source
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE AND t.id = 5 THEN DELETE
+  RETURNING s IS NULL AS no_source, row_to_json(s), t.id;
+-- @merge_returning_aggregate
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING count(*);
+-- @merge_returning_subquery
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET note = 'x' RETURNING (SELECT max(x.v) FROM ms x WHERE x.id = t.id) AS top;
+-- @merge_returning_repeated_names
+MERGE INTO mt t USING (SELECT * FROM ms WHERE sid = 1) s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = 7 RETURNING t.v AS x, s.v AS x;
+-- @merge_action_in_update_returning
+UPDATE mt SET v = 1 WHERE false RETURNING merge_action();
 -- @merge_action_outside_returning
 SELECT merge_action();
 -- @merge_action_in_condition
