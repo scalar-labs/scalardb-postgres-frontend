@@ -14,14 +14,13 @@ updates:
       # 2.x lays code out differently: move with ScalarDB Saga, reformatting in one commit
       - dependency-name: com.google.googlejavaformat:google-java-format
         update-types: ["version-update:semver-major"]
+  # no ignore rule for major versions: the Java major version is part of the JRE base image name
+  # (jre25), so Dependabot does not propose Java major version upgrades; moving to the next LTS is a
+  # manual change of the image name
   - package-ecosystem: docker
     directory: /server/src/docker
     schedule:
       interval: weekly
-    ignore:
-      # the image stays on an LTS JDK (25); moving to the next one is a decision, not an update
-      - dependency-name: eclipse-temurin
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     # the workflows, and the composite actions they call (push-server-image pins its own actions)
     directories: ["/", "/.github/actions/*"]

@@ -7,8 +7,7 @@
 # its values may read the environment as ${env:NAME}. See getting-started/README.md.
 
 # Tag and digest together: the tag says what this is, the digest is what gets pulled, so rebuilding
-# a commit yields the same base layer. Dependabot proposes the bumps (.github/dependabot.yml); by
-# hand, docker buildx imagetools inspect eclipse-temurin:<tag> gives the digest.
+# a commit yields the same base layer. Dependabot proposes the bumps (.github/dependabot.yml).
 #
 # A JRE, not a JDK: nothing here compiles. 25, the current LTS, although the code targets Java 17:
 # 17 is the floor for ScalarDB Cluster nodes that embed the engine, which this image is not.
