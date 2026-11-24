@@ -19,11 +19,11 @@
 #   docker buildx imagetools inspect ghcr.io/scalar-labs/jre25:<TAG>
 FROM ghcr.io/scalar-labs/jre25:25.0.5_8.202611200209@sha256:2f153434ef83a32558f62d2dda9bbbdebd8426c774881d5e26c6b5f3896459ab
 
-# One layer: OS packages upgraded, since the base image can carry CVEs already fixed upstream, and a
-# fixed numeric uid/gid, the one other Scalar server images use, so that a Kubernetes runAsNonRoot
-# check passes without a passwd lookup. DEBIAN_FRONTEND is exported in the RUN rather than set with
-# ENV, so that it does not reach the runtime environment.
-# hadolint ignore=DL3005
+# A fixed numeric uid/gid, the one other Scalar server images use, so that a Kubernetes runAsNonRoot
+# check passes without a passwd lookup.
+#
+# No apt-get upgrade here: OS packages are upgraded in the Scalar managed base image, and each of its
+# releases reaches this file as a Dependabot bump of the tag and digest above.
 RUN groupadd --system --gid 201 scalardb \
  && useradd --system --uid 201 --gid 201 --no-create-home --shell /usr/sbin/nologin scalardb
 
