@@ -1,3 +1,0 @@
-kind: enhancement
-body: '`MERGE` supports PostgreSQL 17''s `WHEN NOT MATCHED BY SOURCE` (update, delete or do nothing for target rows no source row matches) and `WHEN NOT MATCHED BY TARGET`, and `RETURNING`, with `merge_action()` and the source''s and target''s columns.'
-time: 2026-11-21T12:00:00.000000+09:00

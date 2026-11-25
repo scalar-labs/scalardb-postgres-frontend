@@ -1,3 +1,0 @@
-kind: enhancement
-body: '`MERGE` is supported in PostgreSQL 15''s forms: `WHEN MATCHED [AND ...] THEN UPDATE`, `DELETE` or `DO NOTHING`, and `WHEN NOT MATCHED [AND ...] THEN INSERT` or `DO NOTHING`, from a table, a subquery, `VALUES` or a `WITH` query, with parameters, and with PostgreSQL''s errors for a row changed twice (`21000`), a duplicate key (`23505`) and a NULL key (`23502`). PostgreSQL 17''s `WHEN NOT MATCHED BY SOURCE` and `RETURNING` are not supported yet.'
-time: 2026-11-19T23:00:00.000000+09:00

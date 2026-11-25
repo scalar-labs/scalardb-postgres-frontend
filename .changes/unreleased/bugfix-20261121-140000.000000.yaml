@@ -1,3 +1,0 @@
-kind: bugfix
-body: 'A `RETURNING` list that repeats a name, such as `UPDATE t SET v = 2 RETURNING v AS x, id AS x`, returns each column''s own value; the last one used to fill every column of that name.'
-time: 2026-11-21T14:00:00.000000+09:00
